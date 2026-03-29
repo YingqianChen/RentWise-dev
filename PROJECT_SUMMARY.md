@@ -176,7 +176,7 @@ FIELD_RISK_CONFIG = {
 DATABASE_URL=sqlite:///./rentwise.db
 
 # LLM服务
-OLLAMA_HOST=144.214.54.47
+OLLAMA_HOST=your-server-address
 OLLAMA_API_KEY=your-api-key
 
 # 认证密钥

@@ -4,16 +4,13 @@ import re
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
 
-from passlib.context import CryptContext
+import bcrypt
 from jose import JWTError, jwt
 
 from config import settings
 from database import init_db, get_db_session
 from repository import UserRepository
 from models import User
-
-# 密码哈希配置
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # JWT配置（从配置模块读取）
 SECRET_KEY = settings.SECRET_KEY
@@ -28,12 +25,12 @@ def init_auth():
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """验证密码"""
-    return pwd_context.verify(plain_password, hashed_password)
+    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
 
 def hash_password(password: str) -> str:
     """哈希密码"""
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

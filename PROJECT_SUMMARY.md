@@ -445,7 +445,7 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 | 中文字体显示问题 | 2026-03-29 | 添加自定义 CSS 样式 |
 | Git历史泄露敏感信息 | 2026-03-29 | 使用 git-filter-repo 清理历史 |
 | Streamlit Cloud依赖冲突 | 2026-03-29 | 使用 opencv-python-headless |
-| bcrypt Python 3.14不兼容 | 2026-03-29 | 分离 bcrypt 为独立依赖 |
+| bcrypt Python 3.14不兼容 | 2026-03-29 | 直接使用 bcrypt 替代 passlib |
 
 ### 6.3 数据文件说明
 

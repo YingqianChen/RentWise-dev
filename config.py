@@ -24,9 +24,12 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./rentwise.db"
 
     # LLM 服务配置
+    LLM_PROVIDER: str = "groq"  # "ollama" 或 "groq"
     OLLAMA_HOST: str = "localhost"
     OLLAMA_API_KEY: str = ""
     OLLAMA_MODEL: str = "llama3.3:is6620"
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
 
     # 地图 API 配置 (OpenRouteService)
     MAPS_API_KEY: Optional[str] = None

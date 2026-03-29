@@ -1,7 +1,7 @@
 # RentWise 项目总结文档
 
-**版本**: 7.0
-**更新日期**: 2026-03-29
+**版本**: 8.0
+**更新日期**: 2026-03-30
 **项目状态**: 已部署到 Streamlit Cloud
 **在线地址**: https://rentwisehk.streamlit.app/
 
@@ -52,6 +52,8 @@ RentWise/
 ├── rag_chain.py              # RAG向量检索链 (语义搜索区域)
 ├── rent_documents.py         # 租金数据向量化脚本
 ├── llm_analyzer.py           # LLM深度风险分析
+├── llm_provider.py           # LLM提供商抽象层 (Ollama/Groq)
+├── llm_utils.py              # LLM调用工具函数
 ├── extractor.py              # LLM信息提取 + 智能命名
 ├── prompts.py                # LLM提示词模板
 ├── comparer.py               # 房源比较逻辑
@@ -403,9 +405,27 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
   - `document/AGuideToTenancy_ch.pdf` - 香港租房指南
   - `document/SDU_median_rents.pdf` - 香港各区租金中位数
 
+#### Phase 11: LLM 提供商切换 ✅ (2026-03-30)
+- **问题背景**:
+  - Ollama 服务器只能在校园网内访问
+  - Streamlit Cloud 无法连接校园网内的服务器
+  - 导致 connection timeout 错误
+- **解决方案**:
+  - 使用免费的 Groq API 替代 Ollama
+  - Groq 提供免费额度（每分钟 30 次请求）
+- **代码重构**:
+  - 新增 `llm_provider.py` - LLM 提供商抽象层
+  - 重构 `llm_utils.py` - 使用提供商模式
+  - 支持 Ollama 和 Groq 两种提供商
+  - 保持现有接口不变，无需修改其他代码
+- **配置更新**:
+  - 添加 `LLM_PROVIDER` 配置项（"groq" 或 "ollama"）
+  - 添加 `GROQ_API_KEY` 和 `GROQ_MODEL` 配置项
+  - 更新 `.env.example` 和 `requirements.txt`
+
 ### 5.2 待完成阶段
 
-#### Phase 11: 功能增强 (规划中)
+#### Phase 12: 功能增强 (规划中)
 - [ ] 通勤计算 (地图API集成)
 - [ ] 价格趋势分析
 - [ ] 移动端优化
@@ -418,7 +438,6 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 
 | 限制 | 说明 | 解决方案 |
 |------|------|----------|
-| LLM依赖 | 需要远程Ollama服务器 | Streamlit Cloud部署时配置 OLLAMA_HOST |
 | OCR准确性 | EasyOCR对复杂排版识别有限 | 考虑集成更多OCR引擎 |
 | 租房指南 | PDF为扫描件，未处理 | Phase 8 OCR + RAG |
 | 通勤计算 | 暂未实现 | 规划中（地图API集成） |
@@ -432,6 +451,7 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 | Save listing 失败 | 2026-03-27 | 添加 combined_text 字段 |
 | 时间显示不正确 | 2026-03-29 | 使用 `get_hk_now()` 替代 `datetime.utcnow()` |
 | 房源命名易读性差 | 2026-03-29 | 重构命名逻辑，LLM智能生成中文名称 |
+| 云端 LLM 连接超时 | 2026-03-30 | 切换到 Groq API 替代校园网 Ollama |
 | 比较界面默认显示两房源 | 2026-03-29 | 改为按需添加模式 |
 | SECRET_KEY 硬编码 | 2026-03-29 | 创建 config.py 统一管理 |
 | 分析结果残留 | 2026-03-29 | 分析前清除旧 session_state |

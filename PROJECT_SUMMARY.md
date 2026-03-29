@@ -66,6 +66,12 @@ RentWise/
 ├── styles.css                # 自定义CSS样式
 ├── requirements.txt          # Python依赖
 ├── .env.example              # 环境变量示例
+├── assets/                   # 静态资源目录
+│   └── screenshots/          # 应用截图
+│       ├── chat_ch_tra.png   # 繁体中文界面截图
+│       └── chat_en.png       # 英文界面截图
+├── examples/                 # 示例文件目录
+│   └── text_upload.txt       # 文本上传示例
 ├── config/                   # 配置文件目录
 │   ├── risk_rules.yaml       # 风险规则配置
 │   └── rent_benchmarks.json  # 租金基准数据 (含区域关键词)

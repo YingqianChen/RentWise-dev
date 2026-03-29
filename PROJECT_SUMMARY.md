@@ -1,0 +1,421 @@
+# RentWise 项目总结文档
+
+**版本**: 5.0
+**更新日期**: 2026-03-29
+**项目状态**: 开发中，核心功能已完成
+
+---
+
+## 1. 项目概述
+
+### 1.1 项目简介
+RentWise 是一个面向香港租房市场的智能决策辅助系统，帮助租客分析房源信息、识别潜在风险、并根据个人偏好提供匹配度评分。
+
+### 1.2 核心功能
+| 功能 | 描述 | 状态 |
+|------|------|------|
+| 混合智能风险分析 | 规则引擎 + LLM深度分析 | ✅ 已完成 |
+| 市场价格分析 | 基于政府租金基准数据对比 | ✅ 已完成 |
+| RAG语义搜索 | 向量检索区域识别（支持模糊匹配） | ✅ 已完成 |
+| 用户偏好系统 | 预算、区域、设施等个性化设置 | ✅ 已完成 |
+| 房源持久化 | 保存、查看、编辑、管理房源记录 | ✅ 已完成 |
+| 用户认证 | 注册、登录、密码管理 | ✅ 已完成 |
+| 房源对比 | 并排比较多个房源（支持按需添加） | ✅ 已完成 |
+| OCR图片识别 | 从图片提取房源信息 | ✅ 已完成 |
+| 智能命名 | LLM生成易识别的房源名称 | ✅ 已完成 |
+
+### 1.3 技术栈
+- **前端框架**: Streamlit
+- **后端语言**: Python
+- **数据库**: SQLAlchemy ORM (SQLite/PostgreSQL)
+- **LLM**: Ollama + Llama 3.3
+- **OCR**: EasyOCR
+- **认证**: JWT + bcrypt
+- **配置管理**: pydantic-settings
+- **RAG向量检索**: LangChain + ChromaDB + Ollama Embeddings (nomic-embed-text)
+
+---
+
+## 2. 技术架构
+
+### 2.1 项目结构
+```
+RentWise/
+├── app.py                    # 主应用入口 (Streamlit UI)
+├── config.py                 # 统一配置管理 (pydantic-settings)
+├── models.py                 # Pydantic 数据模型
+├── database.py               # SQLAlchemy ORM 配置 (香港时区)
+├── repository.py             # 数据访问层 (Repository Pattern)
+├── rules.py                  # 规则引擎 + 混合智能分析 + 价格风险
+├── rent_analyzer.py          # 租金分析模块 (市场基准对比 + RAG语义搜索)
+├── rag_chain.py              # RAG向量检索链 (语义搜索区域)
+├── rent_documents.py         # 租金数据向量化脚本
+├── llm_analyzer.py           # LLM深度风险分析
+├── extractor.py              # LLM信息提取 + 智能命名
+├── prompts.py                # LLM提示词模板
+├── comparer.py               # 房源比较逻辑
+├── preference_manager.py     # 用户偏好管理
+├── auth.py                   # 用户认证系统
+├── ocr_utils.py              # OCR图片文字提取
+├── utils.py                  # 通用工具函数
+├── i18n.py                   # 国际化支持 (简体中文)
+├── llm_utils.py              # Ollama API客户端
+├── config/                   # 配置文件目录
+│   ├── risk_rules.yaml       # 风险规则配置
+│   └── rent_benchmarks.json  # 租金基准数据 (含区域关键词)
+├── chroma_db/                # ChromaDB向量存储目录
+├── locales/                  # 翻译文件目录
+│   └── zh-cn.json            # 简体中文翻译
+├── document/                 # 文档资料
+│   ├── SDU_median_rents.pdf  # 香港各区租金中位数数据
+│   └── AGuideToTenancy_ch.pdf # 香港租房指南
+├── requirements.txt          # Python依赖
+└── .env                      # 环境变量配置
+```
+
+### 2.2 数据流架构
+```
+用户输入 (文本/图片)
+    ↓
+[OCR处理] EasyOCR提取图片文字
+    ↓
+[LLM提取] Ollama + Llama 3.3 结构化提取
+    ↓
+[ListingInfo] 结构化房源信息对象
+    ↓
+┌─────────────────────────────────────┐
+│         混合风险分析                 │
+│  ┌─────────────┐  ┌─────────────┐  │
+│  │ 规则引擎    │  │ LLM深度分析  │  │
+│  │ - 字段缺失  │  │ - 隐性风险   │  │
+│  │ - 数值异常  │  │ - 语义分析   │  │
+│  └──────┬──────┘  └──────┬──────┘  │
+│         └───────┬────────┘         │
+│                 ↓                   │
+│         结果合并去重                 │
+└─────────────────────────────────────┘
+    ↓
+[AnalysisResult] 分析结果 + 风险项 + 匹配度
+    ↓
+用户界面展示 / 数据库存储
+```
+
+### 2.3 核心数据模型
+
+#### ListingInfo (房源信息)
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| monthly_rent | str | 月租 |
+| deposit | str | 押金 |
+| agent_fee | str | 中介费 |
+| management_fee_included | str | 管理费是否包含 |
+| rates_included | str | 差饷是否包含 |
+| lease_term | str | 租期 |
+| move_in_date | str | 入住日期 |
+| furnished | str | 家具家电 |
+| repair_responsibility | str | 维修责任 |
+
+#### RiskItem (风险项)
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| level | str | 风险等级 (high/medium/low) |
+| title | str | 风险标题 |
+| description | str | 风险描述 |
+| source | str | 来源 (rule/llm) |
+
+---
+
+## 3. 风险检测逻辑详解
+
+### 3.1 混合智能分析流程
+
+**第一层: 规则引擎检测** (`rules.py`)
+- 字段缺失检测: 遍历 ListingInfo 所有字段，检查是否为 "unknown"
+- 数值验证: 月租范围 ($1,000-$200,000)、押金格式检查
+- 风险等级配置:
+  - deposit 缺失 → high
+  - agent_fee 缺失 → medium
+  - repair_responsibility 缺失 → medium
+
+**第二层: LLM深度分析** (`llm_analyzer.py`)
+- 调用 Ollama LLM 分析原文
+- 识别类别: 财务风险、实际风险、欺诈信号
+- 输出带置信度和证据的风险项
+
+**结果合并**: `_merge_risks()`
+- 同标题风险保留更高等级
+- 标注来源 (rule/llm)
+
+### 3.2 风险配置 (规划外置到 YAML)
+
+当前硬编码在 `rules.py`:
+```python
+FIELD_RISK_CONFIG = {
+    "deposit": {"level": "high", ...},
+    "agent_fee": {"level": "medium", ...},
+    ...
+}
+```
+
+计划外置到 `config/risk_rules.yaml`。
+
+---
+
+## 4. 部署指南
+
+### 4.1 环境配置
+
+**环境变量** (`.env`):
+```bash
+# 数据库
+DATABASE_URL=sqlite:///./rentwise.db
+
+# LLM服务
+OLLAMA_HOST=144.214.54.47
+OLLAMA_API_KEY=your-api-key
+
+# 认证密钥
+SECRET_KEY=your-secret-key
+```
+
+### 4.2 本地运行
+```bash
+# 安装依赖
+pip install -r requirements.txt
+
+# 初始化数据库
+python -c "from database import init_db; init_db()"
+
+# 运行应用
+streamlit run app.py
+```
+
+### 4.3 部署选项对比
+
+| 平台 | 成本 | 难度 | 适用场景 |
+|------|------|------|----------|
+| **Streamlit Cloud (推荐)** | 免费 | 低 | 原型/小规模用户 |
+| PythonAnywhere | 免费档 | 低 | 个人项目 |
+| Railway/Render | 免费档 | 中 | 需要数据库持久化 |
+| VPS (阿里云/腾讯云) | ~50元/月 | 中 | 生产环境 |
+
+### 4.4 Streamlit Cloud 部署步骤
+1. 推送代码到 GitHub 公开仓库
+2. 访问 https://share.streamlit.io/
+3. 连接 GitHub 仓库
+4. 选择 `app.py` 作为主文件
+5. 配置环境变量
+
+---
+
+## 5. 开发历史
+
+### 5.1 已完成阶段
+
+#### Phase 1: 核心功能开发 ✅
+- 混合智能风险分析
+- 用户偏好系统
+- 房源持久化
+- 用户认证
+- 多语言支持
+
+#### Phase 2: 环境配置优化 ✅ (2026-03-27)
+- 环境变量管理 (移除硬编码)
+- 多语言完整集成
+- 部署指导编写
+
+#### Phase 3: 功能修复 ✅ (2026-03-27)
+- 删除合同相关功能 (法律风险)
+- 修复 Save listing 存储功能
+- 多语言一致性修复
+
+#### Phase 4: Bug修复 ✅ (2026-03-28)
+- 修复对比功能 bug (`app.py:596`)
+- 创建项目总结文档
+
+#### Phase 5: 功能优化 ✅ (2026-03-29 上午)
+- **修复时间问题**: 将 `repository.py` 中的 `datetime.utcnow()` 替换为 `get_hk_now()`，确保存储香港时区时间
+- **改进房源命名**:
+  - 重构 `LISTING_NAME_PROMPT`，使用中文提示词
+  - LLM 根据原始文本智能生成名称，不再使用固定格式
+  - 添加智能回退策略，根据区域、价格、房型生成名称
+- **移除多语言支持**: 删除英文和繁体中文，只保留简体中文
+  - 删除 `locales/en.json`、`locales/zh-hk.json`
+  - 简化 `i18n.py`，移除语言选择器
+- **改进比较界面**:
+  - 初始只显示房源A输入框
+  - 添加"添加房源"按钮，支持动态添加最多5个房源
+  - 添加"重置"按钮，清除所有输入
+- **PDF资料分析**:
+  - 分析 `SDU_median_rents.pdf`（香港各区租金中位数数据）
+  - 确认可用于价格分析参考
+
+#### Phase 6: 安全配置加固 ✅ (2026-03-29 下午)
+- **创建统一配置模块** (`config.py`):
+  - 使用 `pydantic-settings` 管理配置
+  - 启动时验证 `SECRET_KEY` 必须存在且>=16字符
+  - 验证 `DATABASE_URL` 格式
+- **移除硬编码密钥**:
+  - 修改 `auth.py`，不再有默认密钥
+  - 修改 `database.py`，使用配置模块
+- **添加启动验证**:
+  - `app.py` 启动时验证配置
+  - 配置错误时显示友好提示
+
+#### Phase 7: 功能增强 ✅ (2026-03-29 下午)
+- **修复分析结果残留问题**:
+  - 新分析前清除旧的 `session_state`
+  - 添加 `st.rerun()` 刷新界面
+- **已存房源编辑功能**:
+  - 在 `render_saved_listings()` 添加编辑按钮
+  - 支持修改房源名称和基本信息
+  - 调用 `repository.update_listing()` 更新数据库
+- **RAG价格分析增强**:
+  - 创建 `config/rent_benchmarks.json` 租金基准数据
+  - 创建 `rent_analyzer.py` 租金分析模块
+  - 集成到 `rules.py` 风险检测流程
+  - 支持有面积/无面积两种分析模式
+  - 自动检测区域并对比市场价
+
+#### Phase 8: RAG语义搜索实现 ✅ (2026-03-29)
+- **关键词匹配改进**:
+  - 添加模糊匹配 (`difflib.SequenceMatcher`)
+  - 扩展区域别名（英文拼写变体、地标名）
+- **向量检索实现**:
+  - 新增 `rag_chain.py` - RAG检索接口
+  - 新增 `rent_documents.py` - 数据向量化脚本
+  - 使用 `langchain-ollama` + `langchain-chroma`
+  - 嵌入模型: `nomic-embed-text` (Ollama)
+- **集成到 rent_analyzer.py**:
+  - `detect_district()` 优先使用语义搜索
+  - 回退到关键词匹配和模糊匹配
+  - 支持置信度过滤 (≥50%)
+
+### 5.2 待完成阶段
+
+#### Phase 9: 功能增强 (规划中)
+- [ ] 通勤计算 (Google Maps API)
+- [ ] 价格趋势分析
+- [ ] 移动端优化
+
+---
+
+## 6. 已知问题与解决方案
+
+### 6.1 当前限制
+
+| 限制 | 说明 | 解决方案 |
+|------|------|----------|
+| LLM依赖 | 需要Ollama服务器 | 支持OpenAI/Anthropic作为备选 |
+| OCR准确性 | EasyOCR对复杂排版识别有限 | 考虑集成更多OCR引擎 |
+| 租房指南 | PDF为扫描件，未处理 | Phase 8 OCR + RAG |
+
+### 6.2 已修复问题
+
+| 问题 | 修复日期 | 解决方案 |
+|------|----------|----------|
+| API Key 硬编码 | 2026-03-27 | 使用环境变量 |
+| 对比功能报错 | 2026-03-28 | 修复 ListingInfo 重复构造 |
+| Save listing 失败 | 2026-03-27 | 添加 combined_text 字段 |
+| 时间显示不正确 | 2026-03-29 | 使用 `get_hk_now()` 替代 `datetime.utcnow()` |
+| 房源命名易读性差 | 2026-03-29 | 重构命名逻辑，LLM智能生成中文名称 |
+| 比较界面默认显示两房源 | 2026-03-29 | 改为按需添加模式 |
+| SECRET_KEY 硬编码 | 2026-03-29 | 创建 config.py 统一管理 |
+| 分析结果残留 | 2026-03-29 | 分析前清除旧 session_state |
+| 已存房源无法编辑 | 2026-03-29 | 添加编辑功能 |
+| 价格分析无数据支撑 | 2026-03-29 | 集成政府租金基准数据 |
+
+### 6.3 数据文件说明
+
+| 文件 | 内容 | 用途 |
+|------|------|------|
+| `config/rent_benchmarks.json` | 香港各区租金中位数（结构化） | 价格分析基准 + 区域关键词 |
+| `chroma_db/` | ChromaDB向量存储 | RAG语义搜索索引 |
+| `document/SDU_median_rents.pdf` | 香港分间单位租金中位数（原始） | 数据来源 |
+| `document/AGuideToTenancy_ch.pdf` | 香港租房指南（扫描件） | RAG知识库（待处理） |
+
+**租金基准数据** (rent_benchmarks.json):
+- 港岛：中西区、东区、南区、湾仔
+- 九龙：九龙城、观塘、深水埗、黄大仙、油尖旺
+- 新界：沙田、荃湾、屯门、元朗等
+- 指标：月租中位数、每平方米月租
+- 区域关键词：中英文别名、地标名、地铁站名
+
+### 6.4 RAG使用说明
+
+**首次使用需构建向量索引**:
+```bash
+# 1. 确保Ollama已安装嵌入模型
+ollama pull nomic-embed-text
+
+# 2. 构建向量索引
+python rent_documents.py --build
+
+# 3. 验证索引
+python rent_documents.py --info
+```
+
+**RAG工作流程**:
+1. `detect_district()` 优先使用向量语义搜索
+2. 置信度 ≥ 50% 则返回语义匹配结果
+3. 回退到精确关键词匹配
+4. 最后尝试模糊匹配 (Levenshtein距离)
+
+---
+
+## 7. 维护指南
+
+### 7.1 常见问题排查
+
+**Q: 启动时报数据库错误**
+A: 运行 `python -c "from database import init_db; init_db()"`
+
+**Q: LLM分析无响应**
+A: 检查 Ollama 服务器是否运行，网络是否通畅
+
+**Q: OCR中文识别不准确**
+A: 确保图片清晰，文字对比度高
+
+**Q: 时间显示不正确**
+A: 确保使用 `get_hk_now()` 而非 `datetime.utcnow()`
+
+### 7.2 添加新翻译
+1. 编辑 `locales/zh-cn.json`
+2. 添加对应的 key-value
+
+### 7.3 添加新风险规则
+1. 编辑 `rules.py` 中的 `FIELD_RISK_CONFIG`
+2. 添加对应的翻译键到 `locales/zh-cn.json`
+
+### 7.4 房源命名逻辑
+命名由 `extractor.py` 中的 `generate_listing_name()` 函数生成：
+1. 优先使用 LLM 根据原始文本智能生成中文名称
+2. 如果 LLM 失败，使用回退策略：
+   - 提取区域关键词
+   - 添加月租信息
+   - 组合生成名称（最多20字符）
+
+---
+
+## 8. 文档索引
+
+| 文档 | 用途 |
+|------|------|
+| PROJECT_SUMMARY.md | 项目总览 (本文档) |
+| PROJECT_DOCUMENTATION.md | 详细技术文档 |
+
+---
+
+## 附录: 技术栈版本
+
+```
+Python >= 3.9
+Streamlit >= 1.32.0
+SQLAlchemy >= 2.0.0
+Pydantic >= 2.7.0
+Ollama >= 0.1.0
+EasyOCR >= 1.7.0
+langchain-ollama >= 0.1.0
+langchain-chroma >= 0.2.0
+chromadb >= 0.4.0
+```

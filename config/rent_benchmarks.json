@@ -1,0 +1,56 @@
+{
+  "_meta": {
+    "source": "香港差饷物业估价署 - 分间单位租金中位数",
+    "source_en": "Rating and Valuation Department - SDU Median Rents",
+    "updated": "2025-03",
+    "note": "数据来源于 SDU_median_rents.pdf，包含香港各区租金中位数"
+  },
+  "regions": {
+    "港岛": {
+      "中西区": {"monthly_median": 7600, "per_sqm": 649, "name_en": "Central & Western"},
+      "东区": {"monthly_median": 6750, "per_sqm": 579, "name_en": "Eastern"},
+      "南区": {"monthly_median": 5050, "per_sqm": 517, "name_en": "Southern"},
+      "湾仔": {"monthly_median": 8000, "per_sqm": 687, "name_en": "Wan Chai"}
+    },
+    "九龙": {
+      "九龙城": {"monthly_median": 5500, "per_sqm": 377, "name_en": "Kowloon City"},
+      "观塘": {"monthly_median": 5390, "per_sqm": 452, "name_en": "Kwun Tong"},
+      "深水埗": {"monthly_median": 4800, "per_sqm": 415, "name_en": "Sham Shui Po"},
+      "黄大仙": {"monthly_median": 5400, "per_sqm": 418, "name_en": "Wong Tai Sin"},
+      "油尖旺": {"monthly_median": 5500, "per_sqm": 457, "name_en": "Yau Tsim Mong"}
+    },
+    "新界": {
+      "沙田": {"monthly_median": 5000, "per_sqm": 400, "name_en": "Sha Tin"},
+      "荃湾": {"monthly_median": 4800, "per_sqm": 380, "name_en": "Tsuen Wan"},
+      "屯门": {"monthly_median": 4500, "per_sqm": 350, "name_en": "Tuen Mun"},
+      "元朗": {"monthly_median": 4200, "per_sqm": 320, "name_en": "Yuen Long"},
+      "北角": {"monthly_median": 6500, "per_sqm": 550, "name_en": "North Point"},
+      "西贡": {"monthly_median": 5200, "per_sqm": 410, "name_en": "Sai Kung"},
+      "葵青": {"monthly_median": 4600, "per_sqm": 360, "name_en": "Kwai Tsing"}
+    }
+  },
+  "overall": {
+    "港岛": {"monthly_median": 7500, "per_sqm": 610},
+    "九龙": {"monthly_median": 5500, "per_sqm": 431},
+    "新界": {"monthly_median": 4700, "per_sqm": 431},
+    "全港": {"monthly_median": 5700, "per_sqm": 471}
+  },
+  "area_keywords": {
+    "中西区": ["中西区", "中環", "中环", "上環", "上环", "西營盤", "西营盘", "central", "western", "sheung wan", "sai ying pun", "mid levels", "半山"],
+    "东区": ["东区", "東區", "鰂魚涌", "鲗鱼涌", "eastern", "quarry bay", "太古", "taikoo", "taikoo shing", "north point", "北角", "堡垒山", "fortress hill", "chai wan", "柴湾"],
+    "南区": ["南区", "南區", "薄扶林", "香港仔", "southern", "pok fu lam", "aberdeen", "ap lei chau", "鸭脷洲", "stanley", "赤柱", "ocean park", "海洋公园"],
+    "湾仔": ["湾仔", "灣仔", "铜锣湾", "銅鑼灣", "causeway bay", "wan chai", "happy valley", "跑马地", "tin hau", "天后", "tai hang", "大坑"],
+    "九龙城": ["九龙城", "九龍城", "何文田", "红磡", "紅磡", "启德", "啟德", "kowloon city", "hung hom", "kai tak", "to kwa wan", "土瓜湾", "ma tau wai", "马头围"],
+    "观塘": ["观塘", "觀塘", "牛头角", "牛頭角", "九龙湾", "九龍灣", "kwun tong", "kowloon bay", "lam tin", "蓝田", "yau tong", "油塘", "tseung kwan o", "将军澳"],
+    "深水埗": ["深水埗", "长沙湾", "長沙灣", "石硤尾", "sham shui po", "cheung sha wan", "lai chi kok", "荔枝角", "mei foo", "美孚", "sham mong kok", "深旺"],
+    "黄大仙": ["黄大仙", "黃大仙", "钻石山", "鑽石山", "慈云山", "慈雲山", "wong tai sin", "diamond hill", "choi hung", "彩虹", "lok fu", "乐富"],
+    "油尖旺": ["油尖旺", "旺角", "尖沙咀", "油麻地", "yau tsim mong", "mong kok", "mongkok", "tsim sha tsui", "tsimshatsui", "tst", "yau ma tei", "yaumatei", "jordan", "佐敦", "prince edward", "太子", "olympic", "奥运", "austin", "柯士甸"],
+    "沙田": ["沙田", "大围", "大圍", "马鞍山", "馬鞍山", "sha tin", "shatin", "ma on shan", "maonshan", "tai wai", "taiwai", "fo tan", "火炭", "racecourse", "马场", "city one", "第一城", "shatin wai", "沙田围"],
+    "荃湾": ["荃湾", "荃灣", "葵涌", "青衣", "tsuen wan", "tsuenwan", "kwai chung", "kwaichung", "tsing yi", "tsingyi", "tsuen wan west", "荃湾西"],
+    "屯门": ["屯门", "屯門", "兆康", "tuen mun", "tuenmun", "siu hong", "兆康", "tin shui wai", "天水围", "tsw", "siu lam", "小榄", "gold coast", "黄金海岸"],
+    "元朗": ["元朗", "天水围", "天水圍", "yuen long", "yuenlong", "tin shui wai", "tinshuiwai", "tsw", "yoho", "形点", "long ping", "朗屏", "tuen mun", "屯门"],
+    "北角": ["北角", "炮台山", "north point", "northpoint", "fortress hill", "fortresshill", "quarry bay", "鲗鱼涌", "taikoo", "太古"],
+    "西贡": ["西贡", "西貢", "将军澳", "將軍澳", "sai kung", "saikung", "tseung kwan o", "tseungkwano", "tko", "hang hau", "坑口", "po lam", "宝琳", "tseung kwan o south", "将军澳南", "lohas park", "日出康城"],
+    "葵青": ["葵青", "葵芳", "青衣", "kwai tsing", "kwaitsing", "kwai fong", "kwaifong", "tsing yi", "tsingyi", "kwai chung", "葵涌", "container port", "葵涌货柜码头"]
+  }
+}

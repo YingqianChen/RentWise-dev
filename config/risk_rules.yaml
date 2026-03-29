@@ -1,0 +1,116 @@
+# RentWise 风险检测规则配置
+# 版本: 1.0
+# 更新日期: 2026-03-28
+
+# ==================== 字段风险配置 ====================
+# 当字段缺失或为 "unknown" 时触发的风险
+
+field_risks:
+  deposit:
+    level: high
+    title_key: risk_deposit_missing
+    description_key: risk_deposit_missing_desc
+    # 押金缺失 - 高风险，可能导致付款纠纷
+
+  agent_fee:
+    level: medium
+    title_key: risk_agent_fee_missing
+    description_key: risk_agent_fee_missing_desc
+    # 中介费缺失 - 中风险，可能存在隐藏费用
+
+  management_fee_included:
+    level: medium
+    title_key: risk_management_fee_unclear
+    description_key: risk_management_fee_unclear_desc
+    # 管理费不明确 - 中风险，可能产生额外支出
+
+  rates_included:
+    level: medium
+    title_key: risk_rates_unclear
+    description_key: risk_rates_unclear_desc
+    # 差饷不明确 - 中风险，香港特有费用
+
+  repair_responsibility:
+    level: medium
+    title_key: risk_repair_unclear
+    description_key: risk_repair_unclear_desc
+    # 维修责任不明确 - 中风险，可能导致纠纷
+
+  move_in_date:
+    level: low
+    title_key: risk_movein_missing
+    description_key: risk_movein_missing_desc
+    # 入住日期缺失 - 低风险，需确认
+
+# ==================== 数值验证规则 ====================
+# 用于验证字段值的格式和范围
+
+value_validation:
+  monthly_rent:
+    # 月租验证
+    pattern: "^\\$?[\\d,]+(\\.\\d{1,2})?$"
+    min: 1000          # 最低月租 HKD
+    max: 200000        # 最高月租 HKD
+    risk_if_invalid:
+      level: medium
+      title_key: risk_unusual_rent
+      description_key: risk_unusual_rent_desc
+
+  deposit:
+    # 押金验证 - 支持金额或月数格式
+    pattern: "^\\$?[\\d,]+(\\.\\d{1,2})?$|^(one|two|three|\\d+)\\s*months?$"
+    risk_if_invalid:
+      level: medium
+      title_key: risk_unclear_deposit
+      description_key: risk_unclear_deposit_desc
+
+# ==================== 押金异常规则 ====================
+# 基于押金月数的特殊风险
+
+deposit_anomalies:
+  excessive:
+    # 押金超过3个月
+    min_months: 4
+    level: high
+    title_key: risk_excessive_deposit
+    description_key: risk_excessive_deposit_desc
+
+  below_standard:
+    # 押金仅1个月（低于标准但可能有利）
+    months: 1
+    level: low
+    title_key: risk_below_standard_deposit
+    description_key: risk_below_standard_deposit_desc
+
+# ==================== 管理费关键词检测 ====================
+# 检测管理费描述中的特殊关键词
+
+management_fee_keywords:
+  separate:
+    keywords: ["separate", "extra"]
+    level: low
+    title_key: risk_mgmt_separate
+    description_key: risk_mgmt_separate_desc
+
+# ==================== 风险等级定义 ====================
+# 用于比较风险严重程度
+
+risk_levels:
+  high: 3
+  medium: 2
+  low: 1
+
+# ==================== 配置说明 ====================
+#
+# 添加新规则:
+# 1. 在 field_risks 中添加字段名和对应风险配置
+# 2. 在 i18n.py 中添加对应的翻译键
+#
+# 修改风险等级:
+# - high: 需要立即关注的问题
+# - medium: 需要确认的问题
+# - low: 建议确认的问题
+#
+# 翻译键说明:
+# - title_key: 风险标题的翻译键
+# - description_key: 风险描述的翻译键

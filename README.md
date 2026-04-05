@@ -244,6 +244,7 @@ Optional provider settings:
 - `OLLAMA_HOST`
 - `OLLAMA_API_KEY`
 - `OLLAMA_MODEL`
+- `BACKEND_CORS_ORIGINS`
 - `FILE_STORAGE_PROVIDER`
 - `LOCAL_UPLOAD_ROOT`
 - `OCR_PROVIDER`
@@ -261,6 +262,7 @@ Notes:
 - SQLite is not a supported runtime for the current schema.
 - API keys are no longer hardcoded in `backend/app/core/config.py`; provider secrets must come from `backend/.env` or the process environment.
 - For Neon, use an `asyncpg` SQLAlchemy URL such as `postgresql+asyncpg://...?...ssl=require`.
+- `BACKEND_CORS_ORIGINS` accepts a comma-separated list such as `http://localhost:3000,http://127.0.0.1:3000` or your deployed Vercel domains.
 
 ### Frontend
 
@@ -292,6 +294,46 @@ Recommended production direction:
 3. backend deployment with persistent environment variables
 4. frontend deployment on a Next.js-compatible host
 5. future upgrade from in-process background work to an external queue if import volume grows
+
+Recommended hosted setup for the current codebase:
+
+1. frontend on Vercel with the project root set to `frontend/`
+2. backend on Render as a Python web service with the root set to `backend/`
+3. database on Neon using an `asyncpg` connection string
+4. `NEXT_PUBLIC_API_URL` in Vercel pointing to the Render backend URL
+5. `BACKEND_CORS_ORIGINS` in Render including your Vercel production domain and preview domain if needed
+6. pin the Render Python runtime to 3.11 so `pydantic-core` installs from wheels instead of falling back to a Rust build on Python 3.14
+
+Suggested Render backend commands:
+
+```bash
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
+```
+
+Recommended Render Python runtime:
+
+```text
+3.11
+```
+
+The repo now includes `backend/runtime.txt` with `python-3.11.11` so Render does not default to Python 3.14 during build.
+
+Suggested cloud environment values:
+
+- Vercel: `NEXT_PUBLIC_API_URL=https://<your-render-service>.onrender.com`
+- Render: `APP_ENV=production`
+- Render: `BACKEND_CORS_ORIGINS=https://<your-vercel-app>.vercel.app`
+- Render: `DATABASE_URL=postgresql+asyncpg://<user>:<password>@<host>/<db>?ssl=require`
+- Render: `SECRET_KEY=<strong-random-secret>`
+- Render: `LLM_PROVIDER=groq`
+- Render: `GROQ_API_KEY=<your-groq-key>`
+- Render: `OCR_PROVIDER=rapidocr`
+
+Current storage caveat in cloud:
+
+- The local storage adapter is still acceptable for short-lived demos because OCR runs immediately after upload, but uploaded files are not durable on ephemeral filesystems.
+- If you need stable source-file retention across deploys or restarts, move candidate uploads to object storage before treating the deployment as production-ready.
 
 ## Release And Data-Safety Checklist
 

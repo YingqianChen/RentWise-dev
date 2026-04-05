@@ -1,6 +1,7 @@
 """Configuration management using pydantic-settings."""
 
 from pathlib import Path
+from typing import Any
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -35,6 +36,7 @@ class Settings(BaseSettings):
     # Application
     APP_ENV: str = "development"  # development | production
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
+    BACKEND_CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
     FILE_STORAGE_PROVIDER: str = "local"
     LOCAL_UPLOAD_ROOT: str = str(Path(__file__).resolve().parents[2] / "storage")
     OCR_PROVIDER: str = "rapidocr"
@@ -54,6 +56,21 @@ class Settings(BaseSettings):
         if normalized not in {"rapidocr", "paddleocr"}:
             raise ValueError("OCR_PROVIDER must be `rapidocr` or `paddleocr`")
         return normalized
+
+    @field_validator("BACKEND_CORS_ORIGINS", mode="before")
+    @classmethod
+    def validate_cors_origins(cls, v: Any) -> list[str]:
+        """Accept comma-separated or list-based CORS origins."""
+        default_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+        if v is None:
+            return default_origins
+        if isinstance(v, str):
+            parsed = [origin.strip() for origin in v.split(",") if origin.strip()]
+            return parsed or default_origins
+        if isinstance(v, (list, tuple, set)):
+            parsed = [str(origin).strip() for origin in v if str(origin).strip()]
+            return parsed or default_origins
+        raise ValueError("BACKEND_CORS_ORIGINS must be a comma-separated string or list")
 
     @field_validator("SECRET_KEY")
     @classmethod

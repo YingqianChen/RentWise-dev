@@ -244,6 +244,7 @@ Frontend:
 - `OLLAMA_HOST`
 - `OLLAMA_API_KEY`
 - `OLLAMA_MODEL`
+- `BACKEND_CORS_ORIGINS`
 - `FILE_STORAGE_PROVIDER`
 - `LOCAL_UPLOAD_ROOT`
 - `OCR_PROVIDER`
@@ -261,6 +262,7 @@ Frontend:
 - SQLite 不再是当前 schema 的受支持运行时。
 - API key 不再硬编码在 `backend/app/core/config.py` 中；provider secret 必须来自 `backend/.env` 或进程环境。
 - 如果使用 Neon，`DATABASE_URL` 需要采用 `postgresql+asyncpg://...?...ssl=require` 这种 `asyncpg` 兼容格式。
+- `BACKEND_CORS_ORIGINS` 支持逗号分隔字符串，例如 `http://localhost:3000,http://127.0.0.1:3000`，部署到云端后应改成你的 Vercel 域名。
 
 ### Frontend
 
@@ -292,6 +294,46 @@ Frontend:
 3. backend 通过正式环境变量部署
 4. frontend 部署到兼容 Next.js 的平台
 5. 当导入量变大后，再从应用内后台任务升级到外部队列
+
+当前代码库更推荐的托管组合：
+
+1. frontend 部署到 Vercel，项目根目录设为 `frontend/`
+2. backend 部署到 Render，Python Web Service 根目录设为 `backend/`
+3. database 使用 Neon，并保持 `asyncpg` 连接串
+4. 在 Vercel 中把 `NEXT_PUBLIC_API_URL` 指向 Render 的后端域名
+5. 在 Render 中把 `BACKEND_CORS_ORIGINS` 设置为你的 Vercel 正式域名，必要时再补 preview 域名
+6. 把 Render 的 Python runtime 固定到 3.11，避免 `pydantic-core` 在 Python 3.14 下回退到 Rust 源码编译
+
+推荐的 Render backend 命令：
+
+```bash
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
+```
+
+推荐的 Render Python runtime：
+
+```text
+3.11
+```
+
+仓库现在已经补了 `backend/runtime.txt`，内容为 `python-3.11.11`，用于避免 Render 构建时默认落到 Python 3.14。
+
+建议的云端环境变量：
+
+- Vercel: `NEXT_PUBLIC_API_URL=https://<your-render-service>.onrender.com`
+- Render: `APP_ENV=production`
+- Render: `BACKEND_CORS_ORIGINS=https://<your-vercel-app>.vercel.app`
+- Render: `DATABASE_URL=postgresql+asyncpg://<user>:<password>@<host>/<db>?ssl=require`
+- Render: `SECRET_KEY=<strong-random-secret>`
+- Render: `LLM_PROVIDER=groq`
+- Render: `GROQ_API_KEY=<your-groq-key>`
+- Render: `OCR_PROVIDER=rapidocr`
+
+当前云端存储 caveat：
+
+- 现在的本地存储适合短周期 demo，因为上传后会立刻进入 OCR，但在 Render 这类临时文件系统上并不提供稳定持久化。
+- 如果你需要跨重启或跨部署保留原始截图，就应该把 candidate uploads 迁移到 object storage，再把这套部署当作正式生产环境。
 
 ## 发布前与数据安全检查清单
 

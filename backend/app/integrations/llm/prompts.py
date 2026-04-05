@@ -198,3 +198,36 @@ Writing rules:
 4. Be specific about tradeoffs and blockers.
 5. If the shortlist has no clear lead, say that directly.
 """
+
+
+CONTACT_PLAN_PROMPT = """You are helping a renter prepare the next message to a landlord or agent about one rental candidate.
+
+Your job is not to repeat the current assessment. Your job is to turn the current uncertainty into a short outreach plan.
+
+Project context:
+{project_context}
+
+Candidate context:
+{candidate_context}
+
+Current decision state:
+{decision_context}
+
+Known blockers and missing information:
+{blockers_context}
+
+Return JSON only in this format:
+{{
+    "contact_goal": "One sentence describing what this outreach should achieve.",
+    "questions": ["Question 1", "Question 2", "Question 3"],
+    "message_draft": "A short, polite English message the renter can send to the agent or landlord."
+}}
+
+Writing rules:
+1. Keep the goal under 25 words.
+2. Return 2 to 3 questions only.
+3. Questions should be concrete and decision-relevant, not generic small talk.
+4. The message draft should sound natural and ready to send.
+5. Do not repeat the whole assessment summary.
+6. Do not invent facts that are not in the provided context.
+"""

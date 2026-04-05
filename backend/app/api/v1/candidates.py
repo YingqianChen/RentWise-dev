@@ -14,8 +14,14 @@ from sqlalchemy.orm import selectinload
 
 from ...db.database import get_db, get_session_factory
 from ...db.models import CandidateListing, SearchProject, User
-from ...schemas.candidate import CandidateListResponse, CandidateResponse, CandidateUpdate
+from ...schemas.candidate import (
+    CandidateContactPlanResponse,
+    CandidateListResponse,
+    CandidateResponse,
+    CandidateUpdate,
+)
 from ...services.benchmark_service import BenchmarkService
+from ...services.candidate_contact_plan_service import CandidateContactPlanService
 from ...services.candidate_import_background_service import CandidateImportBackgroundService
 from ...services.candidate_import_service import CandidateImportService, build_combined_text, infer_source_type
 from ...services.candidate_pipeline_service import CandidatePipelineService
@@ -24,6 +30,7 @@ from .auth import get_current_user
 router = APIRouter()
 pipeline_service = CandidatePipelineService()
 benchmark_service = BenchmarkService()
+candidate_contact_plan_service = CandidateContactPlanService()
 candidate_import_service = CandidateImportService()
 candidate_import_background_service = CandidateImportBackgroundService(get_session_factory())
 
@@ -259,6 +266,21 @@ async def reassess_candidate(
     await db.flush()
     _, candidate = await get_candidate_for_project_user(project.id, candidate.id, current_user, db)
     return _serialize_candidate(candidate)
+
+
+@router.post(
+    "/projects/{project_id}/candidates/{candidate_id}/contact-plan",
+    response_model=CandidateContactPlanResponse,
+)
+async def generate_candidate_contact_plan(
+    project_id: UUID,
+    candidate_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a short outreach plan for the next landlord/agent message."""
+    project, candidate = await get_candidate_for_project_user(project_id, candidate_id, current_user, db)
+    return await candidate_contact_plan_service.build(project=project, candidate=candidate)
 
 
 @router.post("/projects/{project_id}/candidates/{candidate_id}/shortlist", response_model=CandidateResponse)

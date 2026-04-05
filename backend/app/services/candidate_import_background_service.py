@@ -13,7 +13,7 @@ from ..db.models import CandidateListing, CandidateSourceAsset, SearchProject
 from .candidate_import_service import build_combined_text
 from .candidate_pipeline_service import CandidatePipelineService
 from .file_storage_service import LocalFileStorageService
-from .ocr_service import PaddleOCRService
+from .ocr_service import OCRService
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ class CandidateImportBackgroundService:
     def __init__(self, session_factory: async_sessionmaker) -> None:
         self.session_factory = session_factory
         self.storage = LocalFileStorageService()
-        self.ocr = PaddleOCRService()
+        self.ocr = OCRService()
         self.pipeline = CandidatePipelineService()
 
     async def process_candidate_import(

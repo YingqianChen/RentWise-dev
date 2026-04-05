@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
     FILE_STORAGE_PROVIDER: str = "local"
     LOCAL_UPLOAD_ROOT: str = str(Path(__file__).resolve().parents[2] / "storage")
-    OCR_PROVIDER: str = "paddleocr"
+    OCR_PROVIDER: str = "rapidocr"
     PADDLEOCR_LANG: str = "ch"
     OCR_USE_DOC_ORIENTATION: bool = False
     OCR_USE_DOC_UNWARPING: bool = False
@@ -45,6 +45,15 @@ class Settings(BaseSettings):
     PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: bool = True
     OCR_PREWARM_ON_STARTUP: bool = True
     OCR_MAX_IMAGE_DIMENSION: int = 1600
+
+    @field_validator("OCR_PROVIDER")
+    @classmethod
+    def validate_ocr_provider(cls, v: str) -> str:
+        """Validate supported OCR backends."""
+        normalized = v.strip().lower()
+        if normalized not in {"rapidocr", "paddleocr"}:
+            raise ValueError("OCR_PROVIDER must be `rapidocr` or `paddleocr`")
+        return normalized
 
     @field_validator("SECRET_KEY")
     @classmethod

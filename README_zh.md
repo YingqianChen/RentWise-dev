@@ -27,9 +27,10 @@ RentWise 正在从一个 Streamlit 原型重构为 monorepo，当前结构为：
 - dashboard 提供行动导向的 priority candidates 和 investigation items
 - dashboard 中的 investigation checklist 会聚合同类 blocker，而不是对每个 listing 重复提示
 - candidate detail 支持 reassess / shortlist / reject
+- candidate detail 支持按需生成给房东 / 中介的下一条沟通草稿
 - candidate 删除带确认框
 - candidate 编辑后自动重新评估
-- candidate detail 优先展示决策 blocker 和下一步问题，再往下才是更深的结构化细节
+- candidate detail 现在把主界面收敛在 decision snapshot 和 blocker 上，benchmark、OCR evidence 和更深的结构化细节默认作为次级信息按需展开
 - dashboard 会把后台处理中 candidate 显示为 processing work，而不是误渲染成空结果
 - dashboard 支持直接删除 candidate
 - 预算修改后会触发已有已完成 candidate 的预算相关 reassessment
@@ -133,7 +134,7 @@ RentWise/
 - `backend/app/services/candidate_import_background_service.py`
   - 应用内后台 OCR 与 assessment pipeline
 - `backend/app/services/ocr_service.py`
-  - PaddleOCR 集成与结果归一化
+  - OCR provider 抽象、结果归一化与后端选择
 - `backend/app/services/file_storage_service.py`
   - 上传存储抽象；开发环境当前写入 `backend/storage/`
 - `backend/app/services/extraction_service.py`
@@ -192,7 +193,7 @@ alembic upgrade head
 uvicorn app.main:app --reload --port 8000
 ```
 
-如果要在 candidate import 中使用图片 OCR，需要保证当前 Python 环境中 PaddleOCR 运行时可用。当前 backend 依赖已包含 `paddleocr` 与 `paddlepaddle==3.0.0`，并且 OCR 已对接新版 PaddleOCR pipeline API。
+如果要在 candidate import 中使用图片 OCR，当前默认 runtime 已切到 `rapidocr_onnxruntime`，它更适合 Windows + CPU 本地开发，也更贴近截图类导入场景。如果你显式把 `OCR_PROVIDER` 改成 `paddleocr`，则需要另外在 `backend\\venv` 中安装 `paddleocr` 与 `paddlepaddle`。
 
 如果你的本地 PostgreSQL 数据库是更早期通过 `create_all()` 启动路径创建的，那么切换到 Alembic 前需要先执行一次：
 
@@ -276,13 +277,13 @@ Frontend:
 - database: PostgreSQL，包括 Neon 这类托管数据库
 - backend: FastAPI 进程 + 应用内后台 worker
 - frontend: Next.js 应用
-- OCR runtime: PaddleOCR + PaddlePaddle
+- OCR runtime: 默认 RapidOCR + ONNX Runtime，可选 PaddleOCR fallback
 
 当前生产 caveat：
 
 - candidate OCR 和 assessment 仍运行在应用内后台 worker 中，还不是外部任务队列
 - 本地文件存储只适合开发环境。上传层虽然已经抽象，但线上部署应改为 object storage，而不是依赖 backend 本地文件系统
-- OCR 在 CPU 环境下依然偏重。目前代码已经做了 OCR 预热和上传图片缩放，但如果需要显著提速，最大杠杆仍然是 GPU 版 PaddlePaddle
+- OCR 依然会消耗一定 CPU，但默认链路现在优先选择更轻量、启动更快的 RapidOCR。当前代码仍会在 OCR 前做预热和大图缩放；如果你显式改回 PaddleOCR，就是用更高延迟换取另一套识别行为。
 
 推荐的生产方向：
 
@@ -335,14 +336,14 @@ Frontend:
 - Candidate import 支持在同一张表单中混合提交文本和多张图片。上传截图会先经过存储抽象层，在开发环境中落到本地，然后 OCR 文本会并入正常的 `combined_text` 分析链路。
 - 开发环境下上传文件保存在 `backend/storage/`，该目录必须排除在 git 外。
 - OCR import 会单独保存 source-asset metadata，而不是把所有 OCR 结果直接塞回 extracted fields，这样异步 candidate pipeline 就能复用 OCR evidence，同时避免 import 过程中的 lazy-load 问题。
-- 如果 image-only import 得到空 extraction 结果，先确认 `backend\\venv` 里安装的是 `paddlepaddle`，不只是 `paddleocr`。后台导入失败现在会把真实错误写回 candidate，detail 页面可以直接显示真实 OCR failure reason，而不是伪装成网络错误。
+- 如果 image-only import 得到空 extraction 结果，先确认 `backend\\venv` 中安装了当前配置对应的 OCR runtime。默认配置需要 `rapidocr_onnxruntime`；如果使用 Paddle fallback，则还需要 `paddleocr` 与 `paddlepaddle`。后台导入失败现在会把真实错误写回 candidate，detail 页面可以直接显示真实 OCR failure reason，而不是伪装成网络错误。
 - Candidate import 现在改为应用内后台任务处理，而不是把整条 OCR + assessment 链路阻塞在一个请求里。导入页会快速返回，跳到 candidate detail，detail 页面轮询后台进度。
 - 初次 queued import 响应会返回一个占位 candidate 状态，而不是强行加载 assessment 关系，因此不会再在 response serialization 时因 lazy-load 崩掉。
 - Project dashboard 在任一 candidate 仍处于 processing 时也会轮询，所以 OCR 完成后 candidate 可以自动进入 priority queue，而不需要手动刷新。
 - 仍在 processing 的 candidates 会被明确显示为后台工作，而不是空白低信息卡片；在 assessment 完成之前，它们也会暂时排除在 compare selection 外。
-- OCR 默认会在 backend startup 时预热，因此第一个用户导入不会完全承担模型冷启动成本。
+- OCR 默认会在 backend startup 时预热，因此无论使用哪种受支持的 provider，第一个用户导入都不必完整承担冷启动成本。
 - 上传截图在 OCR 前会缩放到可配置的最大尺寸，这对超大手机截图能明显降低 CPU 延迟，同时不改变混合文本 + 图片工作流。
-- `PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK` 已成为正式 backend setting，并会在 `paddleocr` import 之前写入 `os.environ`，因此把它写进 `backend/.env` 就能真正抑制 model-hoster connectivity check，不需要每次手动在终端 export。
+- `PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK` 仍保留给可选的 Paddle fallback 使用，并会在 `paddleocr` import 之前写入 `os.environ`，因此把它写进 `backend/.env` 就能真正抑制 model-hoster connectivity check，不需要每次手动在终端 export。
 - Candidate processing stages 当前包括：
   - `queued`
   - `running_ocr`
@@ -354,6 +355,8 @@ Frontend:
 - Candidate 删除既可以在 candidate detail 中完成，也可以直接在 dashboard 的 candidate list 中删除。
 - 修改 project budget 后，会刷新已有已完成 candidate 的预算相关 assessment，保证 dashboard 和 candidate recommendation 与新预算上限一致。
 - Candidate detail 会展示每个上传文件的 OCR evidence，便于直接检查 OCR 实际读到了什么，而不是先怀疑下游 extraction。
+- Candidate detail 现在新增了一个按需触发的 LLM outreach draft，会把当前 blocker 转成 2 到 3 个适合发给房东 / 中介的问题，并附上一条简短英文消息草稿。它默认不常驻展开，避免对只比较少量房源的用户造成额外信息负担。
+- Candidate detail 现在采用更轻的 decision workspace 组织方式：主界面聚焦当前决策，benchmark note 和更深的 evidence panel 默认折叠，只有在需要核查时再展开。
 - Import 页面使用自定义上传按钮，而不是浏览器原生文件按钮标签，从而避免在英文界面中夹杂系统原生其他语言文案。
 - 如果 PaddleOCR 启动时仍看到 Windows shell 报告某个 pattern 或 file not found，那不是 RentWise 应用本身输出的日志，而更像是本地 shell 或更底层依赖层发出的消息。
 
@@ -515,11 +518,11 @@ OCR 后的推荐用途：
 - 用户可以一次上传多张 listing/chat/contract screenshot
 - OCR 输出既会作为 source evidence 保存，也会并入 extraction 与 assessment 共用的文本 bundle
 - 文件存储已经做了抽象，因此开发环境可以继续用本地文件系统，未来要迁移到 object storage 时无需重写分析主链路
-- 当前 backend 已对接新版 PaddleOCR pipeline API，文本来自 `predict()` 结果，而不是旧的 `ocr(..., cls=True)` 路径
+- 当前 backend 通过统一的 OCR service 抽象路由 OCR，因此可以把 `rapidocr` 作为默认快速路径，同时保留 `paddleocr` 作为显式 fallback，而不需要改 import pipeline
 - 默认 OCR 设置已经偏向“截图场景下的速度优先”，会关闭 document orientation、unwarping、textline-orientation，除非你在 backend 环境变量中重新打开
 - Import 不再等待 OCR 与 LLM assessment 在一个请求里完成。系统会先创建 candidate，再由应用内后台任务继续 OCR 与 assessment，detail 页面轮询显示进度
-- 当前 OCR 性能已通过两种方式优化：backend startup 时预热 PaddleOCR engine，以及在 OCR 前缩放大图。剩余最主要的提速杠杆是 GPU 版 PaddlePaddle，而不是继续改 prompt
-- 如果 PaddleOCR 启动时还看到 Windows shell 报某个 pattern 或 file not found，那并不是 RentWise 代码本身发出的日志，更可能来自 Windows shell 或底层依赖层
+- 当前 OCR 性能现在主要通过三种方式改善：默认 provider 改为基于 ONNX Runtime 的 RapidOCR、backend startup 时预热 OCR engine，以及在 OCR 前缩放大图。
+- 如果你仍使用可选的 Paddle fallback，且启动时看到 Windows shell 报某个 pattern 或 file not found，那并不是 RentWise 代码本身发出的日志，更可能来自 Windows shell 或底层依赖层
 
 RAG 在这里可能的价值：
 

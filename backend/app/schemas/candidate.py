@@ -116,6 +116,14 @@ class CandidateUpdate(BaseModel):
     raw_note_text: Optional[str] = None
 
 
+class CandidateContactPlanResponse(BaseModel):
+    """LLM-assisted outreach plan for the next landlord/agent message."""
+
+    contact_goal: str
+    questions: List[str]
+    message_draft: str
+
+
 class CandidateResponse(BaseModel):
     """Candidate response"""
     model_config = ConfigDict(from_attributes=True)

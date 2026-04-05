@@ -27,9 +27,10 @@ The active product focuses on a candidate-pool decision workflow:
 - dashboard summary with action-oriented priority candidates and investigation items
 - dashboard investigation checklist now groups shared blockers instead of repeating the same prompt for each listing
 - candidate detail view with reassess / shortlist / reject actions
+- candidate detail outreach drafting for the next landlord / agent message
 - candidate deletion with confirmation
 - candidate editing with automatic reassessment
-- candidate detail now prioritizes decision blockers and next questions before deeper structured details
+- candidate detail now keeps the main surface focused on the decision snapshot and blockers, while benchmark, OCR evidence, and supporting details stay secondary until needed
 - dashboard now shows background-processing candidates as processing work instead of rendering them like empty assessed candidates
 - dashboard now supports candidate deletion directly from the candidate list
 - budget edits now trigger budget-dependent reassessment for existing completed candidates
@@ -133,7 +134,7 @@ Key directories:
 - `backend/app/services/candidate_import_background_service.py`
   - in-process background OCR and assessment pipeline
 - `backend/app/services/ocr_service.py`
-  - PaddleOCR integration and result normalization
+  - OCR provider abstraction, result normalization, and backend selection
 - `backend/app/services/file_storage_service.py`
   - upload storage abstraction; local development currently writes to `backend/storage/`
 - `backend/app/services/extraction_service.py`
@@ -192,7 +193,7 @@ alembic upgrade head
 uvicorn app.main:app --reload --port 8000
 ```
 
-If you want image OCR during candidate import, make sure your Python environment has a working PaddleOCR runtime. The backend requirements include both `paddleocr` and `paddlepaddle==3.0.0`, and OCR import targets the newer PaddleOCR pipeline API.
+If you want image OCR during candidate import, the default backend now uses `rapidocr_onnxruntime`, which is lighter for Windows + CPU local development and better aligned with screenshot-heavy import flows. If you explicitly switch `OCR_PROVIDER=paddleocr`, install `paddleocr` and `paddlepaddle` manually in `backend\\venv` before starting the API.
 
 If your local PostgreSQL database was created by the earlier startup `create_all()` flow, run this one-time command instead before switching to Alembic-managed migrations:
 
@@ -276,13 +277,13 @@ Current deployment assumptions:
 - database: PostgreSQL, including hosted services such as Neon
 - backend: FastAPI process with an in-process background worker
 - frontend: Next.js app
-- OCR runtime: PaddleOCR + PaddlePaddle
+- OCR runtime: RapidOCR on ONNX Runtime by default, with optional PaddleOCR fallback
 
 Important production caveats:
 
 - Candidate OCR and assessment currently run in an in-process background worker, not an external job queue.
 - Local file storage is suitable for development only. The upload layer is abstracted, but production deployment should move to object storage rather than relying on the backend filesystem.
-- OCR can still be CPU-heavy. The current codebase prewarms the OCR engine and downscales large images before OCR, but the biggest remaining speed lever is GPU-backed PaddlePaddle.
+- OCR still does real image work on CPU, but the default path now favors lower startup cost and better Windows-local responsiveness. The codebase still prewarms the OCR engine and downscales large images before OCR, and PaddleOCR remains available only as an explicit fallback when you need to trade more latency for different recognition behavior.
 
 Recommended production direction:
 
@@ -335,14 +336,14 @@ Sensitive local files that must stay out of git:
 - Candidate import supports mixed text + multi-image input in one form. Uploaded screenshots are stored through a storage abstraction that currently uses a local development adapter, then OCR text is merged back into the normal `combined_text` analysis pipeline.
 - Development uploads are stored under `backend/storage/`, which must stay out of git.
 - OCR import stores uploaded source-asset metadata separately from extracted candidate fields so the async candidate pipeline can reuse OCR evidence without triggering lazy-load issues during import.
-- If image-only import creates empty extraction results, check that `paddlepaddle` is installed inside `backend\\venv`, not just `paddleocr`. Background import failures are now written back onto the candidate so the detail page can show the real OCR failure reason instead of a fake network-style error.
+- If image-only import creates empty extraction results, first verify that the configured OCR runtime is installed inside `backend\\venv`. The default setup expects `rapidocr_onnxruntime`; the Paddle fallback additionally needs both `paddleocr` and `paddlepaddle`. Background import failures are now written back onto the candidate so the detail page can show the real OCR failure reason instead of a fake network-style error.
 - Candidate import is processed by an in-app background task instead of blocking the request until OCR and assessment finish. The import page returns quickly, redirects to the candidate detail page, and the detail page polls until the background stages finish.
 - The initial queued import response returns a placeholder candidate state without forcing lazy assessment loads, so image import no longer crashes at response serialization time before the background worker starts.
 - The project dashboard also polls while any candidate is still processing, so finished OCR jobs can move into the priority queue without forcing a manual refresh.
 - Candidates that are still processing are shown as explicit background work on the dashboard instead of appearing as blank low-information cards, and they are temporarily excluded from compare selection until assessment finishes.
-- OCR startup is prewarmed by default so the first user import does not have to pay the full model boot cost inside the request path.
+- OCR startup is prewarmed by default so the first user import does not have to pay the full model boot cost inside the request path, regardless of which supported OCR provider you choose.
 - Uploaded screenshots are resized down to a configurable maximum dimension before OCR, which significantly reduces CPU-bound latency on oversized mobile screenshots without changing the mixed text + image workflow.
-- `PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK` is a first-class backend setting and is pushed into `os.environ` before `paddleocr` is imported, so setting it in `backend/.env` suppresses the model-hoster connectivity check without requiring a manual terminal export.
+- `PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK` remains available for the optional Paddle fallback and is pushed into `os.environ` before `paddleocr` is imported, so setting it in `backend/.env` suppresses the model-hoster connectivity check without requiring a manual terminal export.
 - Candidate processing stages are currently:
   - `queued`
   - `running_ocr`
@@ -354,6 +355,8 @@ Sensitive local files that must stay out of git:
 - Candidate deletion is available both from candidate detail and directly from the dashboard candidate list.
 - Updating a project's budget refreshes budget-dependent assessments for existing completed candidates, so the dashboard and candidate recommendations stay aligned with the new cap.
 - Candidate detail exposes OCR evidence per uploaded file so you can inspect what text OCR actually read before blaming downstream extraction.
+- Candidate detail now includes an on-demand LLM outreach draft that turns the current blockers into 2 to 3 concrete landlord / agent questions plus a short English message draft. It is intentionally generated only when requested so the page does not become noisier for users comparing only a few listings.
+- Candidate detail now follows a lighter decision-workspace pattern: the main screen stays focused on the live decision, while benchmark notes and deeper evidence panels are collapsed by default.
 - The import page uses a custom upload trigger instead of the browser's native file-button label, which avoids mixed-language UI inside an otherwise English interface.
 
 ## UX Reality Check
@@ -514,11 +517,11 @@ Current OCR integration shape:
 - users can upload multiple listing, chat, or contract screenshots at once
 - OCR output is preserved as source evidence and also merged into the same text bundle used by extraction and assessment
 - file storage is abstracted so local development can use filesystem storage now while future deployment can move to object storage without rewriting the analysis flow
-- The current backend targets the newer PaddleOCR pipeline API and reads text from `predict()` results instead of relying on the deprecated `ocr(..., cls=True)` path.
+- The current backend routes OCR through one service abstraction, so `rapidocr` can stay the fast default while `paddleocr` remains an explicit fallback without changing the import pipeline.
 - The default OCR settings now bias toward speed for screenshot-style inputs by disabling document orientation, unwarping, and textline-orientation passes unless you explicitly turn them back on in the backend environment.
 - Import no longer waits for OCR and LLM assessment to finish inside one request. The candidate is created first, then OCR and assessment continue in an in-app background task while the detail page polls for progress.
-- OCR performance is now improved in two practical ways: the PaddleOCR engine is prewarmed on backend startup, and large uploaded images are resized before OCR. The remaining major speed lever is GPU-backed PaddlePaddle rather than more prompt-layer changes.
-- If you still see a Windows shell line about a pattern or file not being found while PaddleOCR starts, that message is not emitted by the RentWise codebase itself. It appears to come from the Windows shell or a lower-level dependency layer rather than from our application logging.
+- OCR performance is now improved in three practical ways: the default provider uses RapidOCR on ONNX Runtime for lower CPU overhead, the OCR engine is prewarmed on backend startup, and large uploaded images are resized before OCR.
+- If you still use the optional Paddle fallback and see a Windows shell line about a pattern or file not being found while PaddleOCR starts, that message is not emitted by the RentWise codebase itself. It appears to come from the Windows shell or a lower-level dependency layer rather than from our application logging.
 
 Likely value of RAG here:
 

@@ -308,3 +308,44 @@ class CandidateRouteTests(IsolatedAsyncioTestCase):
         self.assertIsNone(response)
         db.delete.assert_awaited_once_with(candidate)
         db.flush.assert_awaited_once()
+
+    async def test_generate_contact_plan_returns_service_output(self):
+        user = build_user()
+        project = build_project(user)
+        candidate = build_candidate(project)
+        db = FakeAsyncSession()
+        plan = candidates_api.CandidateContactPlanResponse(
+            contact_goal="Clarify the last cost and lease unknowns before deciding whether to move forward.",
+            questions=[
+                "Could you confirm whether the management fee is included in the rent?",
+                "Could you clarify which repairs are covered by the landlord?",
+            ],
+            message_draft="Hi, I am interested in this listing and would like to confirm a couple of practical points before deciding my next step.",
+        )
+
+        async def fake_get_candidate_for_project_user(project_id, candidate_id, current_user, session):
+            self.assertEqual(project_id, project.id)
+            self.assertEqual(candidate_id, candidate.id)
+            self.assertEqual(current_user.id, user.id)
+            self.assertIs(session, db)
+            return project, candidate
+
+        with (
+            patch.object(candidates_api, "get_candidate_for_project_user", fake_get_candidate_for_project_user),
+            patch.object(
+                candidates_api.candidate_contact_plan_service,
+                "build",
+                AsyncMock(return_value=plan),
+            ) as build_mock,
+        ):
+            response = await candidates_api.generate_candidate_contact_plan(
+                project_id=project.id,
+                candidate_id=candidate.id,
+                current_user=user,
+                db=db,
+            )
+
+        self.assertEqual(response.contact_goal, plan.contact_goal)
+        self.assertEqual(response.questions, plan.questions)
+        self.assertEqual(response.message_draft, plan.message_draft)
+        build_mock.assert_awaited_once_with(project=project, candidate=candidate)

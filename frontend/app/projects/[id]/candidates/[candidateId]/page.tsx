@@ -7,6 +7,7 @@ import Link from "next/link";
 import {
   compareCandidates,
   deleteCandidate,
+  generateCandidateContactPlan,
   getCandidates,
   getCandidate,
   reassessCandidate,
@@ -15,7 +16,13 @@ import {
   updateCandidate,
 } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import type { BenchmarkEvidence, Candidate, CompareCandidateCard, ComparisonResponse } from "@/lib/types";
+import type {
+  BenchmarkEvidence,
+  Candidate,
+  CandidateContactPlan,
+  CompareCandidateCard,
+  ComparisonResponse,
+} from "@/lib/types";
 
 function actionLabel(action?: string | null) {
   switch (action) {
@@ -208,35 +215,6 @@ function buildCompareSetNames(comparison: ComparisonResponse): string[] {
   ];
 }
 
-function buildDecisionQuestions(candidate: Candidate): string[] {
-  const questions: string[] = [];
-  const cost = candidate.cost_assessment;
-  const clause = candidate.clause_assessment;
-
-  if (cost?.monthly_cost_missing_items.includes("management_fee_amount") || cost?.monthly_cost_missing_items.includes("management_fee_included")) {
-    questions.push("Ask whether the management fee is included and what it adds each month if separate.");
-  }
-  if (cost?.monthly_cost_missing_items.includes("rates_amount") || cost?.monthly_cost_missing_items.includes("rates_included")) {
-    questions.push("Ask whether rates or government charges are included and what the likely monthly amount is if they are separate.");
-  }
-  if (cost?.monthly_cost_missing_items.includes("deposit")) {
-    questions.push("Confirm the expected deposit so you can judge the true move-in cash burden.");
-  }
-  if (clause?.repair_responsibility_level === "supported_but_unconfirmed") {
-    questions.push("Confirm whether repair coverage is written into the agreement and who is ultimately responsible if something breaks.");
-  } else if (clause?.repair_responsibility_level && ["unknown", "unclear", "tenant_heavy"].includes(clause.repair_responsibility_level)) {
-    questions.push("Ask which repairs the landlord covers and which costs may fall on the tenant.");
-  }
-  if (clause?.lease_term_level && ["unknown", "rigid", "unstable"].includes(clause.lease_term_level)) {
-    questions.push("Ask about lease length, break clause, and early termination terms before treating this as shortlist-ready.");
-  }
-  if (clause?.move_in_date_level && ["unknown", "uncertain", "mismatch"].includes(clause.move_in_date_level)) {
-    questions.push("Confirm the earliest realistic move-in date and whether that timing still works for you.");
-  }
-
-  return questions.slice(0, 4);
-}
-
 function buildDecisionBlockers(candidate: Candidate): string[] {
   const blockers: string[] = [];
   const cost = candidate.cost_assessment;
@@ -272,6 +250,10 @@ export default function CandidateDetailPage() {
   const [showConfirm, setShowConfirm] = useState<"shortlist" | "reject" | "delete" | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [contactPlan, setContactPlan] = useState<CandidateContactPlan | null>(null);
+  const [contactPlanLoading, setContactPlanLoading] = useState(false);
+  const [contactPlanError, setContactPlanError] = useState("");
+  const [contactPlanCopied, setContactPlanCopied] = useState(false);
   const [compareContext, setCompareContext] = useState<{
     comparison: ComparisonResponse;
     card: CompareCandidateCard;
@@ -323,6 +305,9 @@ export default function CandidateDetailPage() {
         raw_chat_text: data.raw_chat_text ?? "",
         raw_note_text: data.raw_note_text ?? "",
       });
+      setContactPlan(null);
+      setContactPlanError("");
+      setContactPlanCopied(false);
       const compareIds = buildSuggestedCompareIds(candidatesData.candidates, data.id);
       try {
         if (compareIds.length >= 2) {
@@ -440,6 +425,37 @@ export default function CandidateDetailPage() {
     }
   };
 
+  const handleGenerateContactPlan = async () => {
+    const token = getToken();
+    if (!token) return;
+
+    setContactPlanLoading(true);
+    setContactPlanError("");
+    setContactPlanCopied(false);
+    try {
+      const plan = await generateCandidateContactPlan(token, projectId, candidateId);
+      setContactPlan(plan);
+    } catch (err) {
+      console.error("Failed to generate contact plan:", err);
+      setContactPlanError(err instanceof Error ? err.message : "Failed to generate contact plan.");
+    } finally {
+      setContactPlanLoading(false);
+    }
+  };
+
+  const handleCopyContactDraft = async () => {
+    if (!contactPlan?.message_draft) return;
+
+    try {
+      await navigator.clipboard.writeText(contactPlan.message_draft);
+      setContactPlanCopied(true);
+      window.setTimeout(() => setContactPlanCopied(false), 1800);
+    } catch (err) {
+      console.error("Failed to copy contact draft:", err);
+      setContactPlanError("Could not copy the message draft. Please copy it manually.");
+    }
+  };
+
   if (loading) {
     return (
       <main className="min-h-screen flex items-center justify-center">
@@ -461,7 +477,6 @@ export default function CandidateDetailPage() {
   const clause = candidate.clause_assessment;
   const assessment = candidate.candidate_assessment;
   const benchmark = candidate.benchmark;
-  const decisionQuestions = buildDecisionQuestions(candidate);
   const decisionBlockers = buildDecisionBlockers(candidate);
 
   return (
@@ -623,70 +638,79 @@ export default function CandidateDetailPage() {
 
         {assessment && (
           <section className="bg-primary-50 border border-primary-200 rounded-lg p-6 mb-6">
-            <div className="mb-4">
-              <span
-                className={`inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium ${recommendationTone(
-                  assessment.top_level_recommendation
-                )}`}
-              >
-                {recommendationLabel(assessment.top_level_recommendation)}
-              </span>
-            </div>
-            <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary-700 mb-2">Next best action</p>
-            <h2 className="text-2xl font-semibold text-primary-950">{actionLabel(assessment.next_best_action)}</h2>
-            <p className="text-primary-900 mt-3">{assessment.summary}</p>
-            {assessment.labels.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-4">
-                {assessment.labels.map((label) => (
-                  <span key={label} className="text-xs bg-white text-primary-800 px-2 py-1 rounded-full border border-primary-200">
-                    {label}
-                  </span>
-                ))}
-              </div>
-            )}
-          </section>
-        )}
-
-        {(decisionBlockers.length > 0 || decisionQuestions.length > 0) && (
-          <section className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
-            <div className="grid md:grid-cols-[0.9fr_1.1fr] gap-6">
+            <div className="grid lg:grid-cols-[1.15fr_0.85fr] gap-6">
               <div>
-                <p className="text-sm font-medium uppercase tracking-[0.18em] text-gray-500 mb-2">
+                <div className="mb-4 flex flex-wrap items-center gap-2">
+                  <span
+                    className={`inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium ${recommendationTone(
+                      assessment.top_level_recommendation
+                    )}`}
+                  >
+                    {recommendationLabel(assessment.top_level_recommendation)}
+                  </span>
+                  <span className="inline-flex items-center rounded-full border border-primary-200 bg-white px-3 py-1 text-sm text-primary-900">
+                    Next move: {actionLabel(assessment.next_best_action)}
+                  </span>
+                </div>
+                <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary-700 mb-2">Decision snapshot</p>
+                <h2 className="text-2xl font-semibold text-primary-950">What matters now</h2>
+                <p className="text-primary-900 mt-3 leading-7">{assessment.summary}</p>
+                {assessment.labels.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-4">
+                    {assessment.labels.map((label) => (
+                      <span key={label} className="text-xs bg-white text-primary-800 px-2 py-1 rounded-full border border-primary-200">
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="grid sm:grid-cols-3 lg:grid-cols-1 gap-3">
+                <div className="rounded-lg border border-primary-200 bg-white/80 px-4 py-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-primary-700">Confidence</p>
+                  <p className="mt-2 text-lg font-semibold text-primary-950">{confidenceLabel(assessment.recommendation_confidence)}</p>
+                </div>
+                <div className="rounded-lg border border-primary-200 bg-white/80 px-4 py-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-primary-700">Decision risk</p>
+                  <p className="mt-2 text-lg font-semibold text-primary-950">{confidenceLabel(assessment.decision_risk_level)}</p>
+                </div>
+                <div className="rounded-lg border border-primary-200 bg-white/80 px-4 py-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-primary-700">Known monthly cost</p>
+                  <p className="mt-2 text-lg font-semibold text-primary-950">
+                    {cost?.known_monthly_cost ? `HKD ${cost.known_monthly_cost.toLocaleString()}` : "Unknown"}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 border-t border-primary-200 pt-5 grid lg:grid-cols-[1fr_0.72fr] gap-5">
+              <div>
+                <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary-700 mb-2">
                   Current decision blockers
                 </p>
                 {decisionBlockers.length > 0 ? (
-                  <ul className="space-y-2 text-sm text-gray-700">
+                  <ul className="space-y-2 text-sm text-primary-950">
                     {decisionBlockers.map((blocker) => (
                       <li key={blocker} className="flex gap-2">
-                        <span className="text-gray-400">*</span>
+                        <span className="text-primary-400">*</span>
                         <span>{blocker}</span>
                       </li>
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-sm text-gray-600">
-                    There is no single blocking issue standing out right now.
+                  <p className="text-sm text-primary-900">
+                    No single blocker dominates right now, so this decision is mainly about whether the current fit is strong enough to pursue.
                   </p>
                 )}
               </div>
-              <div>
-                <p className="text-sm font-medium uppercase tracking-[0.18em] text-gray-500 mb-2">
-                  Most useful questions next
+              <div className="rounded-lg border border-primary-200 bg-white/70 px-4 py-4">
+                <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary-700 mb-2">
+                  Keep the page light
                 </p>
-                {decisionQuestions.length > 0 ? (
-                  <ul className="space-y-2 text-sm text-gray-700">
-                    {decisionQuestions.map((question) => (
-                      <li key={question} className="flex gap-2">
-                        <span className="text-gray-400">*</span>
-                        <span>{question}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-gray-600">
-                    No urgent follow-up question stands out from the current structured read.
-                  </p>
-                )}
+                <p className="text-sm text-primary-900 leading-7">
+                  If you need to contact the landlord or agent, use the outreach draft below. Benchmark notes, OCR text, and deeper assessment evidence stay secondary until you need them.
+                </p>
               </div>
             </div>
           </section>
@@ -739,18 +763,91 @@ export default function CandidateDetailPage() {
           </section>
         )}
 
+        <section className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
+          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+            <div className="max-w-2xl">
+              <p className="text-sm font-medium uppercase tracking-[0.18em] text-gray-500 mb-2">
+                Ask agent / landlord
+              </p>
+              <h2 className="text-xl font-semibold text-gray-900">Draft the next message only when you need it</h2>
+              <p className="text-gray-700 mt-2 leading-7">
+                This uses the current assessment to turn your open questions into a short outreach plan, instead of repeating the whole analysis again.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {contactPlan && (
+                <button
+                  onClick={handleCopyContactDraft}
+                  className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition whitespace-nowrap"
+                >
+                  {contactPlanCopied ? "Copied" : "Copy message"}
+                </button>
+              )}
+              <button
+                onClick={handleGenerateContactPlan}
+                disabled={contactPlanLoading || isProcessing}
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition disabled:opacity-50 whitespace-nowrap"
+              >
+                {contactPlanLoading ? "Drafting..." : contactPlan ? "Refresh draft" : "Draft outreach"}
+              </button>
+            </div>
+          </div>
+
+          {contactPlanError && <p className="text-sm text-red-600 mt-4">{contactPlanError}</p>}
+
+          {contactPlan && (
+            <div className="mt-5 border-t border-gray-200 pt-5 grid lg:grid-cols-[0.95fr_1.2fr] gap-5">
+              <div className="rounded-lg bg-gray-50 border border-gray-200 p-4">
+                <p className="text-sm font-medium uppercase tracking-[0.18em] text-gray-500 mb-2">
+                  Contact goal
+                </p>
+                <p className="text-sm text-gray-800 leading-7">{contactPlan.contact_goal}</p>
+
+                <p className="text-sm font-medium uppercase tracking-[0.18em] text-gray-500 mt-5 mb-2">
+                  Best questions to ask
+                </p>
+                <ol className="space-y-3 text-sm text-gray-700">
+                  {contactPlan.questions.map((question, index) => (
+                    <li key={question} className="flex gap-3">
+                      <span className="text-xs font-semibold text-gray-400 pt-0.5">{index + 1}.</span>
+                      <span>{question}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+
+              <div className="rounded-lg bg-gray-50 border border-gray-200 p-4">
+                <p className="text-sm font-medium uppercase tracking-[0.18em] text-gray-500 mb-2">
+                  English message draft
+                </p>
+                <p className="text-xs text-gray-500 mb-3">
+                  Keep this lightweight, then edit tone or details before sending.
+                </p>
+                <p className="text-sm text-gray-800 leading-7 whitespace-pre-wrap">{contactPlan.message_draft}</p>
+              </div>
+            </div>
+          )}
+        </section>
+
         {benchmark && (
-          <section className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
-            <p className="text-sm font-medium uppercase tracking-[0.18em] text-gray-500 mb-2">
-              SDU district benchmark
-            </p>
+          <details className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
+            <summary className="cursor-pointer">
+              <p className="text-lg font-semibold text-gray-900">Benchmark context</p>
+              <p className="text-sm text-gray-500 mt-1">
+                Open this only when district-level SDU pricing would meaningfully change your read.
+              </p>
+            </summary>
+            <div className="mt-4">
+              <p className="text-sm font-medium uppercase tracking-[0.18em] text-gray-500 mb-2">
+                SDU district benchmark
+              </p>
             {benchmark.status === "available" ? (
               <>
                 <h2 className="text-xl font-semibold text-gray-900">
                   Median rent in {benchmark.district}: HKD {benchmark.median_monthly_rent?.toLocaleString()}
                 </h2>
                 <p className="text-sm text-gray-600 mt-2">
-                  {benchmark.source_period} · HKD {benchmark.median_monthly_rent_per_sqm?.toLocaleString()}/m² per month
+                  {benchmark.source_period} | HKD {benchmark.median_monthly_rent_per_sqm?.toLocaleString()} per sq m per month
                 </p>
                 {benchmark.fit_note && <p className="text-sm text-gray-700 mt-3">{benchmark.fit_note}</p>}
                 {benchmark.record_note === "fewer_than_10_records" && (
@@ -766,7 +863,8 @@ export default function CandidateDetailPage() {
                 </p>
               </>
             )}
-          </section>
+            </div>
+          </details>
         )}
 
         {isEditing && (
@@ -850,9 +948,12 @@ export default function CandidateDetailPage() {
 
         <section className="mt-6 space-y-4">
           {candidate.source_assets.length > 0 && (
-            <details className="bg-white rounded-lg border border-gray-200 p-6" open>
-              <summary className="text-lg font-semibold text-gray-900 cursor-pointer">
-                OCR evidence
+            <details className="bg-white rounded-lg border border-gray-200 p-6">
+              <summary className="cursor-pointer">
+                <p className="text-lg font-semibold text-gray-900">OCR evidence</p>
+                <p className="text-sm text-gray-500 mt-1">
+                  Inspect the raw text from each uploaded file before you question the downstream extraction.
+                </p>
               </summary>
               <div className="space-y-4 mt-4">
                 {candidate.source_assets.map((asset) => (
@@ -891,9 +992,12 @@ export default function CandidateDetailPage() {
             </details>
           )}
 
-          <details className="bg-white rounded-lg border border-gray-200 p-6" open>
-            <summary className="text-lg font-semibold text-gray-900 cursor-pointer">
-              Supporting assessment details
+          <details className="bg-white rounded-lg border border-gray-200 p-6">
+            <summary className="cursor-pointer">
+              <p className="text-lg font-semibold text-gray-900">Supporting assessment details</p>
+              <p className="text-sm text-gray-500 mt-1">
+                Open the deeper cost, clause, and extraction context only when you need to inspect why the decision looks this way.
+              </p>
             </summary>
             <div className="grid md:grid-cols-2 gap-6 mt-4">
               {cost && (
@@ -1101,3 +1205,4 @@ function findCompareCardForCandidate(
 
   return null;
 }
+

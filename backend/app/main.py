@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .api.v1 import api_router
 from .core.config import settings
-from .services.ocr_service import PaddleOCRService
+from .services.ocr_service import OCRService
 
 
 app = FastAPI(
@@ -34,12 +34,12 @@ app.include_router(api_router, prefix="/api/v1")
 @app.on_event("startup")
 async def warmup_services() -> None:
     """Warm expensive services during startup so the first user request is faster."""
-    if settings.OCR_PROVIDER == "paddleocr" and settings.OCR_PREWARM_ON_STARTUP:
+    if settings.OCR_PREWARM_ON_STARTUP:
         try:
-            await PaddleOCRService().warmup()
-            logger.info("PaddleOCR engine warmed up during startup")
+            await OCRService().warmup()
+            logger.info("%s engine warmed up during startup", settings.OCR_PROVIDER)
         except Exception as exc:  # pragma: no cover - environment dependent
-            logger.warning("PaddleOCR warmup skipped: %s", exc)
+            logger.warning("%s warmup skipped: %s", settings.OCR_PROVIDER, exc)
 
 
 @app.get("/health")

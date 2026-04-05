@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 
-import { getCandidates, getDashboard, getProject } from "@/lib/api";
+import { deleteCandidate, getCandidates, getDashboard, getProject, updateProject } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import type { Candidate, Dashboard, InvestigationItem, Project } from "@/lib/types";
 
@@ -69,6 +69,36 @@ function priorityLabel(priority: InvestigationItem["priority"]) {
   }
 }
 
+function processingStageLabel(stage?: Candidate["processing_stage"]) {
+  switch (stage) {
+    case "queued":
+      return "Queued";
+    case "running_ocr":
+      return "Running OCR";
+    case "extracting":
+      return "Assessing";
+    case "failed":
+      return "Needs attention";
+    default:
+      return "Processing";
+  }
+}
+
+function processingStageDescription(candidate: Candidate) {
+  switch (candidate.processing_stage) {
+    case "queued":
+      return "This import has been accepted and is waiting for the background worker to begin.";
+    case "running_ocr":
+      return "OCR is still reading the uploaded screenshots, so the extracted fields are not ready yet.";
+    case "extracting":
+      return "OCR is done. RentWise is turning the text into structured details and decision guidance now.";
+    case "failed":
+      return candidate.processing_error || "The import stopped before a usable assessment was produced.";
+    default:
+      return candidate.processing_error || "This candidate is still being processed.";
+  }
+}
+
 export default function ProjectDashboardPage() {
   const router = useRouter();
   const params = useParams();
@@ -79,6 +109,13 @@ export default function ProjectDashboardPage() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingBudget, setEditingBudget] = useState(false);
+  const [budgetInput, setBudgetInput] = useState("");
+  const [budgetSaving, setBudgetSaving] = useState(false);
+  const [budgetError, setBudgetError] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<Candidate | null>(null);
+  const [deleteError, setDeleteError] = useState("");
+  const [deletingCandidateId, setDeletingCandidateId] = useState<string | null>(null);
 
   useEffect(() => {
     const token = getToken();
@@ -90,6 +127,19 @@ export default function ProjectDashboardPage() {
     void loadData(token);
   }, [projectId, router]);
 
+  useEffect(() => {
+    const token = getToken();
+    if (!token || !candidates.some((candidate) => candidate.processing_stage && candidate.processing_stage !== "completed" && candidate.processing_stage !== "failed")) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      void loadData(token);
+    }, 3000);
+
+    return () => window.clearInterval(interval);
+  }, [candidates, projectId]);
+
   const loadData = async (token: string) => {
     try {
       const [projectData, dashboardData, candidatesData] = await Promise.all([
@@ -99,6 +149,7 @@ export default function ProjectDashboardPage() {
       ]);
 
       setProject(projectData);
+      setBudgetInput(projectData.max_budget ? String(projectData.max_budget) : "");
       setDashboard(dashboardData);
       setCandidates(candidatesData.candidates);
     } catch (err) {
@@ -145,6 +196,46 @@ export default function ProjectDashboardPage() {
     router.push(`/projects/${projectId}/compare?ids=${ids}`);
   };
 
+  const handleBudgetSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const token = getToken();
+    if (!token || !project) return;
+
+    setBudgetSaving(true);
+    setBudgetError("");
+    try {
+      const updated = await updateProject(token, projectId, {
+        max_budget: budgetInput.trim() ? parseInt(budgetInput, 10) : undefined,
+      });
+      setProject(updated);
+      setBudgetInput(updated.max_budget ? String(updated.max_budget) : "");
+      setEditingBudget(false);
+      await loadData(token);
+    } catch (err) {
+      setBudgetError(err instanceof Error ? err.message : "Failed to update budget.");
+    } finally {
+      setBudgetSaving(false);
+    }
+  };
+
+  const handleDeleteCandidate = async () => {
+    const token = getToken();
+    if (!token || !deleteTarget) return;
+
+    setDeletingCandidateId(deleteTarget.id);
+    setDeleteError("");
+    try {
+      await deleteCandidate(token, projectId, deleteTarget.id);
+      setSelectedCandidateIds((current) => current.filter((id) => id !== deleteTarget.id));
+      setDeleteTarget(null);
+      await loadData(token);
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete candidate.");
+    } finally {
+      setDeletingCandidateId(null);
+    }
+  };
+
   if (loading) {
     return (
       <main className="min-h-screen flex items-center justify-center">
@@ -171,10 +262,46 @@ export default function ProjectDashboardPage() {
     shortlisted: 0,
     rejected: 0,
   };
+  const processingCandidates = candidates.filter(
+    (candidate) =>
+      candidate.processing_stage &&
+      candidate.processing_stage !== "completed" &&
+      candidate.processing_stage !== "failed"
+  );
 
   return (
     <main className="min-h-screen p-8">
       <div className="max-w-6xl mx-auto">
+        {deleteTarget && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+              <h2 className="text-xl font-bold mb-4">Delete candidate</h2>
+              <p className="text-gray-600 mb-6">
+                Delete {deleteTarget.name} and all related assessments from this project? This cannot be undone.
+              </p>
+              {deleteError && <p className="text-sm text-red-600 mb-4">{deleteError}</p>}
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => {
+                    setDeleteError("");
+                    setDeleteTarget(null);
+                  }}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-900"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => void handleDeleteCandidate()}
+                  disabled={deletingCandidateId === deleteTarget.id}
+                  className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-black disabled:opacity-50"
+                >
+                  {deletingCandidateId === deleteTarget.id ? "Deleting..." : "Confirm delete"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex justify-between items-center mb-8">
           <div>
             <Link href="/projects" className="text-sm text-gray-500 hover:text-gray-700 mb-2 inline-block">
@@ -184,6 +311,52 @@ export default function ProjectDashboardPage() {
             <p className="text-sm text-gray-600 mt-1">
               Candidate-pool workspace for deciding what to verify, follow up, or drop next.
             </p>
+            <div className="mt-3">
+              {editingBudget ? (
+                <form onSubmit={handleBudgetSave} className="flex flex-wrap items-center gap-3">
+                  <label className="text-sm text-gray-600">Budget cap (HKD)</label>
+                  <input
+                    type="number"
+                    value={budgetInput}
+                    onChange={(e) => setBudgetInput(e.target.value)}
+                    className="w-36 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                    placeholder="22000"
+                  />
+                  <button
+                    type="submit"
+                    disabled={budgetSaving}
+                    className="px-3 py-2 bg-gray-900 text-white rounded-lg hover:bg-black disabled:opacity-50 text-sm"
+                  >
+                    {budgetSaving ? "Saving..." : "Save budget"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBudgetInput(project.max_budget ? String(project.max_budget) : "");
+                      setBudgetError("");
+                      setEditingBudget(false);
+                    }}
+                    className="text-sm text-gray-500 hover:text-gray-700"
+                  >
+                    Cancel
+                  </button>
+                  {budgetError && <p className="w-full text-sm text-red-600">{budgetError}</p>}
+                </form>
+              ) : (
+                <div className="flex items-center gap-3 text-sm">
+                  <span className="text-gray-600">
+                    Budget cap: {project.max_budget ? `HKD ${project.max_budget.toLocaleString()}` : "Not set"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setEditingBudget(true)}
+                    className="text-primary-600 hover:text-primary-700"
+                  >
+                    Edit budget
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
           <Link
             href={`/projects/${projectId}/import`}
@@ -192,6 +365,22 @@ export default function ProjectDashboardPage() {
             Add candidate
           </Link>
         </div>
+
+        {processingCandidates.length > 0 && (
+          <section className="bg-blue-50 border border-blue-200 rounded-lg p-5 mb-8">
+            <p className="text-sm font-medium uppercase tracking-[0.18em] text-blue-700 mb-2">
+              Background processing
+            </p>
+            <p className="text-blue-900 leading-7">
+              {processingCandidates.length === 1
+                ? `${processingCandidates[0].name} is still being processed in the background.`
+                : `${processingCandidates.length} candidates are still being processed in the background.`}
+            </p>
+            <p className="text-sm text-blue-700 mt-2">
+              The dashboard refreshes automatically, and these candidates will move into the normal priority flow once OCR and assessment finish.
+            </p>
+          </section>
+        )}
 
         {dashboard?.current_advice && (
           <div className="bg-primary-50 border border-primary-200 rounded-lg p-5 mb-8">
@@ -399,6 +588,7 @@ export default function ProjectDashboardPage() {
                             type="checkbox"
                             checked={selectedCandidateIds.includes(candidate.id)}
                             onChange={() => toggleCandidateSelection(candidate.id)}
+                            disabled={Boolean(candidate.processing_stage && candidate.processing_stage !== "completed")}
                             className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                             aria-label={`Select ${candidate.name} for comparison`}
                           />
@@ -417,11 +607,22 @@ export default function ProjectDashboardPage() {
                         </Link>
                       </div>
                       <p className="text-sm text-gray-600 mt-1">
-                        {candidate.extracted_info?.monthly_rent || "Rent unknown"} /{" "}
-                        {candidate.extracted_info?.district || "District unknown"}
+                        {candidate.processing_stage && candidate.processing_stage !== "completed" ? (
+                          processingStageDescription(candidate)
+                        ) : (
+                          <>
+                            {candidate.extracted_info?.monthly_rent || "Rent unknown"} /{" "}
+                            {candidate.extracted_info?.district || "District unknown"}
+                          </>
+                        )}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap justify-end max-w-sm">
+                      {candidate.processing_stage && candidate.processing_stage !== "completed" && (
+                        <span className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded-full">
+                          {processingStageLabel(candidate.processing_stage)}
+                        </span>
+                      )}
                       {candidate.candidate_assessment?.top_level_recommendation && (
                         <span
                           className={`text-xs border px-2 py-1 rounded-full ${recommendationTone(
@@ -447,6 +648,16 @@ export default function ProjectDashboardPage() {
                       >
                         {decisionLabel(candidate.user_decision)}
                       </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDeleteError("");
+                          setDeleteTarget(candidate);
+                        }}
+                        className="text-xs text-gray-500 hover:text-red-600"
+                      >
+                        Delete
+                      </button>
                     </div>
                   </div>
                 </div>

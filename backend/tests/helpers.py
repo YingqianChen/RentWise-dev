@@ -64,6 +64,8 @@ def build_candidate(
         raw_note_text=None,
         combined_text="Rent 18000, management fee unknown",
         status=status,
+        processing_stage=None,
+        processing_error=None,
         user_decision=user_decision,
         created_at=utc_now(),
         updated_at=utc_now(),

@@ -103,6 +103,10 @@ class CandidateListing(Base):
     status: Mapped[str] = mapped_column(
         String(50), default="new", nullable=False
     )  # new | needs_info | follow_up | high_risk_pending | recommended_reject | shortlisted
+    processing_stage: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True
+    )  # queued | running_ocr | extracting | completed | failed
+    processing_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     user_decision: Mapped[str] = mapped_column(
         String(50), default="undecided", nullable=False
     )  # undecided | shortlisted | rejected
@@ -127,9 +131,41 @@ class CandidateListing(Base):
     candidate_assessment: Mapped["CandidateAssessment"] = relationship(
         "CandidateAssessment", back_populates="candidate", uselist=False, cascade="all, delete-orphan"
     )
+    source_assets: Mapped[List["CandidateSourceAsset"]] = relationship(
+        "CandidateSourceAsset", back_populates="candidate", cascade="all, delete-orphan"
+    )
     investigation_items: Mapped[List["InvestigationItem"]] = relationship(
         "InvestigationItem", back_populates="candidate", cascade="all, delete-orphan"
     )
+
+
+class CandidateSourceAsset(Base):
+    """Uploaded source file attached to a candidate."""
+    __tablename__ = "candidate_source_assets"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), primary_key=True, default=generate_uuid
+    )
+    candidate_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("candidate_listings.id", ondelete="CASCADE"), nullable=False
+    )
+    storage_provider: Mapped[str] = mapped_column(String(50), default="local", nullable=False)
+    storage_key: Mapped[str] = mapped_column(String(500), nullable=False)
+    original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    file_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    ocr_status: Mapped[str] = mapped_column(
+        String(50), default="pending", nullable=False
+    )  # pending | succeeded | failed | skipped
+    ocr_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    candidate: Mapped["CandidateListing"] = relationship("CandidateListing", back_populates="source_assets")
 
 
 class CandidateExtractedInfo(Base):
@@ -319,6 +355,7 @@ Index("ix_search_projects_status", SearchProject.status)
 Index("ix_candidate_listings_project_id", CandidateListing.project_id)
 Index("ix_candidate_listings_status", CandidateListing.status)
 Index("ix_candidate_listings_user_decision", CandidateListing.user_decision)
+Index("ix_candidate_source_assets_candidate_id", CandidateSourceAsset.candidate_id)
 Index("ix_investigation_items_project_id", InvestigationItem.project_id)
 Index("ix_investigation_items_candidate_id", InvestigationItem.candidate_id)
 Index("ix_investigation_items_status", InvestigationItem.status)

@@ -34,6 +34,22 @@ class ExtractedInfoResponse(BaseModel):
     ocr_texts: List[str]
 
 
+class CandidateSourceAssetResponse(BaseModel):
+    """Uploaded candidate source asset"""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    storage_provider: str
+    storage_key: str
+    original_filename: str
+    content_type: Optional[str]
+    file_size: Optional[int]
+    ocr_status: str
+    ocr_text: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+
 # ============== Assessments ==============
 
 class CostAssessmentResponse(BaseModel):
@@ -86,7 +102,7 @@ class CandidateAssessmentResponse(BaseModel):
 class CandidateImport(BaseModel):
     """Import candidate request"""
     name: Optional[str] = Field(None, max_length=255)
-    source_type: str = Field(default="manual_text", pattern="^(manual_text|chat_log|mixed)$")
+    source_type: Optional[str] = Field(default=None, pattern="^(manual_text|chat_log|image_upload|mixed)$")
     raw_listing_text: Optional[str] = None
     raw_chat_text: Optional[str] = None
     raw_note_text: Optional[str] = None
@@ -113,6 +129,8 @@ class CandidateResponse(BaseModel):
     raw_note_text: Optional[str]
     combined_text: Optional[str]
     status: str
+    processing_stage: Optional[str]
+    processing_error: Optional[str]
     user_decision: str
     created_at: datetime
     updated_at: datetime
@@ -121,6 +139,7 @@ class CandidateResponse(BaseModel):
     clause_assessment: Optional[ClauseAssessmentResponse] = None
     candidate_assessment: Optional[CandidateAssessmentResponse] = None
     benchmark: Optional[BenchmarkEvidence] = None
+    source_assets: List[CandidateSourceAssetResponse] = Field(default_factory=list)
 
 
 class CandidateListResponse(BaseModel):

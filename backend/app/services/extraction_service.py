@@ -55,10 +55,22 @@ def parse_bool_value(value: str) -> Optional[bool]:
 class ExtractionService:
     """Service for extracting structured information from listing text."""
 
+    @staticmethod
+    def _collect_ocr_texts(candidate: CandidateListing) -> list[str]:
+        """Collect OCR texts from uploaded source assets."""
+        if not getattr(candidate, "source_assets", None):
+            return []
+        return [
+            asset.ocr_text.strip()
+            for asset in candidate.source_assets
+            if asset.ocr_text and asset.ocr_text.strip()
+        ]
+
     async def extract(self, candidate: CandidateListing) -> CandidateExtractedInfo:
         """Extract structured information from a candidate's combined text."""
+        ocr_texts = self._collect_ocr_texts(candidate)
         if not candidate.combined_text:
-            return CandidateExtractedInfo(candidate_id=candidate.id)
+            return CandidateExtractedInfo(candidate_id=candidate.id, ocr_texts=ocr_texts)
 
         prompt = EXTRACTION_PROMPT.format(text=candidate.combined_text)
         try:
@@ -85,7 +97,7 @@ class ExtractionService:
             bedrooms=normalize_value(data.get("bedrooms", "")),
             suspected_sdu=parse_bool_value(str(data.get("suspected_sdu", ""))),
             sdu_detection_reason=normalize_optional_value(str(data.get("sdu_detection_reason", ""))),
-            ocr_texts=[],
+            ocr_texts=ocr_texts,
         )
 
     async def generate_listing_name(

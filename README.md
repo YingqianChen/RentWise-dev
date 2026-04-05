@@ -2,7 +2,7 @@
 
 This README is the **canonical project document** for the active codebase.
 
-If older notes or refactor docs disagree with this file, treat this README as the current source of truth. From this point on, project status, roadmap, and review notes should be updated here instead of being split across multiple new documents.
+If older notes, specs, or refactor docs disagree with this file, treat this README as the current source of truth. A synchronized Chinese review copy is kept in `README_zh.md`; both documents should be updated together.
 
 RentWise is being rebuilt from a Streamlit prototype into a monorepo with:
 
@@ -20,14 +20,19 @@ The active product focuses on a candidate-pool decision workflow:
 
 - user registration and login
 - search project creation
+- search project budget editing
 - search project deletion
-- text-only candidate import
-- automatic extraction and assessment after import
+- mixed text + multi-image candidate import
+- background OCR / extraction / assessment after import
 - dashboard summary with action-oriented priority candidates and investigation items
 - dashboard investigation checklist now groups shared blockers instead of repeating the same prompt for each listing
 - candidate detail view with reassess / shortlist / reject actions
+- candidate deletion with confirmation
 - candidate editing with automatic reassessment
 - candidate detail now prioritizes decision blockers and next questions before deeper structured details
+- dashboard now shows background-processing candidates as processing work instead of rendering them like empty assessed candidates
+- dashboard now supports candidate deletion directly from the candidate list
+- budget edits now trigger budget-dependent reassessment for existing completed candidates
 - top-level first-pass recommendation:
   - shortlist recommendation
   - not ready
@@ -66,7 +71,6 @@ The current compare experience is designed as a shortlist decision workspace rat
 
 Not in the current scope:
 
-- image upload / OCR
 - RAG-driven district workflow
 - commute calculation
 - saved compare history
@@ -99,6 +103,83 @@ RentWise/
   docs/
 ```
 
+Key directories:
+
+- `backend/`: API, database models, OCR pipeline, assessment services, Alembic migrations, tests
+- `frontend/`: Next.js app routes, API client, auth helpers, candidate/project pages
+- `docs/`: design notes, presentation notes, roadmap material
+- `legacy/`: archived prototype artifacts kept for reference only
+
+## Key Modules And Files
+
+### Backend
+
+- `backend/app/main.py`
+  - FastAPI entry point and startup hooks, including OCR prewarm
+- `backend/app/core/config.py`
+  - environment-driven settings; secrets now come only from `.env` or the process environment
+- `backend/app/db/models.py`
+  - SQLAlchemy models for users, projects, candidates, assessments, and source assets
+- `backend/app/api/v1/auth.py`
+  - registration and login routes
+- `backend/app/api/v1/projects.py`
+  - project create/update/delete logic, including budget updates
+- `backend/app/api/v1/candidates.py`
+  - candidate import, list/detail, edit, delete, reassessment
+- `backend/app/api/v1/dashboard.py`
+  - dashboard response assembly for project-level decision views
+- `backend/app/api/v1/comparison.py`
+  - compare workflow routes
+- `backend/app/services/candidate_import_background_service.py`
+  - in-process background OCR and assessment pipeline
+- `backend/app/services/ocr_service.py`
+  - PaddleOCR integration and result normalization
+- `backend/app/services/file_storage_service.py`
+  - upload storage abstraction; local development currently writes to `backend/storage/`
+- `backend/app/services/extraction_service.py`
+  - LLM-driven structured extraction from combined candidate text
+- `backend/app/services/cost_assessment_service.py`
+  - cost-focused heuristics and confidence outputs
+- `backend/app/services/clause_assessment_service.py`
+  - lease / repair / move-in semantic assessment
+- `backend/app/services/candidate_assessment_service.py`
+  - overall candidate recommendation, completeness, and next action
+- `backend/app/services/comparison_service.py`
+  - shortlist grouping and compare explanations
+- `backend/app/services/comparison_briefing_service.py`
+  - compare-page LLM briefing with fallback behavior
+- `backend/app/services/benchmark_service.py`
+  - SDU benchmark evidence lookup using local structured data
+- `backend/app/data/benchmark_sdu_rents.json`
+  - versioned SDU median-rent benchmark data file
+- `backend/alembic/`
+  - schema migration history
+- `backend/tests/`
+  - unit and integration coverage for major flows
+
+### Frontend
+
+- `frontend/app/page.tsx`
+  - landing page
+- `frontend/app/login/page.tsx`
+  - login view
+- `frontend/app/projects/page.tsx`
+  - project list view
+- `frontend/app/projects/[id]/page.tsx`
+  - project dashboard, candidate queue, budget editing
+- `frontend/app/projects/[id]/import/page.tsx`
+  - mixed text + image import form with processing state UX
+- `frontend/app/projects/[id]/candidates/[candidateId]/page.tsx`
+  - candidate detail, reassessment, OCR evidence, delete action
+- `frontend/app/projects/[id]/compare/page.tsx`
+  - compare workspace and LLM briefing
+- `frontend/lib/api.ts`
+  - browser API client and response/error handling
+- `frontend/lib/types.ts`
+  - shared frontend response types
+- `frontend/lib/auth.ts`
+  - token storage helpers
+
 ## Backend Setup
 
 ```bash
@@ -110,6 +191,8 @@ copy .env.example .env
 alembic upgrade head
 uvicorn app.main:app --reload --port 8000
 ```
+
+If you want image OCR during candidate import, make sure your Python environment has a working PaddleOCR runtime. The backend requirements include both `paddleocr` and `paddlepaddle==3.0.0`, and OCR import targets the newer PaddleOCR pipeline API.
 
 If your local PostgreSQL database was created by the earlier startup `create_all()` flow, run this one-time command instead before switching to Alembic-managed migrations:
 
@@ -160,11 +243,23 @@ Optional provider settings:
 - `OLLAMA_HOST`
 - `OLLAMA_API_KEY`
 - `OLLAMA_MODEL`
+- `FILE_STORAGE_PROVIDER`
+- `LOCAL_UPLOAD_ROOT`
+- `OCR_PROVIDER`
+- `PADDLEOCR_LANG`
+- `OCR_USE_DOC_ORIENTATION`
+- `OCR_USE_DOC_UNWARPING`
+- `OCR_USE_TEXTLINE_ORIENTATION`
+- `PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK`
+- `OCR_PREWARM_ON_STARTUP`
+- `OCR_MAX_IMAGE_DIMENSION`
 
-Note:
+Notes:
 
 - The rebuilt backend currently targets PostgreSQL.
 - SQLite is not a supported runtime for the current schema.
+- API keys are no longer hardcoded in `backend/app/core/config.py`; provider secrets must come from `backend/.env` or the process environment.
+- For Neon, use an `asyncpg` SQLAlchemy URL such as `postgresql+asyncpg://...?...ssl=require`.
 
 ### Frontend
 
@@ -174,10 +269,54 @@ Default:
 
 - `http://localhost:8000`
 
+## Deployment Notes
+
+Current deployment assumptions:
+
+- database: PostgreSQL, including hosted services such as Neon
+- backend: FastAPI process with an in-process background worker
+- frontend: Next.js app
+- OCR runtime: PaddleOCR + PaddlePaddle
+
+Important production caveats:
+
+- Candidate OCR and assessment currently run in an in-process background worker, not an external job queue.
+- Local file storage is suitable for development only. The upload layer is abstracted, but production deployment should move to object storage rather than relying on the backend filesystem.
+- OCR can still be CPU-heavy. The current codebase prewarms the OCR engine and downscales large images before OCR, but the biggest remaining speed lever is GPU-backed PaddlePaddle.
+
+Recommended production direction:
+
+1. PostgreSQL on Neon or another managed provider
+2. dedicated object storage for uploaded screenshots
+3. backend deployment with persistent environment variables
+4. frontend deployment on a Next.js-compatible host
+5. future upgrade from in-process background work to an external queue if import volume grows
+
+## Release And Data-Safety Checklist
+
+Before pushing to GitHub:
+
+- confirm `backend/.env`, `frontend/.env.local`, and any root `.env` files are ignored and not tracked
+- confirm `backend/storage/` is ignored
+- do not commit model caches, logs, virtual environments, or build artifacts
+- do not commit exported course/reference HTML files or ad hoc local scratch files
+- rotate any credentials that were ever pasted into chat, docs, screenshots, or terminals
+- keep only placeholder values in `.env.example`
+- review `git status` before every push
+
+Sensitive local files that must stay out of git:
+
+- `backend/.env`
+- `frontend/.env.local`
+- `backend/storage/`
+- `frontend/node_modules/`
+- `frontend/.next/`
+- local logs, caches, and generated artifacts
+
 ## Product Notes
 
 - `legacy/streamlit_app/` is not the active product entry point.
-- Database schema is now managed with Alembic.
+- Database schema is managed with Alembic.
 - Run `alembic upgrade head` before starting the backend on a fresh environment.
 - If you already had tables from the older startup-created schema, run `alembic stamp head` once to align Alembic with the existing database, then keep using `alembic upgrade head` for every later schema change.
 - If you see errors like `column candidate_extracted_info.suspected_sdu does not exist`, your code is ahead of your local database schema. Run `alembic upgrade head` in `backend/`.
@@ -186,14 +325,36 @@ Default:
 - Compare results are generated on demand and are not persisted yet.
 - Dashboard can surface a suggested compare set based on the current shortlist shape.
 - Candidate detail can open a compare workspace centered on the current candidate.
-- Compare page now includes an LLM-assisted briefing layer with deterministic fallback if the model call fails.
-- Candidate detail now pushes structured fields and source text into supporting sections so the decision read comes first.
-- Dashboard now treats open questions as a grouped investigation checklist rather than a repeated per-listing warning feed.
-- Frontend API error handling now keeps real backend response errors separate from true network failures, so candidate edit/save surfaces more actionable messages.
+- Compare page includes an LLM-assisted briefing layer with deterministic fallback if the model call fails.
+- Candidate detail pushes structured fields and source text into supporting sections so the decision read comes first.
+- Dashboard treats open questions as a grouped investigation checklist rather than a repeated per-listing warning feed.
+- Frontend API error handling keeps real backend response errors separate from true network failures, so candidate edit/save surfaces more actionable messages.
 - Repair responsibility assessment now uses an LLM-normalized repair note plus conservative rule-based semantics, so signals like agency-supported repairs are treated as positive but still unconfirmed instead of being collapsed into a generic unknown.
 - Lease term and move-in timing now follow the same pattern: the LLM first normalizes the clause text, then conservative semantic rules decide whether the signal looks standard, rigid, unstable, fit, uncertain, or mismatched.
 - Candidate detail now translates internal clause states into user-facing explanations instead of exposing raw labels like `rigid` or `uncertain` directly.
-- Local environment files such as `backend/.env` and `frontend/.env.local`, along with local caches and build artifacts, must stay out of git to avoid leaking secrets or machine-specific state.
+- Candidate import supports mixed text + multi-image input in one form. Uploaded screenshots are stored through a storage abstraction that currently uses a local development adapter, then OCR text is merged back into the normal `combined_text` analysis pipeline.
+- Development uploads are stored under `backend/storage/`, which must stay out of git.
+- OCR import stores uploaded source-asset metadata separately from extracted candidate fields so the async candidate pipeline can reuse OCR evidence without triggering lazy-load issues during import.
+- If image-only import creates empty extraction results, check that `paddlepaddle` is installed inside `backend\\venv`, not just `paddleocr`. Background import failures are now written back onto the candidate so the detail page can show the real OCR failure reason instead of a fake network-style error.
+- Candidate import is processed by an in-app background task instead of blocking the request until OCR and assessment finish. The import page returns quickly, redirects to the candidate detail page, and the detail page polls until the background stages finish.
+- The initial queued import response returns a placeholder candidate state without forcing lazy assessment loads, so image import no longer crashes at response serialization time before the background worker starts.
+- The project dashboard also polls while any candidate is still processing, so finished OCR jobs can move into the priority queue without forcing a manual refresh.
+- Candidates that are still processing are shown as explicit background work on the dashboard instead of appearing as blank low-information cards, and they are temporarily excluded from compare selection until assessment finishes.
+- OCR startup is prewarmed by default so the first user import does not have to pay the full model boot cost inside the request path.
+- Uploaded screenshots are resized down to a configurable maximum dimension before OCR, which significantly reduces CPU-bound latency on oversized mobile screenshots without changing the mixed text + image workflow.
+- `PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK` is a first-class backend setting and is pushed into `os.environ` before `paddleocr` is imported, so setting it in `backend/.env` suppresses the model-hoster connectivity check without requiring a manual terminal export.
+- Candidate processing stages are currently:
+  - `queued`
+  - `running_ocr`
+  - `extracting`
+  - `completed`
+  - `failed`
+- This is intentionally an in-process background worker, not an external queue. It improves perceived speed immediately, but tasks are still tied to the running backend process.
+- Candidate detail supports permanent deletion with a confirmation step, and the project workspace supports inline budget updates.
+- Candidate deletion is available both from candidate detail and directly from the dashboard candidate list.
+- Updating a project's budget refreshes budget-dependent assessments for existing completed candidates, so the dashboard and candidate recommendations stay aligned with the new cap.
+- Candidate detail exposes OCR evidence per uploaded file so you can inspect what text OCR actually read before blaming downstream extraction.
+- The import page uses a custom upload trigger instead of the browser's native file-button label, which avoids mixed-language UI inside an otherwise English interface.
 
 ## UX Reality Check
 
@@ -235,6 +396,8 @@ Phase 1 is effectively complete:
 - candidate detail
 - project deletion
 - candidate editing
+- candidate deletion
+- project budget editing
 - Alembic migrations
 - test coverage for the main backend flows
 
@@ -255,7 +418,7 @@ Phase 2.5 is partially active:
 - compare page already has an agent-style briefing layer
 - the next likely work in this area is stronger guidance and evidence-backed explanation
 
-## Evidence, Benchmark, and Commute Roadmap
+## Evidence, Benchmark, And Commute Roadmap
 
 The next evidence-related work should not be treated as one generic "RAG" project.
 
@@ -344,6 +507,18 @@ Recommended order:
 2. inspect OCR quality manually
 3. chunk only after the text is acceptable
 4. add narrow retrieval for explanation support
+
+Current OCR integration shape:
+
+- OCR belongs in candidate import, not in a separate standalone tool
+- users can upload multiple listing, chat, or contract screenshots at once
+- OCR output is preserved as source evidence and also merged into the same text bundle used by extraction and assessment
+- file storage is abstracted so local development can use filesystem storage now while future deployment can move to object storage without rewriting the analysis flow
+- The current backend targets the newer PaddleOCR pipeline API and reads text from `predict()` results instead of relying on the deprecated `ocr(..., cls=True)` path.
+- The default OCR settings now bias toward speed for screenshot-style inputs by disabling document orientation, unwarping, and textline-orientation passes unless you explicitly turn them back on in the backend environment.
+- Import no longer waits for OCR and LLM assessment to finish inside one request. The candidate is created first, then OCR and assessment continue in an in-app background task while the detail page polls for progress.
+- OCR performance is now improved in two practical ways: the PaddleOCR engine is prewarmed on backend startup, and large uploaded images are resized before OCR. The remaining major speed lever is GPU-backed PaddlePaddle rather than more prompt-layer changes.
+- If you still see a Windows shell line about a pattern or file not being found while PaddleOCR starts, that message is not emitted by the RentWise codebase itself. It appears to come from the Windows shell or a lower-level dependency layer rather than from our application logging.
 
 Likely value of RAG here:
 
@@ -447,6 +622,8 @@ The current test suite also covers:
 - compare route response shape
 - compare briefing fallback behavior
 - grouped investigation checklist behavior
+- OCR service parsing
+- benchmark lookup behavior
 
 ## Team Review Notes
 

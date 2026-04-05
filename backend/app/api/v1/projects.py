@@ -7,13 +7,15 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db.database import get_db
-from ...db.models import User, SearchProject
+from ...db.models import CandidateListing, User, SearchProject
 from ...schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectResponse, ProjectListResponse
 )
+from ...services.candidate_pipeline_service import CandidatePipelineService
 from .auth import get_current_user
 
 router = APIRouter()
+pipeline_service = CandidatePipelineService()
 
 
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
@@ -111,10 +113,25 @@ async def update_project(
             detail="Project not found"
         )
 
+    previous_budget = project.max_budget
+
     # Update fields
     update_data = project_data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(project, field, value)
+
+    if "max_budget" in update_data and update_data["max_budget"] != previous_budget:
+        candidate_result = await db.execute(
+            select(CandidateListing).where(
+                CandidateListing.project_id == project.id,
+                CandidateListing.combined_text.is_not(None),
+            )
+        )
+        candidates = candidate_result.scalars().all()
+        for candidate in candidates:
+            if candidate.processing_stage in {"queued", "running_ocr", "extracting"}:
+                continue
+            await pipeline_service.assess_candidate(db=db, project=project, candidate=candidate)
 
     await db.flush()
     await db.refresh(project)

@@ -6,6 +6,7 @@ import Link from "next/link";
 
 import {
   compareCandidates,
+  deleteCandidate,
   getCandidates,
   getCandidate,
   reassessCandidate,
@@ -148,6 +149,36 @@ function moveInTimingDescription(level?: string | null) {
   }
 }
 
+function processingStageLabel(stage?: string | null) {
+  switch (stage) {
+    case "queued":
+      return "Queued for background analysis";
+    case "running_ocr":
+      return "Running OCR on uploaded images";
+    case "extracting":
+      return "Extracting details and generating assessment";
+    case "failed":
+      return "Import needs attention";
+    default:
+      return "Processing";
+  }
+}
+
+function processingStageDescription(stage?: string | null) {
+  switch (stage) {
+    case "queued":
+      return "The candidate was created successfully and is waiting for the in-app background worker to begin.";
+    case "running_ocr":
+      return "RentWise is reading the uploaded screenshots now. This stage is usually the slowest on larger images.";
+    case "extracting":
+      return "OCR finished. RentWise is now extracting fields and generating the decision guidance.";
+    case "failed":
+      return "The background import stopped before a usable assessment was produced.";
+    default:
+      return "RentWise is still processing this candidate in the background.";
+  }
+}
+
 function benchmarkStatusCopy(benchmark: BenchmarkEvidence) {
   switch (benchmark.status) {
     case "no_benchmark_record":
@@ -238,7 +269,7 @@ export default function CandidateDetailPage() {
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
-  const [showConfirm, setShowConfirm] = useState<"shortlist" | "reject" | null>(null);
+  const [showConfirm, setShowConfirm] = useState<"shortlist" | "reject" | "delete" | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [compareContext, setCompareContext] = useState<{
@@ -251,6 +282,10 @@ export default function CandidateDetailPage() {
     raw_chat_text: "",
     raw_note_text: "",
   });
+  const isProcessing =
+    candidate?.processing_stage !== null &&
+    candidate?.processing_stage !== undefined &&
+    !["completed", "failed"].includes(candidate.processing_stage);
 
   useEffect(() => {
     const token = getToken();
@@ -261,6 +296,19 @@ export default function CandidateDetailPage() {
 
     void loadCandidate(token);
   }, [candidateId, router]);
+
+  useEffect(() => {
+    const token = getToken();
+    if (!token || !isProcessing) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      void loadCandidate(token);
+    }, 3000);
+
+    return () => window.clearInterval(interval);
+  }, [isProcessing, candidateId, projectId]);
 
   const loadCandidate = async (token: string) => {
     try {
@@ -374,6 +422,24 @@ export default function CandidateDetailPage() {
     setIsEditing(false);
   };
 
+  const handleDelete = async () => {
+    const token = getToken();
+    if (!token) return;
+
+    setActionLoading(true);
+    setSaveError("");
+    try {
+      await deleteCandidate(token, projectId, candidateId);
+      router.push(`/projects/${projectId}`);
+    } catch (err) {
+      console.error("Failed to delete candidate:", err);
+      setSaveError(err instanceof Error ? err.message : "Failed to delete candidate.");
+    } finally {
+      setActionLoading(false);
+      setShowConfirm(null);
+    }
+  };
+
   if (loading) {
     return (
       <main className="min-h-screen flex items-center justify-center">
@@ -421,14 +487,14 @@ export default function CandidateDetailPage() {
                   setSaveError("");
                   setIsEditing((current) => !current);
                 }}
-                disabled={actionLoading}
+                disabled={actionLoading || isProcessing}
                 className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition disabled:opacity-50"
               >
                 {isEditing ? "Close editor" : "Edit candidate"}
               </button>
               <button
                 onClick={handleReassess}
-                disabled={actionLoading}
+                disabled={actionLoading || isProcessing}
                 className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition disabled:opacity-50"
               >
                 Reassess
@@ -437,42 +503,90 @@ export default function CandidateDetailPage() {
                 <>
                   <button
                     onClick={() => setShowConfirm("shortlist")}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
+                    disabled={isProcessing}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50"
                   >
                     Shortlist
                   </button>
                   <button
                     onClick={() => setShowConfirm("reject")}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
+                    disabled={isProcessing}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition disabled:opacity-50"
                   >
                     Reject
                   </button>
+                  <button
+                    onClick={() => setShowConfirm("delete")}
+                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+                  >
+                    Delete
+                  </button>
                 </>
               ) : (
-                <span
-                  className={`px-3 py-1 rounded-lg text-sm ${
-                    candidate.user_decision === "shortlisted"
-                      ? "bg-green-100 text-green-700"
-                      : "bg-red-100 text-red-700"
-                  }`}
-                >
-                  {candidate.user_decision === "shortlisted" ? "Shortlisted" : "Rejected"}
-                </span>
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`px-3 py-1 rounded-lg text-sm ${
+                      candidate.user_decision === "shortlisted"
+                        ? "bg-green-100 text-green-700"
+                        : "bg-red-100 text-red-700"
+                    }`}
+                  >
+                    {candidate.user_decision === "shortlisted" ? "Shortlisted" : "Rejected"}
+                  </span>
+                  <button
+                    onClick={() => setShowConfirm("delete")}
+                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+                  >
+                    Delete
+                  </button>
+                </div>
               )}
             </div>
           </div>
         </div>
 
+        {candidate.processing_stage && candidate.processing_stage !== "completed" && (
+          <section
+            className={`rounded-lg border p-5 mb-6 ${
+              candidate.processing_stage === "failed"
+                ? "bg-red-50 border-red-200"
+                : "bg-blue-50 border-blue-200"
+            }`}
+          >
+            <p
+              className={`text-sm font-medium uppercase tracking-[0.18em] mb-2 ${
+                candidate.processing_stage === "failed" ? "text-red-700" : "text-blue-700"
+              }`}
+            >
+              {processingStageLabel(candidate.processing_stage)}
+            </p>
+            <p className={`${candidate.processing_stage === "failed" ? "text-red-900" : "text-blue-900"} leading-7`}>
+              {candidate.processing_error || processingStageDescription(candidate.processing_stage)}
+            </p>
+            {candidate.processing_stage !== "failed" && (
+              <p className="text-sm text-blue-700 mt-3">
+                This page refreshes automatically while the background import is still running.
+              </p>
+            )}
+          </section>
+        )}
+
         {showConfirm && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 w-full max-w-md">
               <h2 className="text-xl font-bold mb-4">
-                {showConfirm === "shortlist" ? "Confirm shortlist" : "Confirm rejection"}
+                {showConfirm === "shortlist"
+                  ? "Confirm shortlist"
+                  : showConfirm === "reject"
+                    ? "Confirm rejection"
+                    : "Delete candidate"}
               </h2>
               <p className="text-gray-600 mb-6">
                 {showConfirm === "shortlist"
                   ? "Add this candidate to your shortlist?"
-                  : "Mark this candidate as rejected? You can reassess it later if needed."}
+                  : showConfirm === "reject"
+                    ? "Mark this candidate as rejected? You can reassess it later if needed."
+                    : "Delete this candidate and all related assessments from the project? This cannot be undone."}
               </p>
               <div className="flex gap-3 justify-end">
                 <button
@@ -482,15 +596,25 @@ export default function CandidateDetailPage() {
                   Cancel
                 </button>
                 <button
-                  onClick={() => void handleAction(showConfirm)}
+                  onClick={() =>
+                    showConfirm === "delete" ? void handleDelete() : void handleAction(showConfirm)
+                  }
                   disabled={actionLoading}
                   className={`px-4 py-2 text-white rounded-lg ${
                     showConfirm === "shortlist"
                       ? "bg-green-600 hover:bg-green-700"
-                      : "bg-red-600 hover:bg-red-700"
+                      : showConfirm === "reject"
+                        ? "bg-red-600 hover:bg-red-700"
+                        : "bg-gray-900 hover:bg-black"
                   }`}
                 >
-                  {actionLoading ? "Working..." : "Confirm"}
+                  {actionLoading
+                    ? showConfirm === "delete"
+                      ? "Deleting..."
+                      : "Working..."
+                    : showConfirm === "delete"
+                      ? "Confirm delete"
+                      : "Confirm"}
                 </button>
               </div>
             </div>
@@ -725,6 +849,48 @@ export default function CandidateDetailPage() {
         )}
 
         <section className="mt-6 space-y-4">
+          {candidate.source_assets.length > 0 && (
+            <details className="bg-white rounded-lg border border-gray-200 p-6" open>
+              <summary className="text-lg font-semibold text-gray-900 cursor-pointer">
+                OCR evidence
+              </summary>
+              <div className="space-y-4 mt-4">
+                {candidate.source_assets.map((asset) => (
+                  <div key={asset.id} className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+                      <div>
+                        <p className="font-medium text-gray-900">{asset.original_filename}</p>
+                        <p className="text-sm text-gray-500">
+                          {asset.file_size ? `${Math.round(asset.file_size / 1024)} KB` : "Unknown size"}
+                        </p>
+                      </div>
+                      <span
+                        className={`text-xs px-2.5 py-1 rounded-full ${
+                          asset.ocr_status === "succeeded"
+                            ? "bg-green-100 text-green-700"
+                            : asset.ocr_status === "failed"
+                              ? "bg-red-100 text-red-700"
+                              : "bg-gray-100 text-gray-700"
+                        }`}
+                      >
+                        OCR {asset.ocr_status}
+                      </span>
+                    </div>
+                    {asset.ocr_text ? (
+                      <pre className="text-sm text-gray-600 whitespace-pre-wrap bg-gray-50 p-3 rounded-lg overflow-auto max-h-64">
+                        {asset.ocr_text}
+                      </pre>
+                    ) : (
+                      <p className="text-sm text-gray-600">
+                        No OCR text was saved for this file.
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+
           <details className="bg-white rounded-lg border border-gray-200 p-6" open>
             <summary className="text-lg font-semibold text-gray-900 cursor-pointer">
               Supporting assessment details

@@ -411,6 +411,10 @@ uvicorn app.main:app --host 0.0.0.0 --port $PORT
 - Candidate detail 现在采用更轻的 decision workspace 组织方式：主界面聚焦当前决策，benchmark note 和更深的 evidence panel 默认折叠，只有在需要核查时再展开。
 - Import 页面使用自定义上传按钮，而不是浏览器原生文件按钮标签，从而避免在英文界面中夹杂系统原生其他语言文案。
 - 如果 PaddleOCR 启动时仍看到 Windows shell 报告某个 pattern 或 file not found，那不是 RentWise 应用本身输出的日志，而更像是本地 shell 或更底层依赖层发出的消息。
+- Extraction 归一化已做类型兼容：`normalize_value` / `normalize_optional_value` / `parse_bool_value` 现在可以接受任意 LLM 返回类型（字符串、整数、浮点、布尔、null），像 `size_sqft: 500` 这种数值返回不再会让 reassess 报 `'int' object has no attribute 'lower'`。
+- 修改 project 预算时，会在 pipeline reassessment 之前先 eager-load 每个 candidate 的 `source_assets`、`extracted_info` 以及各项 assessment 关系，避免异步 lazy-load 触发 `MissingGreenlet` 并让整笔事务回滚导致预算改动丢失。
+- Compare 的 key differences 概述现在会把当前 leader 从 “仍有不确定性 / 仍不稳定 / 仍需更多证据” 的列表里剔除，避免出现“A 是最清晰的 …… A 仍有隐藏成本风险”这种自相矛盾的文案。
+- `POST /api/v1/auth/login` 同时接受 `application/json`（前端使用）与 `application/x-www-form-urlencoded`（字段名 `username` 或 `email`），因此 Swagger 的 “Authorize” 按钮以及标准 OAuth2 客户端都能直接工作，不再被 Pydantic 当成非法 body 拒掉。
 
 ## UX 现实检查
 

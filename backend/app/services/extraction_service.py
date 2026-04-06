@@ -9,26 +9,42 @@ from ..integrations.llm.prompts import EXTRACTION_PROMPT, LISTING_NAME_PROMPT
 from ..integrations.llm.utils import chat_completion_json
 
 
-def normalize_value(value: str) -> str:
+def _coerce_to_str(value: object) -> str:
+    """Coerce arbitrary LLM-return values into a safe string."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def normalize_value(value: object) -> str:
     """Normalize extracted values to a stable string representation."""
-    if not value or value.lower() in {"unknown", "n/a", "none", ""}:
+    text = _coerce_to_str(value)
+    if not text or text.lower().strip() in {"unknown", "n/a", "none", ""}:
         return "unknown"
-    return value.strip()
+    return text.strip()
 
 
-def normalize_optional_value(value: str) -> Optional[str]:
+def normalize_optional_value(value: object) -> Optional[str]:
     """Normalize extracted values while preserving null for missing hints."""
-    if not value or value.lower() in {"unknown", "n/a", "none", ""}:
+    text = _coerce_to_str(value)
+    if not text or text.lower().strip() in {"unknown", "n/a", "none", ""}:
         return None
-    return value.strip()
+    return text.strip()
 
 
-def parse_bool_value(value: str) -> Optional[bool]:
-    """Parse boolean-like strings returned by the extractor."""
-    if not value or value.lower() in {"unknown", "n/a", "none", ""}:
+def parse_bool_value(value: object) -> Optional[bool]:
+    """Parse boolean-like values returned by the extractor."""
+    if isinstance(value, bool):
+        return value
+    text = _coerce_to_str(value)
+    if not text or text.lower().strip() in {"unknown", "n/a", "none", ""}:
         return None
 
-    lower = value.lower().strip()
+    lower = text.lower().strip()
     if lower in {
         "true",
         "yes",

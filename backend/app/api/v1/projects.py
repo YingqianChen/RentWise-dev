@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from ...db.database import get_db
 from ...db.models import CandidateListing, User, SearchProject
@@ -122,7 +123,15 @@ async def update_project(
 
     if "max_budget" in update_data and update_data["max_budget"] != previous_budget:
         candidate_result = await db.execute(
-            select(CandidateListing).where(
+            select(CandidateListing)
+            .options(
+                selectinload(CandidateListing.source_assets),
+                selectinload(CandidateListing.extracted_info),
+                selectinload(CandidateListing.cost_assessment),
+                selectinload(CandidateListing.clause_assessment),
+                selectinload(CandidateListing.candidate_assessment),
+            )
+            .where(
                 CandidateListing.project_id == project.id,
                 CandidateListing.combined_text.is_not(None),
             )

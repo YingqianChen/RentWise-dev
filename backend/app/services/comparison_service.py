@@ -418,10 +418,12 @@ class ComparisonService:
         )
         if cost_sorted:
             clearest = pick_name(cost_sorted)
+            leader_id = cost_sorted[0].id
             unclear = [
                 candidate.name
                 for candidate in cost_sorted
-                if candidate.cost_assessment.cost_risk_flag in {"hidden_cost_risk", "possible_additional_cost"}
+                if candidate.id != leader_id
+                and candidate.cost_assessment.cost_risk_flag in {"hidden_cost_risk", "possible_additional_cost"}
             ]
             differences.append(
                 CompareDifference(
@@ -443,10 +445,12 @@ class ComparisonService:
         )
         if clause_sorted:
             steadiest = pick_name(clause_sorted)
+            leader_id = clause_sorted[0].id
             fragile = [
                 candidate.name
                 for candidate in clause_sorted
-                if candidate.clause_assessment.clause_risk_flag != "none"
+                if candidate.id != leader_id
+                and candidate.clause_assessment.clause_risk_flag != "none"
             ]
             differences.append(
                 CompareDifference(
@@ -476,7 +480,8 @@ class ComparisonService:
             low_conf = [
                 candidate.name
                 for candidate in candidates
-                if candidate.candidate_assessment
+                if candidate.id != best_card.candidate_id
+                and candidate.candidate_assessment
                 and candidate.candidate_assessment.recommendation_confidence == "low"
             ]
             differences.append(

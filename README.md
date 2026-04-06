@@ -410,6 +410,10 @@ Sensitive local files that must stay out of git:
 - Candidate detail now includes an on-demand LLM outreach draft that turns the current blockers into 2 to 3 concrete landlord / agent questions plus a short English message draft. It is intentionally generated only when requested so the page does not become noisier for users comparing only a few listings.
 - Candidate detail now follows a lighter decision-workspace pattern: the main screen stays focused on the live decision, while benchmark notes and deeper evidence panels are collapsed by default.
 - The import page uses a custom upload trigger instead of the browser's native file-button label, which avoids mixed-language UI inside an otherwise English interface.
+- Extraction normalization is type-tolerant: `normalize_value` / `normalize_optional_value` / `parse_bool_value` accept any LLM return type (string, int, float, bool, null), so a numeric value such as `size_sqft: 500` no longer crashes reassessment with `'int' object has no attribute 'lower'`.
+- Project budget updates eager-load each candidate's `source_assets`, `extracted_info`, and assessment relationships before running pipeline reassessment, so a budget change no longer trips an async lazy-load (`MissingGreenlet`) and rolls the whole transaction back.
+- Compare key-difference summaries now exclude the current leader from the "still uncertain" / "still fragile" / "would benefit from more evidence" lists, so the leading candidate is never described as both the clearest and the least clear option in the same sentence.
+- `POST /api/v1/auth/login` accepts both `application/json` (used by the frontend) and `application/x-www-form-urlencoded` (with `username` or `email`), so Swagger's "Authorize" button and standard OAuth2 clients work without rejecting the request as a Pydantic body error.
 
 ## UX Reality Check
 

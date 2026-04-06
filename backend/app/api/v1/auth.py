@@ -1,7 +1,10 @@
 """Authentication API endpoints"""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import json
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -66,9 +69,50 @@ async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
     return Token(access_token=access_token)
 
 
+async def _parse_login_payload(request: Request) -> UserLogin:
+    """Accept both JSON and OAuth2-style form-encoded login payloads.
+
+    The frontend posts JSON, while Swagger's "Authorize" button and standard
+    OAuth2 clients post `application/x-www-form-urlencoded` with a `username`
+    field. Supporting both keeps the API interoperable.
+    """
+    content_type = (request.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+    try:
+        if content_type in {"application/x-www-form-urlencoded", "multipart/form-data"}:
+            form = await request.form()
+            email = form.get("email") or form.get("username")
+            password = form.get("password")
+            payload = {"email": email, "password": password}
+        else:
+            body = await request.body()
+            if not body:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Empty request body",
+                )
+            payload = json.loads(body)
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid JSON body",
+        )
+
+    try:
+        return UserLogin.model_validate(payload)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.errors(),
+        )
+
+
 @router.post("/login", response_model=Token)
-async def login(user_data: UserLogin, db: AsyncSession = Depends(get_db)):
-    """Login and get access token"""
+async def login(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Login and get access token. Accepts JSON or form-encoded payloads."""
+    user_data = await _parse_login_payload(request)
     # Find user
     result = await db.execute(select(User).where(User.email == user_data.email))
     user = result.scalar_one_or_none()

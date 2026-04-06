@@ -272,6 +272,11 @@ Default:
 
 - `http://localhost:8000`
 
+Important:
+
+- In Vercel, the environment variable value must be the raw backend URL only, for example `https://rentwise-api.onrender.com`.
+- Do not paste the full assignment string such as `NEXT_PUBLIC_API_URL=https://rentwise-api.onrender.com` into the value field.
+
 ## Deployment Notes
 
 Current deployment assumptions:
@@ -380,6 +385,7 @@ Sensitive local files that must stay out of git:
 - OCR import stores uploaded source-asset metadata separately from extracted candidate fields so the async candidate pipeline can reuse OCR evidence without triggering lazy-load issues during import.
 - If image-only import creates empty extraction results, first verify that the configured OCR runtime is installed inside `backend\\venv`. The default setup expects `rapidocr_onnxruntime`; the Paddle fallback additionally needs both `paddleocr` and `paddlepaddle`. Background import failures are now written back onto the candidate so the detail page can show the real OCR failure reason instead of a fake network-style error.
 - Candidate import is processed by an in-app background task instead of blocking the request until OCR and assessment finish. The import page returns quickly, redirects to the candidate detail page, and the detail page polls until the background stages finish.
+- Candidate import now commits the queued candidate before the background OCR task starts, which avoids cloud timing issues where a new worker session could not see the just-created candidate record yet.
 - The initial queued import response returns a placeholder candidate state without forcing lazy assessment loads, so image import no longer crashes at response serialization time before the background worker starts.
 - The project dashboard also polls while any candidate is still processing, so finished OCR jobs can move into the priority queue without forcing a manual refresh.
 - Candidates that are still processing are shown as explicit background work on the dashboard instead of appearing as blank low-information cards, and they are temporarily excluded from compare selection until assessment finishes.

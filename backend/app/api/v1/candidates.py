@@ -169,6 +169,7 @@ async def import_candidate(
         candidate.processing_error = "Waiting for OCR to read the uploaded images."
 
     await db.flush()
+    await db.commit()
     background_tasks.add_task(
         candidate_import_background_service.process_candidate_import,
         project_id=project.id,

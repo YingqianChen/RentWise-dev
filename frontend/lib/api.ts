@@ -16,7 +16,25 @@ import type {
   User,
 } from "@/lib/types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+function normalizeApiBase(value: string | undefined): string {
+  let normalized = value?.trim() || "http://localhost:8000";
+
+  if (normalized.startsWith("NEXT_PUBLIC_API_URL=")) {
+    normalized = normalized.slice("NEXT_PUBLIC_API_URL=".length).trim();
+  }
+
+  if (normalized.startsWith("https:/") && !normalized.startsWith("https://")) {
+    normalized = normalized.replace(/^https:\//, "https://");
+  }
+
+  if (normalized.startsWith("http:/") && !normalized.startsWith("http://")) {
+    normalized = normalized.replace(/^http:\//, "http://");
+  }
+
+  return normalized.replace(/\/+$/, "");
+}
+
+const API_BASE = normalizeApiBase(process.env.NEXT_PUBLIC_API_URL);
 
 async function parseJsonSafely(res: Response) {
   const text = await res.text();

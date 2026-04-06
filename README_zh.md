@@ -272,6 +272,11 @@ Frontend:
 
 - `http://localhost:8000`
 
+注意：
+
+- 在 Vercel 中，这个环境变量的值必须只是纯后端 URL，例如 `https://rentwise-api.onrender.com`
+- 不要把 `NEXT_PUBLIC_API_URL=https://rentwise-api.onrender.com` 这种整行赋值文本原样粘进 value 输入框
+
 ## 部署说明
 
 当前部署假设：
@@ -380,6 +385,7 @@ uvicorn app.main:app --host 0.0.0.0 --port $PORT
 - OCR import 会单独保存 source-asset metadata，而不是把所有 OCR 结果直接塞回 extracted fields，这样异步 candidate pipeline 就能复用 OCR evidence，同时避免 import 过程中的 lazy-load 问题。
 - 如果 image-only import 得到空 extraction 结果，先确认 `backend\\venv` 中安装了当前配置对应的 OCR runtime。默认配置需要 `rapidocr_onnxruntime`；如果使用 Paddle fallback，则还需要 `paddleocr` 与 `paddlepaddle`。后台导入失败现在会把真实错误写回 candidate，detail 页面可以直接显示真实 OCR failure reason，而不是伪装成网络错误。
 - Candidate import 现在改为应用内后台任务处理，而不是把整条 OCR + assessment 链路阻塞在一个请求里。导入页会快速返回，跳到 candidate detail，detail 页面轮询后台进度。
+- Candidate import 现在会在启动后台 OCR 任务前先提交 queued candidate，这样可以避免云端环境里新 session 还看不到刚创建 candidate 记录而导致后台任务假性卡住。
 - 初次 queued import 响应会返回一个占位 candidate 状态，而不是强行加载 assessment 关系，因此不会再在 response serialization 时因 lazy-load 崩掉。
 - Project dashboard 在任一 candidate 仍处于 processing 时也会轮询，所以 OCR 完成后 candidate 可以自动进入 priority queue，而不需要手动刷新。
 - 仍在 processing 的 candidates 会被明确显示为后台工作，而不是空白低信息卡片；在 assessment 完成之前，它们也会暂时排除在 compare selection 外。

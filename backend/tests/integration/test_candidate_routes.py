@@ -36,6 +36,7 @@ class FakeAsyncSession:
         self.added = []
         self.delete = AsyncMock()
         self.flush = AsyncMock()
+        self.commit = AsyncMock()
 
     async def execute(self, *_args, **_kwargs):
         if not self.execute_results:
@@ -90,6 +91,7 @@ class CandidateRouteTests(IsolatedAsyncioTestCase):
         self.assertEqual(response.processing_stage, "queued")
         self.assertIsNone(response.candidate_assessment)
         self.assertEqual(len(background_tasks.tasks), 1)
+        db.commit.assert_awaited_once()
 
     async def test_import_candidate_keeps_user_supplied_name(self):
         user = build_user()
@@ -115,6 +117,7 @@ class CandidateRouteTests(IsolatedAsyncioTestCase):
         self.assertEqual(response.name, "User title")
         self.assertEqual(response.processing_stage, "queued")
         self.assertEqual(len(background_tasks.tasks), 1)
+        db.commit.assert_awaited_once()
 
     async def test_import_candidate_accepts_ocr_images(self):
         user = build_user()
@@ -164,6 +167,7 @@ class CandidateRouteTests(IsolatedAsyncioTestCase):
         self.assertEqual(response.processing_stage, "queued")
         self.assertEqual(response.processing_error, "Waiting for OCR to read the uploaded images.")
         self.assertEqual(len(background_tasks.tasks), 1)
+        db.commit.assert_awaited_once()
 
     async def test_reassess_candidate_runs_pipeline(self):
         user = build_user()

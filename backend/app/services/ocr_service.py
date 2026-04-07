@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import importlib
+import mimetypes
 import os
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from ..core.config import settings
+
+
+_CLOUD_PROVIDERS = {"mistral", "ocr_space"}
 
 
 @dataclass
@@ -41,9 +48,12 @@ class OCRService:
                 engine = self._build_rapidocr_engine()
             elif provider == "paddleocr":
                 engine = self._build_paddleocr_engine()
+            elif provider in _CLOUD_PROVIDERS:
+                # Cloud providers are stateless HTTP clients; sentinel marks "ready".
+                engine = "cloud"
             else:
                 raise RuntimeError(
-                    f"Unsupported OCR_PROVIDER `{settings.OCR_PROVIDER}`. Use `rapidocr` or `paddleocr`."
+                    f"Unsupported OCR_PROVIDER `{settings.OCR_PROVIDER}`."
                 )
 
             type(self)._shared_engines[provider] = engine
@@ -116,15 +126,84 @@ class OCRService:
         return OCRResult(status="succeeded", text=merged_text)
 
     async def extract_text(self, image_path: Path) -> OCRResult:
-        """Run OCR in a worker thread so the async request loop stays responsive."""
+        """Run OCR using the configured backend, keeping the event loop responsive."""
+        provider = settings.OCR_PROVIDER.lower().strip()
         try:
+            if provider == "mistral":
+                return await self._extract_text_via_mistral(image_path)
             return await asyncio.to_thread(self._extract_text_sync, image_path)
         finally:
             self._release_engine_if_needed()
 
     async def warmup(self) -> None:
         """Warm the shared OCR engine ahead of the first user request."""
+        provider = settings.OCR_PROVIDER.lower().strip()
+        if provider in _CLOUD_PROVIDERS:
+            return
         await asyncio.to_thread(self._get_engine)
+
+    async def _extract_text_via_mistral(self, image_path: Path) -> OCRResult:
+        """Call Mistral OCR API and return its markdown output as text."""
+        api_key = settings.MISTRAL_API_KEY
+        if not api_key:
+            return OCRResult(
+                status="failed",
+                text=None,
+                error="MISTRAL_API_KEY is not configured",
+            )
+
+        try:
+            image_bytes = image_path.read_bytes()
+        except OSError as exc:
+            return OCRResult(status="failed", text=None, error=f"Cannot read image: {exc}")
+
+        mime, _ = mimetypes.guess_type(str(image_path))
+        if not mime or not mime.startswith("image/"):
+            mime = "image/jpeg"
+        b64 = base64.b64encode(image_bytes).decode("ascii")
+        data_url = f"data:{mime};base64,{b64}"
+
+        payload = {
+            "model": settings.MISTRAL_OCR_MODEL,
+            "document": {"type": "image_url", "image_url": data_url},
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        last_error: str | None = None
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.post(
+                        "https://api.mistral.ai/v1/ocr",
+                        json=payload,
+                        headers=headers,
+                    )
+                if response.status_code >= 400:
+                    last_error = f"Mistral OCR HTTP {response.status_code}: {response.text[:300]}"
+                    continue
+                data = response.json()
+                pages = data.get("pages") or []
+                chunks: list[str] = []
+                for page in pages:
+                    md = page.get("markdown") if isinstance(page, dict) else None
+                    if isinstance(md, str) and md.strip():
+                        chunks.append(md.strip())
+                merged = "\n\n".join(chunks).strip()
+                if not merged:
+                    return OCRResult(
+                        status="failed",
+                        text=None,
+                        error="Mistral OCR returned no text",
+                    )
+                return OCRResult(status="succeeded", text=merged)
+            except (httpx.HTTPError, ValueError) as exc:
+                last_error = f"Mistral OCR request failed: {exc}"
+                continue
+
+        return OCRResult(status="failed", text=None, error=last_error or "Mistral OCR failed")
 
     def _release_engine_if_needed(self) -> None:
         """Drop the shared OCR engine after use in low-memory deployments."""
@@ -132,6 +211,8 @@ class OCRService:
             return
 
         provider = settings.OCR_PROVIDER.lower().strip()
+        if provider in _CLOUD_PROVIDERS:
+            return
         with type(self)._engine_lock:
             type(self)._shared_engines.pop(provider, None)
 

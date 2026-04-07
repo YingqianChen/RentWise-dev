@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     FILE_STORAGE_PROVIDER: str = "local"
     LOCAL_UPLOAD_ROOT: str = str(Path(__file__).resolve().parents[2] / "storage")
     OCR_PROVIDER: str = "rapidocr"
+    MISTRAL_API_KEY: str = ""
+    MISTRAL_OCR_MODEL: str = "mistral-ocr-latest"
+    OCR_SPACE_API_KEY: str = ""
     PADDLEOCR_LANG: str = "ch"
     OCR_USE_DOC_ORIENTATION: bool = False
     OCR_USE_DOC_UNWARPING: bool = False
@@ -53,8 +56,10 @@ class Settings(BaseSettings):
     def validate_ocr_provider(cls, v: str) -> str:
         """Validate supported OCR backends."""
         normalized = v.strip().lower()
-        if normalized not in {"rapidocr", "paddleocr"}:
-            raise ValueError("OCR_PROVIDER must be `rapidocr` or `paddleocr`")
+        if normalized not in {"rapidocr", "paddleocr", "mistral", "ocr_space"}:
+            raise ValueError(
+                "OCR_PROVIDER must be one of `rapidocr`, `paddleocr`, `mistral`, `ocr_space`"
+            )
         return normalized
 
     @field_validator("BACKEND_CORS_ORIGINS")

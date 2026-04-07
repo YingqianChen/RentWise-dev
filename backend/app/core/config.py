@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     OCR_USE_DOC_UNWARPING: bool = False
     OCR_USE_TEXTLINE_ORIENTATION: bool = False
     PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: bool = True
+    LOW_MEMORY_MODE: bool = False
     OCR_PREWARM_ON_STARTUP: bool = True
     OCR_MAX_IMAGE_DIMENSION: int = 1600
 
@@ -69,6 +70,20 @@ class Settings(BaseSettings):
     def backend_cors_origins_list(self) -> list[str]:
         """Return the configured CORS origins as a normalized list."""
         return [origin.strip() for origin in self.BACKEND_CORS_ORIGINS.split(",") if origin.strip()]
+
+    @property
+    def effective_ocr_prewarm_on_startup(self) -> bool:
+        """Disable eager OCR warmup when low-memory protection is enabled."""
+        return self.OCR_PREWARM_ON_STARTUP and not self.LOW_MEMORY_MODE
+
+    @property
+    def effective_ocr_max_image_dimension(self) -> int:
+        """Clamp OCR image size more aggressively in low-memory deployments."""
+        if not self.LOW_MEMORY_MODE:
+            return self.OCR_MAX_IMAGE_DIMENSION
+        if self.OCR_MAX_IMAGE_DIMENSION <= 0:
+            return 1400
+        return min(self.OCR_MAX_IMAGE_DIMENSION, 1400)
 
     @field_validator("SECRET_KEY")
     @classmethod

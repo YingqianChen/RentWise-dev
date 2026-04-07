@@ -34,7 +34,7 @@ app.include_router(api_router, prefix="/api/v1")
 @app.on_event("startup")
 async def warmup_services() -> None:
     """Warm expensive services during startup so the first user request is faster."""
-    if settings.OCR_PREWARM_ON_STARTUP:
+    if settings.effective_ocr_prewarm_on_startup:
         try:
             await OCRService().warmup()
             logger.info("%s engine warmed up during startup", settings.OCR_PROVIDER)

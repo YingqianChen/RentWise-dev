@@ -117,11 +117,23 @@ class OCRService:
 
     async def extract_text(self, image_path: Path) -> OCRResult:
         """Run OCR in a worker thread so the async request loop stays responsive."""
-        return await asyncio.to_thread(self._extract_text_sync, image_path)
+        try:
+            return await asyncio.to_thread(self._extract_text_sync, image_path)
+        finally:
+            self._release_engine_if_needed()
 
     async def warmup(self) -> None:
         """Warm the shared OCR engine ahead of the first user request."""
         await asyncio.to_thread(self._get_engine)
+
+    def _release_engine_if_needed(self) -> None:
+        """Drop the shared OCR engine after use in low-memory deployments."""
+        if not settings.LOW_MEMORY_MODE:
+            return
+
+        provider = settings.OCR_PROVIDER.lower().strip()
+        with type(self)._engine_lock:
+            type(self)._shared_engines.pop(provider, None)
 
     def _run_engine(self, engine: Any, image_path: Path) -> Any:
         provider = settings.OCR_PROVIDER.lower().strip()

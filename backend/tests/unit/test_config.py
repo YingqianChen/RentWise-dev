@@ -55,3 +55,19 @@ class SettingsTests(TestCase):
             settings.DATABASE_URL,
             "postgresql+asyncpg://user:password@localhost:5432/rentwise",
         )
+
+    def test_low_memory_mode_disables_effective_prewarm(self):
+        settings = self._build_settings(
+            LOW_MEMORY_MODE=True,
+            OCR_PREWARM_ON_STARTUP=True,
+        )
+
+        self.assertFalse(settings.effective_ocr_prewarm_on_startup)
+
+    def test_low_memory_mode_clamps_effective_image_dimension(self):
+        settings = self._build_settings(
+            LOW_MEMORY_MODE=True,
+            OCR_MAX_IMAGE_DIMENSION=2200,
+        )
+
+        self.assertEqual(settings.effective_ocr_max_image_dimension, 1400)

@@ -254,6 +254,7 @@ Frontend:
 - `OCR_USE_DOC_UNWARPING`
 - `OCR_USE_TEXTLINE_ORIENTATION`
 - `PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK`
+- `LOW_MEMORY_MODE`
 - `OCR_PREWARM_ON_STARTUP`
 - `OCR_MAX_IMAGE_DIMENSION`
 
@@ -335,6 +336,7 @@ uvicorn app.main:app --host 0.0.0.0 --port $PORT
 - Render: `LLM_PROVIDER=groq`
 - Render: `GROQ_API_KEY=<your-groq-key>`
 - Render: `OCR_PROVIDER=rapidocr`
+- Render: `LOW_MEMORY_MODE=true`
 
 当前云端存储 caveat：
 
@@ -395,6 +397,7 @@ uvicorn app.main:app --host 0.0.0.0 --port $PORT
 - 仍在 processing 的 candidates 会被明确显示为后台工作，而不是空白低信息卡片；在 assessment 完成之前，它们也会暂时排除在 compare selection 外。
 - OCR 默认会在 backend startup 时预热，因此无论使用哪种受支持的 provider，第一个用户导入都不必完整承担冷启动成本。
 - 上传截图在 OCR 前会缩放到可配置的最大尺寸，这对超大手机截图能明显降低 CPU 延迟，同时不改变混合文本 + 图片工作流。
+- 如果你用的是小规格云实例，比如低配 Render 服务，可以把 `LOW_MEMORY_MODE=true` 打开。它会关闭 OCR 预热、进一步收紧 OCR 前缩放，并在每次 OCR 完成后释放共享 OCR engine，尽量减轻空闲 RAM 压力。
 - `PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK` 仍保留给可选的 Paddle fallback 使用，并会在 `paddleocr` import 之前写入 `os.environ`，因此把它写进 `backend/.env` 就能真正抑制 model-hoster connectivity check，不需要每次手动在终端 export。
 - Candidate processing stages 当前包括：
   - `queued`

@@ -74,7 +74,7 @@ class LocalFileStorageService:
 
     def _prepare_image_bytes(self, *, content: bytes, suffix: str) -> bytes:
         """Shrink oversized images before OCR to reduce CPU-bound latency."""
-        max_dimension = settings.OCR_MAX_IMAGE_DIMENSION
+        max_dimension = settings.effective_ocr_max_image_dimension
         if max_dimension <= 0:
             return content
 

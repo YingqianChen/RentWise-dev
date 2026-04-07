@@ -254,6 +254,7 @@ Optional provider settings:
 - `OCR_USE_DOC_UNWARPING`
 - `OCR_USE_TEXTLINE_ORIENTATION`
 - `PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK`
+- `LOW_MEMORY_MODE`
 - `OCR_PREWARM_ON_STARTUP`
 - `OCR_MAX_IMAGE_DIMENSION`
 
@@ -335,6 +336,7 @@ Suggested cloud environment values:
 - Render: `LLM_PROVIDER=groq`
 - Render: `GROQ_API_KEY=<your-groq-key>`
 - Render: `OCR_PROVIDER=rapidocr`
+- Render: `LOW_MEMORY_MODE=true`
 
 Current storage caveat in cloud:
 
@@ -395,6 +397,7 @@ Sensitive local files that must stay out of git:
 - Candidates that are still processing are shown as explicit background work on the dashboard instead of appearing as blank low-information cards, and they are temporarily excluded from compare selection until assessment finishes.
 - OCR startup is prewarmed by default so the first user import does not have to pay the full model boot cost inside the request path, regardless of which supported OCR provider you choose.
 - Uploaded screenshots are resized down to a configurable maximum dimension before OCR, which significantly reduces CPU-bound latency on oversized mobile screenshots without changing the mixed text + image workflow.
+- For small cloud instances such as low-tier Render services, set `LOW_MEMORY_MODE=true`. That disables eager OCR warmup, clamps OCR resize more aggressively, and releases the shared OCR engine after each OCR run so idle RAM pressure is lower.
 - `PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK` remains available for the optional Paddle fallback and is pushed into `os.environ` before `paddleocr` is imported, so setting it in `backend/.env` suppresses the model-hoster connectivity check without requiring a manual terminal export.
 - Candidate processing stages are currently:
   - `queued`

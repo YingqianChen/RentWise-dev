@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from types import SimpleNamespace
 from pathlib import Path
@@ -71,3 +72,19 @@ class OCRServiceTests(TestCase):
             use_doc_unwarping=False,
             use_textline_orientation=False,
         )
+
+    @patch("app.services.ocr_service.settings.LOW_MEMORY_MODE", True)
+    @patch("app.services.ocr_service.settings.OCR_PROVIDER", "rapidocr")
+    def test_extract_text_releases_engine_in_low_memory_mode(self):
+        service = OCRService()
+        OCRService._shared_engines["rapidocr"] = "rapid-engine"
+
+        with patch.object(
+            service,
+            "_extract_text_sync",
+            return_value=SimpleNamespace(status="succeeded", text="ok", error=None),
+        ):
+            result = asyncio.run(service.extract_text(Path("fake.png")))
+
+        self.assertEqual(result.status, "succeeded")
+        self.assertNotIn("rapidocr", OCRService._shared_engines)

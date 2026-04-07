@@ -194,7 +194,9 @@ alembic upgrade head
 uvicorn app.main:app --reload --port 8000
 ```
 
-如果要在 candidate import 中使用图片 OCR，当前默认 runtime 已切到 `rapidocr_onnxruntime`，它更适合 Windows + CPU 本地开发，也更贴近截图类导入场景。如果你显式把 `OCR_PROVIDER` 改成 `paddleocr`，则需要另外在 `backend\\venv` 中安装 `paddleocr` 与 `paddlepaddle`。
+如果要在 candidate import 中使用图片 OCR，当前默认 runtime 是 `rapidocr_onnxruntime`，更适合 Windows + CPU 本地开发。如果你显式把 `OCR_PROVIDER` 改成 `paddleocr`，则需要另外在 `backend\\venv` 中安装 `paddleocr` 与 `paddlepaddle`。
+
+对于内存受限的部署（例如 Render 免费实例 512MB），把 `OCR_PROVIDER=mistral` 并配置 `MISTRAL_API_KEY`。后端会跳过加载任何本地 OCR 模型，改为直接调用 Mistral OCR 云 API，常驻内存可以从 ~400MB 降到 ~80MB。Mistral 当前免费额度为每天 1000 页。注意：上传的图片会发送到 Mistral 进行处理。
 
 如果你的本地 PostgreSQL 数据库是更早期通过 `create_all()` 启动路径创建的，那么切换到 Alembic 前需要先执行一次：
 
@@ -248,7 +250,10 @@ Frontend:
 - `BACKEND_CORS_ORIGINS`
 - `FILE_STORAGE_PROVIDER`
 - `LOCAL_UPLOAD_ROOT`
-- `OCR_PROVIDER`
+- `OCR_PROVIDER`（`rapidocr` | `paddleocr` | `mistral` | `ocr_space`）
+- `MISTRAL_API_KEY`（当 `OCR_PROVIDER=mistral` 时必填）
+- `MISTRAL_OCR_MODEL`（默认 `mistral-ocr-latest`）
+- `OCR_SPACE_API_KEY`（预留给未来 OCR.space fallback）
 - `PADDLEOCR_LANG`
 - `OCR_USE_DOC_ORIENTATION`
 - `OCR_USE_DOC_UNWARPING`
@@ -335,7 +340,8 @@ uvicorn app.main:app --host 0.0.0.0 --port $PORT
 - Render: `SECRET_KEY=<strong-random-secret>`
 - Render: `LLM_PROVIDER=groq`
 - Render: `GROQ_API_KEY=<your-groq-key>`
-- Render: `OCR_PROVIDER=rapidocr`
+- Render 免费套餐：`OCR_PROVIDER=mistral` 并配置 `MISTRAL_API_KEY`，同时设置 `OCR_PREWARM_ON_STARTUP=false` 与 `LOW_MEMORY_MODE=true`。本地 OCR runtime 在 512MB 实例上会 OOM，因此云 OCR 是必需的。
+- 自托管 / 较大规格实例：`OCR_PROVIDER=rapidocr`
 - Render: `LOW_MEMORY_MODE=true`
 
 当前云端存储 caveat：
@@ -418,6 +424,7 @@ uvicorn app.main:app --host 0.0.0.0 --port $PORT
 - 修改 project 预算时，会在 pipeline reassessment 之前先 eager-load 每个 candidate 的 `source_assets`、`extracted_info` 以及各项 assessment 关系，避免异步 lazy-load 触发 `MissingGreenlet` 并让整笔事务回滚导致预算改动丢失。
 - Compare 的 key differences 概述现在会把当前 leader 从 “仍有不确定性 / 仍不稳定 / 仍需更多证据” 的列表里剔除，避免出现“A 是最清晰的 …… A 仍有隐藏成本风险”这种自相矛盾的文案。
 - `POST /api/v1/auth/login` 同时接受 `application/json`（前端使用）与 `application/x-www-form-urlencoded`（字段名 `username` 或 `email`），因此 Swagger 的 “Authorize” 按钮以及标准 OAuth2 客户端都能直接工作，不再被 Pydantic 当成非法 body 拒掉。
+- OCR provider 抽象现在支持 Mistral 云端后端（`OCR_PROVIDER=mistral`）。启用后，后端不会加载任何本地 OCR 模型，而是把上传图片 base64 编码后直接调用 `https://api.mistral.ai/v1/ocr`。这是内存受限部署（例如 Render 免费 512MB）的推荐配置，避免本地 RapidOCR / PaddleOCR runtime 把实例 OOM 掉。本地 provider 行为没有变化，仍是开发环境的默认。
 
 ## UX 现实检查
 

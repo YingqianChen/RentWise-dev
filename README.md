@@ -194,7 +194,9 @@ alembic upgrade head
 uvicorn app.main:app --reload --port 8000
 ```
 
-If you want image OCR during candidate import, the default backend now uses `rapidocr_onnxruntime`, which is lighter for Windows + CPU local development and better aligned with screenshot-heavy import flows. If you explicitly switch `OCR_PROVIDER=paddleocr`, install `paddleocr` and `paddlepaddle` manually in `backend\\venv` before starting the API.
+If you want image OCR during candidate import, the default backend uses `rapidocr_onnxruntime`, which is lighter for Windows + CPU local development. If you explicitly switch `OCR_PROVIDER=paddleocr`, install `paddleocr` and `paddlepaddle` manually in `backend\\venv` before starting the API.
+
+For memory-constrained deployments (e.g. Render free tier, 512MB), set `OCR_PROVIDER=mistral` and provide `MISTRAL_API_KEY`. The backend then offloads OCR to the Mistral OCR cloud API instead of loading any local model, dropping resident memory from ~400MB to ~80MB. Mistral's free tier currently allows up to 1000 pages per day. Note that uploaded images are sent to Mistral for processing.
 
 If your local PostgreSQL database was created by the earlier startup `create_all()` flow, run this one-time command instead before switching to Alembic-managed migrations:
 
@@ -248,7 +250,10 @@ Optional provider settings:
 - `BACKEND_CORS_ORIGINS`
 - `FILE_STORAGE_PROVIDER`
 - `LOCAL_UPLOAD_ROOT`
-- `OCR_PROVIDER`
+- `OCR_PROVIDER` (`rapidocr` | `paddleocr` | `mistral` | `ocr_space`)
+- `MISTRAL_API_KEY` (required when `OCR_PROVIDER=mistral`)
+- `MISTRAL_OCR_MODEL` (default `mistral-ocr-latest`)
+- `OCR_SPACE_API_KEY` (reserved for future OCR.space fallback)
 - `PADDLEOCR_LANG`
 - `OCR_USE_DOC_ORIENTATION`
 - `OCR_USE_DOC_UNWARPING`
@@ -335,7 +340,8 @@ Suggested cloud environment values:
 - Render: `SECRET_KEY=<strong-random-secret>`
 - Render: `LLM_PROVIDER=groq`
 - Render: `GROQ_API_KEY=<your-groq-key>`
-- Render: `OCR_PROVIDER=rapidocr`
+- Render free tier: `OCR_PROVIDER=mistral` with `MISTRAL_API_KEY`, plus `OCR_PREWARM_ON_STARTUP=false` and `LOW_MEMORY_MODE=true`. The local OCR runtimes will OOM the 512MB instance, so cloud OCR is required there.
+- Self-hosted / larger instances: `OCR_PROVIDER=rapidocr`
 - Render: `LOW_MEMORY_MODE=true`
 
 Current storage caveat in cloud:
@@ -417,6 +423,7 @@ Sensitive local files that must stay out of git:
 - Project budget updates eager-load each candidate's `source_assets`, `extracted_info`, and assessment relationships before running pipeline reassessment, so a budget change no longer trips an async lazy-load (`MissingGreenlet`) and rolls the whole transaction back.
 - Compare key-difference summaries now exclude the current leader from the "still uncertain" / "still fragile" / "would benefit from more evidence" lists, so the leading candidate is never described as both the clearest and the least clear option in the same sentence.
 - `POST /api/v1/auth/login` accepts both `application/json` (used by the frontend) and `application/x-www-form-urlencoded` (with `username` or `email`), so Swagger's "Authorize" button and standard OAuth2 clients work without rejecting the request as a Pydantic body error.
+- The OCR provider abstraction now supports a Mistral cloud backend (`OCR_PROVIDER=mistral`). When enabled, the backend skips loading any local OCR model, base64-encodes each uploaded image, and calls `https://api.mistral.ai/v1/ocr` directly. This is the recommended setup on memory-constrained hosts (e.g. Render free 512MB) where the local RapidOCR / PaddleOCR runtimes would otherwise OOM the instance. The local providers are unchanged and remain the default for development.
 
 ## UX Reality Check
 

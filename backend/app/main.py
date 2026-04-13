@@ -42,6 +42,12 @@ async def warmup_services() -> None:
             logger.warning("%s warmup skipped: %s", settings.OCR_PROVIDER, exc)
 
 
+@app.get("/")
+async def root():
+    """Root endpoint for Render default health check."""
+    return {"status": "healthy"}
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
+
 from ..db.models import CandidateListing, SearchProject
 from ..integrations.llm.prompts import CONTACT_PLAN_PROMPT
 from ..integrations.llm.utils import chat_completion_json
 from ..schemas.candidate import CandidateContactPlanResponse
+
+logger = logging.getLogger(__name__)
 
 
 class CandidateContactPlanService:
@@ -39,7 +43,7 @@ class CandidateContactPlanService:
                 message_draft=self._clean_line(data.get("message_draft"), fallback.message_draft),
             )
         except Exception as exc:
-            print(f"Candidate contact plan generation failed: {exc}")
+            logger.error("Candidate contact plan generation failed: %s", exc)
             return fallback
 
     def _fallback(self, *, candidate: CandidateListing) -> CandidateContactPlanResponse:

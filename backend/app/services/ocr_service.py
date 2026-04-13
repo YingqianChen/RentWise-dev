@@ -278,6 +278,3 @@ class OCRService:
 
         walk(value)
         return lines
-
-
-PaddleOCRService = OCRService

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from typing import Iterable
 
 from ..db.models import CandidateListing, SearchProject
@@ -16,6 +18,8 @@ from ..schemas.comparison import (
     CompareRecommendedActions,
     CompareSummary,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ComparisonBriefingService:
@@ -59,7 +63,7 @@ class ComparisonBriefingService:
                 confidence_note=self._clean_field(data.get("confidence_note"), fallback.confidence_note),
             )
         except Exception as exc:
-            print(f"Compare briefing generation failed: {exc}")
+            logger.error("Compare briefing generation failed: %s", exc)
             return fallback
 
     def _fallback_briefing(

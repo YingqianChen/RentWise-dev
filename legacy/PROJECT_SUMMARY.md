@@ -1,3 +1,9 @@
+> **DEPRECATED** — 本文档描述的是 RentWise 的 Streamlit 旧版本（v9.0, 2026-03-30）。
+> 当前版本使用 FastAPI + Next.js 架构，请参阅项目根目录的 README.md 获取最新信息。
+> 文中涉及 EasyOCR、ChromaDB、Streamlit Cloud 等内容仅适用于已归档的旧版本。
+
+---
+
 # RentWise 项目总结文档
 
 **版本**: 9.0

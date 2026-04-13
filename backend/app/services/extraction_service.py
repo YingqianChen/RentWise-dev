@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
+from datetime import datetime
 from typing import Optional
 
 from ..db.models import CandidateExtractedInfo, CandidateListing
 from ..integrations.llm.prompts import EXTRACTION_PROMPT, LISTING_NAME_PROMPT
 from ..integrations.llm.utils import chat_completion_json
+
+logger = logging.getLogger(__name__)
 
 
 def _coerce_to_str(value: object) -> str:
@@ -161,7 +165,7 @@ class ExtractionService:
         try:
             data = await chat_completion_json(prompt=prompt, temperature=0.0)
         except Exception as exc:
-            print(f"Extraction failed: {exc}")
+            logger.error("Extraction failed: %s", exc)
             return CandidateExtractedInfo(
                 candidate_id=candidate.id,
                 decision_signals=[],
@@ -211,7 +215,7 @@ class ExtractionService:
             if name and len(name) <= 20:
                 return name.strip()
         except Exception as exc:
-            print(f"Name generation failed: {exc}")
+            logger.error("Name generation failed: %s", exc)
 
         return self._generate_fallback_name(extracted_info, combined_text)
 
@@ -260,7 +264,5 @@ class ExtractionService:
 
         if parts:
             return " ".join(parts)[:20]
-
-        from datetime import datetime
 
         return f"Listing {datetime.now().strftime('%m%d%H%M')}"[:20]

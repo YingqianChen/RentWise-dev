@@ -1,7 +1,7 @@
 # Single-Destination Commute Evidence Design
 
 Date: 2026-04-05
-Status: Approved design draft
+Status: UNIMPLEMENTED — approved design draft for a future feature
 Scope: Define the first commute data model and interaction flow for RentWise without turning commute into a hidden scoring engine.
 
 ## Why This Exists

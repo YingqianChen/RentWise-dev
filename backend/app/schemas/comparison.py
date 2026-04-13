@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from .benchmark import BenchmarkEvidence
+from .commute import CommuteEvidence
 
 class ComparisonRequest(BaseModel):
     """Request payload for comparing a selected candidate set."""
@@ -49,6 +50,7 @@ class CompareCandidateCard(BaseModel):
     district: Optional[str]
     status: str
     benchmark: Optional[BenchmarkEvidence] = None
+    commute_evidence: Optional[CommuteEvidence] = None
 
 
 class CompareDecisionGroups(BaseModel):

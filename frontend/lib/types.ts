@@ -38,6 +38,13 @@ export interface Project {
   deal_breakers: string[];
   move_in_target: string | null;
   notes: string | null;
+  commute_enabled: boolean;
+  commute_destination_label: string | null;
+  commute_destination_query: string | null;
+  commute_mode: "transit" | "driving" | "walking" | null;
+  max_commute_minutes: number | null;
+  commute_destination_lat: number | null;
+  commute_destination_lng: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -50,6 +57,10 @@ export interface CreateProjectRequest {
   deal_breakers?: string[];
   move_in_target?: string;
   notes?: string;
+  commute_destination_label?: string;
+  commute_destination_query?: string;
+  commute_mode?: "transit" | "driving" | "walking";
+  max_commute_minutes?: number;
 }
 
 export interface UpdateProjectRequest {
@@ -61,6 +72,10 @@ export interface UpdateProjectRequest {
   deal_breakers?: string[];
   move_in_target?: string;
   notes?: string;
+  commute_destination_label?: string;
+  commute_destination_query?: string;
+  commute_mode?: "transit" | "driving" | "walking";
+  max_commute_minutes?: number;
 }
 
 // ============== Candidate ==============
@@ -83,6 +98,11 @@ export interface ExtractedInfo {
   bedrooms: string | null;
   suspected_sdu: boolean | null;
   sdu_detection_reason: string | null;
+  address_text: string | null;
+  building_name: string | null;
+  nearest_station: string | null;
+  location_confidence: "high" | "medium" | "low" | "unknown";
+  location_source: string;
   decision_signals: DecisionSignal[];
   ocr_texts: string[];
 }
@@ -156,6 +176,15 @@ export interface BenchmarkEvidence {
   fit_note: string | null;
 }
 
+export interface CommuteEvidence {
+  status: "not_configured" | "insufficient_candidate_location" | "ready" | "failed";
+  estimated_minutes: number | null;
+  mode: string | null;
+  route_summary: string | null;
+  destination_label: string | null;
+  confidence_note: string | null;
+}
+
 export interface Candidate {
   id: string;
   project_id: string;
@@ -176,6 +205,7 @@ export interface Candidate {
   clause_assessment: ClauseAssessment | null;
   candidate_assessment: CandidateAssessment | null;
   benchmark: BenchmarkEvidence | null;
+  commute_evidence: CommuteEvidence | null;
   source_assets: CandidateSourceAsset[];
 }
 
@@ -199,6 +229,9 @@ export interface UpdateCandidateRequest {
   raw_listing_text?: string;
   raw_chat_text?: string;
   raw_note_text?: string;
+  address_text?: string;
+  building_name?: string;
+  nearest_station?: string;
 }
 
 // ============== Dashboard ==============
@@ -294,6 +327,7 @@ export interface CompareCandidateCard {
   district: string | null;
   status: string;
   benchmark: BenchmarkEvidence | null;
+  commute_evidence: CommuteEvidence | null;
 }
 
 export interface CompareDecisionGroups {

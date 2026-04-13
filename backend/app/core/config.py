@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
 
+    # Amap (高德地图) for commute estimation
+    AMAP_API_KEY: str = ""
+
     # Application
     APP_ENV: str = "development"  # development | production
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days

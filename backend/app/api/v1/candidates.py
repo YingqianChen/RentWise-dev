@@ -25,11 +25,13 @@ from ...services.candidate_contact_plan_service import CandidateContactPlanServi
 from ...services.candidate_import_background_service import CandidateImportBackgroundService
 from ...services.candidate_import_service import CandidateImportService, build_combined_text, infer_source_type
 from ...services.candidate_pipeline_service import CandidatePipelineService
+from ...services.commute_service import CommuteService
 from .auth import get_current_user
 
 router = APIRouter()
 pipeline_service = CandidatePipelineService()
 benchmark_service = BenchmarkService()
+commute_service = CommuteService()
 candidate_contact_plan_service = CandidateContactPlanService()
 candidate_import_service = CandidateImportService()
 candidate_import_background_service = CandidateImportBackgroundService(get_session_factory())
@@ -62,9 +64,16 @@ def _candidate_detail_query():
     )
 
 
-def _serialize_candidate(candidate: CandidateListing) -> CandidateResponse:
+async def _serialize_candidate(
+    candidate: CandidateListing,
+    project: SearchProject | None = None,
+    compute_commute: bool = False,
+) -> CandidateResponse:
     response = CandidateResponse.model_validate(candidate)
-    return response.model_copy(update={"benchmark": benchmark_service.build_for_candidate(candidate)})
+    updates: dict = {"benchmark": benchmark_service.build_for_candidate(candidate)}
+    if compute_commute and project is not None:
+        updates["commute_evidence"] = await commute_service.build_for_candidate(project, candidate)
+    return response.model_copy(update=updates)
 
 
 def _coerce_optional_text(value: str | None) -> str | None:
@@ -176,7 +185,7 @@ async def import_candidate(
         candidate_id=candidate.id,
         should_autoname=should_autoname,
     )
-    return _serialize_candidate(candidate)
+    return await _serialize_candidate(candidate)
 
 
 @router.get("/projects/{project_id}/candidates", response_model=CandidateListResponse)
@@ -197,7 +206,7 @@ async def list_candidates(
     )
     candidates = result.scalars().all()
     return CandidateListResponse(
-        candidates=[_serialize_candidate(candidate) for candidate in candidates],
+        candidates=[await _serialize_candidate(candidate) for candidate in candidates],
         total=total,
     )
 
@@ -210,8 +219,8 @@ async def get_candidate(
     db: AsyncSession = Depends(get_db),
 ):
     """Get a candidate by ID."""
-    _, candidate = await get_candidate_for_project_user(project_id, candidate_id, current_user, db)
-    return _serialize_candidate(candidate)
+    project, candidate = await get_candidate_for_project_user(project_id, candidate_id, current_user, db)
+    return await _serialize_candidate(candidate, project=project, compute_commute=True)
 
 
 @router.put("/projects/{project_id}/candidates/{candidate_id}", response_model=CandidateResponse)
@@ -227,10 +236,20 @@ async def update_candidate(
 
     update_data = candidate_data.model_dump(exclude_unset=True)
     text_fields = {"raw_listing_text", "raw_chat_text", "raw_note_text"}
+    location_fields = {"address_text", "building_name", "nearest_station"}
     should_reassess = any(field in update_data for field in text_fields)
 
+    # Apply location field updates to extracted_info
+    location_updates = {k: v for k, v in update_data.items() if k in location_fields}
+    if location_updates and candidate.extracted_info is not None:
+        for field, value in location_updates.items():
+            setattr(candidate.extracted_info, field, value)
+        candidate.extracted_info.location_source = "user_corrected"
+
+    # Apply non-location fields to candidate
     for field, value in update_data.items():
-        setattr(candidate, field, value)
+        if field not in location_fields:
+            setattr(candidate, field, value)
 
     if should_reassess:
         candidate.combined_text = "\n".join(
@@ -251,7 +270,7 @@ async def update_candidate(
 
     await db.flush()
     _, candidate = await get_candidate_for_project_user(project.id, candidate.id, current_user, db)
-    return _serialize_candidate(candidate)
+    return await _serialize_candidate(candidate, project=project, compute_commute=True)
 
 
 @router.post("/projects/{project_id}/candidates/{candidate_id}/reassess", response_model=CandidateResponse)
@@ -266,7 +285,7 @@ async def reassess_candidate(
     await pipeline_service.assess_candidate(db=db, project=project, candidate=candidate)
     await db.flush()
     _, candidate = await get_candidate_for_project_user(project.id, candidate.id, current_user, db)
-    return _serialize_candidate(candidate)
+    return await _serialize_candidate(candidate, project=project, compute_commute=True)
 
 
 @router.post(
@@ -299,7 +318,7 @@ async def shortlist_candidate(
         candidate.candidate_assessment.status = "shortlisted"
     await db.flush()
     _, candidate = await get_candidate_for_project_user(project.id, candidate.id, current_user, db)
-    return _serialize_candidate(candidate)
+    return await _serialize_candidate(candidate, project=project, compute_commute=True)
 
 
 @router.post("/projects/{project_id}/candidates/{candidate_id}/reject", response_model=CandidateResponse)
@@ -317,7 +336,7 @@ async def reject_candidate(
         candidate.candidate_assessment.status = "recommended_reject"
     await db.flush()
     _, candidate = await get_candidate_for_project_user(project.id, candidate.id, current_user, db)
-    return _serialize_candidate(candidate)
+    return await _serialize_candidate(candidate, project=project, compute_commute=True)
 
 
 @router.delete("/projects/{project_id}/candidates/{candidate_id}", status_code=status.HTTP_204_NO_CONTENT)

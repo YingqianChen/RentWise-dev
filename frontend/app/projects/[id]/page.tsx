@@ -116,6 +116,13 @@ export default function ProjectDashboardPage() {
   const [deleteTarget, setDeleteTarget] = useState<Candidate | null>(null);
   const [deleteError, setDeleteError] = useState("");
   const [deletingCandidateId, setDeletingCandidateId] = useState<string | null>(null);
+  const [editingCommute, setEditingCommute] = useState(false);
+  const [commuteDestLabel, setCommuteDestLabel] = useState("");
+  const [commuteDestQuery, setCommuteDestQuery] = useState("");
+  const [commuteMode, setCommuteMode] = useState<"transit" | "driving" | "walking">("transit");
+  const [maxCommuteMinutes, setMaxCommuteMinutes] = useState("");
+  const [commuteSaving, setCommuteSaving] = useState(false);
+  const [commuteError, setCommuteError] = useState("");
 
   useEffect(() => {
     const token = getToken();
@@ -150,6 +157,10 @@ export default function ProjectDashboardPage() {
 
       setProject(projectData);
       setBudgetInput(projectData.max_budget ? String(projectData.max_budget) : "");
+      setCommuteDestLabel(projectData.commute_destination_label || "");
+      setCommuteDestQuery(projectData.commute_destination_query || "");
+      setCommuteMode(projectData.commute_mode || "transit");
+      setMaxCommuteMinutes(projectData.max_commute_minutes ? String(projectData.max_commute_minutes) : "");
       setDashboard(dashboardData);
       setCandidates(candidatesData.candidates);
     } catch (err) {
@@ -233,6 +244,29 @@ export default function ProjectDashboardPage() {
       setDeleteError(err instanceof Error ? err.message : "Failed to delete candidate.");
     } finally {
       setDeletingCandidateId(null);
+    }
+  };
+
+  const handleCommuteSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const token = getToken();
+    if (!token || !project) return;
+
+    setCommuteSaving(true);
+    setCommuteError("");
+    try {
+      const updated = await updateProject(token, projectId, {
+        commute_destination_label: commuteDestLabel.trim() || undefined,
+        commute_destination_query: commuteDestQuery.trim() || undefined,
+        commute_mode: commuteDestQuery.trim() ? commuteMode : undefined,
+        max_commute_minutes: maxCommuteMinutes.trim() ? parseInt(maxCommuteMinutes, 10) : undefined,
+      });
+      setProject(updated);
+      setEditingCommute(false);
+    } catch (err) {
+      setCommuteError(err instanceof Error ? err.message : "Failed to update commute settings.");
+    } finally {
+      setCommuteSaving(false);
     }
   };
 
@@ -353,6 +387,99 @@ export default function ProjectDashboardPage() {
                     className="text-primary-600 hover:text-primary-700"
                   >
                     Edit budget
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="mt-3">
+              {editingCommute ? (
+                <form onSubmit={handleCommuteSave} className="space-y-3 bg-gray-50 p-4 rounded-lg border border-gray-200">
+                  <p className="text-sm font-medium text-gray-700">Commute settings</p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-gray-500">Destination name</label>
+                      <input
+                        type="text"
+                        value={commuteDestLabel}
+                        onChange={(e) => setCommuteDestLabel(e.target.value)}
+                        className="w-44 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                        placeholder="e.g. Office"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-gray-500">Destination address</label>
+                      <input
+                        type="text"
+                        value={commuteDestQuery}
+                        onChange={(e) => setCommuteDestQuery(e.target.value)}
+                        className="w-56 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                        placeholder="e.g. Central, Hong Kong"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-gray-500">Mode</label>
+                      <select
+                        value={commuteMode}
+                        onChange={(e) => setCommuteMode(e.target.value as "transit" | "driving" | "walking")}
+                        className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                      >
+                        <option value="transit">Transit</option>
+                        <option value="driving">Driving</option>
+                        <option value="walking">Walking</option>
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-gray-500">Max minutes</label>
+                      <input
+                        type="number"
+                        value={maxCommuteMinutes}
+                        onChange={(e) => setMaxCommuteMinutes(e.target.value)}
+                        className="w-24 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                        placeholder="60"
+                        min={1}
+                        max={180}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="submit"
+                      disabled={commuteSaving}
+                      className="px-3 py-2 bg-gray-900 text-white rounded-lg hover:bg-black disabled:opacity-50 text-sm"
+                    >
+                      {commuteSaving ? "Saving..." : "Save commute"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCommuteDestLabel(project.commute_destination_label || "");
+                        setCommuteDestQuery(project.commute_destination_query || "");
+                        setCommuteMode(project.commute_mode || "transit");
+                        setMaxCommuteMinutes(project.max_commute_minutes ? String(project.max_commute_minutes) : "");
+                        setCommuteError("");
+                        setEditingCommute(false);
+                      }}
+                      className="text-sm text-gray-500 hover:text-gray-700"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  {commuteError && <p className="text-sm text-red-600">{commuteError}</p>}
+                </form>
+              ) : (
+                <div className="flex items-center gap-3 text-sm">
+                  <span className="text-gray-600">
+                    Commute:{" "}
+                    {project.commute_enabled
+                      ? `${project.commute_destination_label || project.commute_destination_query} (${project.commute_mode}${project.max_commute_minutes ? `, max ${project.max_commute_minutes} min` : ""})`
+                      : "Not configured"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setEditingCommute(true)}
+                    className="text-primary-600 hover:text-primary-700"
+                  >
+                    {project.commute_enabled ? "Edit commute" : "Set up commute"}
                   </button>
                 </div>
               )}

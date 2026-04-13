@@ -190,6 +190,11 @@ class ExtractionService:
             bedrooms=normalize_value(data.get("bedrooms", "")),
             suspected_sdu=parse_bool_value(str(data.get("suspected_sdu", ""))),
             sdu_detection_reason=normalize_optional_value(str(data.get("sdu_detection_reason", ""))),
+            address_text=normalize_optional_value(str(data.get("address_text", ""))),
+            building_name=normalize_optional_value(str(data.get("building_name", ""))),
+            nearest_station=normalize_optional_value(str(data.get("nearest_station", ""))),
+            location_confidence=normalize_value(data.get("location_confidence", "unknown")),
+            location_source="extracted",
             decision_signals=normalize_decision_signals(data.get("decision_signals", [])),
             ocr_texts=ocr_texts,
         )

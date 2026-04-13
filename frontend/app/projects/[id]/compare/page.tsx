@@ -113,6 +113,18 @@ function CompareCard({
             )}
           </div>
         )}
+        {candidate.commute_evidence?.status === "ready" && (
+          <div>
+            <p className="font-medium text-gray-900">Commute</p>
+            <p className="text-gray-700 mt-1">
+              {candidate.commute_evidence.estimated_minutes} min ({candidate.commute_evidence.mode})
+              {candidate.commute_evidence.destination_label && ` to ${candidate.commute_evidence.destination_label}`}
+            </p>
+            {candidate.commute_evidence.confidence_note && (
+              <p className="text-amber-700 mt-1">{candidate.commute_evidence.confidence_note}</p>
+            )}
+          </div>
+        )}
         {showMore && (
           <>
             <div>

@@ -65,6 +65,14 @@ class SearchProject(Base):
     )
     move_in_target: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Commute configuration
+    commute_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    commute_destination_label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    commute_destination_query: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    commute_mode: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # transit | driving | walking
+    max_commute_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    commute_destination_lat: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    commute_destination_lng: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
@@ -193,6 +201,12 @@ class CandidateExtractedInfo(Base):
     bedrooms: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     suspected_sdu: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     sdu_detection_reason: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    # Location evidence for commute
+    address_text: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    building_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    nearest_station: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    location_confidence: Mapped[str] = mapped_column(String(50), default="unknown", nullable=False)  # high | medium | low | unknown
+    location_source: Mapped[str] = mapped_column(String(50), default="unknown", nullable=False)  # extracted | user_corrected | mixed | unknown
     decision_signals: Mapped[list[dict[str, str]]] = mapped_column(
         JSONB, default=list, nullable=False
     )

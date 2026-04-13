@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from .benchmark import BenchmarkEvidence
+from .commute import CommuteEvidence
 
 class DecisionSignalResponse(BaseModel):
     """Flexible decision-relevant signal extracted from source evidence."""
@@ -42,6 +43,11 @@ class ExtractedInfoResponse(BaseModel):
     bedrooms: Optional[str]
     suspected_sdu: Optional[bool]
     sdu_detection_reason: Optional[str]
+    address_text: Optional[str] = None
+    building_name: Optional[str] = None
+    nearest_station: Optional[str] = None
+    location_confidence: str = "unknown"
+    location_source: str = "unknown"
     decision_signals: List[DecisionSignalResponse] = Field(default_factory=list)
     ocr_texts: List[str]
 
@@ -126,6 +132,9 @@ class CandidateUpdate(BaseModel):
     raw_listing_text: Optional[str] = None
     raw_chat_text: Optional[str] = None
     raw_note_text: Optional[str] = None
+    address_text: Optional[str] = None
+    building_name: Optional[str] = None
+    nearest_station: Optional[str] = None
 
 
 class CandidateContactPlanResponse(BaseModel):
@@ -159,6 +168,7 @@ class CandidateResponse(BaseModel):
     clause_assessment: Optional[ClauseAssessmentResponse] = None
     candidate_assessment: Optional[CandidateAssessmentResponse] = None
     benchmark: Optional[BenchmarkEvidence] = None
+    commute_evidence: Optional[CommuteEvidence] = None
     source_assets: List[CandidateSourceAssetResponse] = Field(default_factory=list)
 
 

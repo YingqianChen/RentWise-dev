@@ -7,8 +7,10 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from ...core.config import settings
 from ...db.database import get_db
 from ...db.models import CandidateListing, User, SearchProject
+from ...integrations.amap.client import AmapClient
 from ...schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectResponse, ProjectListResponse
 )
@@ -17,6 +19,7 @@ from .auth import get_current_user
 
 router = APIRouter()
 pipeline_service = CandidatePipelineService()
+_amap_client: AmapClient | None = AmapClient(settings.AMAP_API_KEY) if settings.AMAP_API_KEY else None
 
 
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
@@ -26,6 +29,15 @@ async def create_project(
     db: AsyncSession = Depends(get_db)
 ):
     """Create a new search project"""
+    # Resolve commute destination coordinates if configured
+    commute_enabled = bool(project_data.commute_destination_query and project_data.commute_mode)
+    dest_lat: float | None = None
+    dest_lng: float | None = None
+    if commute_enabled and _amap_client and project_data.commute_destination_query:
+        coords = await _amap_client.geocode(project_data.commute_destination_query)
+        if coords:
+            dest_lng, dest_lat = coords
+
     project = SearchProject(
         user_id=current_user.id,
         title=project_data.title,
@@ -35,6 +47,13 @@ async def create_project(
         deal_breakers=project_data.deal_breakers,
         move_in_target=project_data.move_in_target,
         notes=project_data.notes,
+        commute_enabled=commute_enabled,
+        commute_destination_label=project_data.commute_destination_label,
+        commute_destination_query=project_data.commute_destination_query,
+        commute_mode=project_data.commute_mode,
+        max_commute_minutes=project_data.max_commute_minutes,
+        commute_destination_lat=dest_lat,
+        commute_destination_lng=dest_lng,
     )
     db.add(project)
     await db.flush()
@@ -120,6 +139,21 @@ async def update_project(
     update_data = project_data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(project, field, value)
+
+    # Maintain commute_enabled and re-geocode destination if query changed
+    commute_fields = {"commute_destination_query", "commute_mode", "commute_destination_label", "max_commute_minutes"}
+    if commute_fields & update_data.keys():
+        query = project.commute_destination_query
+        mode = project.commute_mode
+        project.commute_enabled = bool(query and mode)
+
+        if "commute_destination_query" in update_data:
+            project.commute_destination_lat = None
+            project.commute_destination_lng = None
+            if query and _amap_client:
+                coords = await _amap_client.geocode(query)
+                if coords:
+                    project.commute_destination_lng, project.commute_destination_lat = coords
 
     if "max_budget" in update_data and update_data["max_budget"] != previous_budget:
         candidate_result = await db.execute(

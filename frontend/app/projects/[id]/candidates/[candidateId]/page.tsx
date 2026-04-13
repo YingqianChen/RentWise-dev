@@ -894,6 +894,38 @@ export default function CandidateDetailPage() {
           )}
         </section>
 
+        {candidate.commute_evidence && (
+          <section className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
+            <p className="text-sm font-medium uppercase tracking-[0.18em] text-gray-500 mb-2">Commute estimate</p>
+            {candidate.commute_evidence.status === "ready" ? (
+              <>
+                <h2 className="text-xl font-semibold text-gray-900">
+                  {candidate.commute_evidence.estimated_minutes} min to {candidate.commute_evidence.destination_label}
+                </h2>
+                <p className="text-sm text-gray-600 mt-2">
+                  Mode: {candidate.commute_evidence.mode}
+                  {candidate.commute_evidence.route_summary && ` — ${candidate.commute_evidence.route_summary}`}
+                </p>
+                {candidate.commute_evidence.confidence_note && (
+                  <p className="text-sm text-amber-700 mt-2">{candidate.commute_evidence.confidence_note}</p>
+                )}
+              </>
+            ) : candidate.commute_evidence.status === "not_configured" ? (
+              <p className="text-sm text-gray-600">
+                Add a commute destination in project settings to see travel estimates.
+              </p>
+            ) : candidate.commute_evidence.status === "insufficient_candidate_location" ? (
+              <p className="text-sm text-gray-600">
+                Commute unavailable: location not precise enough. Edit the candidate to add an address or building name.
+              </p>
+            ) : (
+              <p className="text-sm text-gray-600">
+                {candidate.commute_evidence.confidence_note || "Commute calculation failed."}
+              </p>
+            )}
+          </section>
+        )}
+
         {benchmark && (
           <details className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
             <summary className="cursor-pointer">

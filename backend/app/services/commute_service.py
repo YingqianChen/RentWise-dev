@@ -38,9 +38,9 @@ class CommuteService:
 
         dest_label = project.commute_destination_label or project.commute_destination_query
 
-        # 2. Pick the best available candidate location text
-        location_query = self._best_location_query(candidate)
-        if location_query is None:
+        # 2. Collect all candidate location texts
+        location_queries = self._location_queries(candidate)
+        if not location_queries:
             return CommuteEvidence(
                 status="insufficient_candidate_location",
                 destination_label=dest_label,
@@ -67,14 +67,18 @@ class CommuteService:
                 confidence_note="Could not geocode destination.",
             )
 
-        # 5. Geocode candidate location
-        candidate_coords = await self._client.geocode(location_query)
+        # 5. Try geocoding each candidate location until one succeeds
+        candidate_coords = None
+        for query in location_queries:
+            candidate_coords = await self._client.geocode(query)
+            if candidate_coords is not None:
+                break
         if candidate_coords is None:
             return CommuteEvidence(
                 status="insufficient_candidate_location",
                 destination_label=dest_label,
                 mode=project.commute_mode,
-                confidence_note=f"Could not geocode candidate location: {location_query!r}.",
+                confidence_note=f"Could not geocode candidate location. Tried: {', '.join(location_queries)}.",
             )
 
         # 6. Calculate route
@@ -102,15 +106,16 @@ class CommuteService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _best_location_query(candidate: CandidateListing) -> Optional[str]:
-        """Pick the most specific location text: address > building > station."""
+    def _location_queries(candidate: CandidateListing) -> list[str]:
+        """Return all usable location texts, most specific first."""
         ei = candidate.extracted_info
         if ei is None:
-            return None
-        for value in (ei.address_text, ei.building_name, ei.nearest_station):
-            if value and value.lower() not in ("unknown", ""):
-                return value
-        return None
+            return []
+        return [
+            value
+            for value in (ei.address_text, ei.building_name, ei.nearest_station)
+            if value and value.lower() not in ("unknown", "")
+        ]
 
     async def _get_destination_coords(
         self, project: SearchProject

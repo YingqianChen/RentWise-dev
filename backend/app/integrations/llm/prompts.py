@@ -33,9 +33,9 @@ Return JSON only with these fields:
     "bedrooms": "Number of bedrooms or room type",
     "suspected_sdu": true/false/unknown,
     "sdu_detection_reason": "Short reason such as keyword_match, room_only_layout, or unknown",
-    "address_text": "Best available address or partial address from the evidence, preserving original language (e.g. 彌敦道123號旺角, 123 Nathan Road Mong Kok), or unknown",
-    "building_name": "Building or estate name if mentioned, preserving original language (e.g. 沙田第一城, City One Shatin, 美孚新邨), or unknown",
-    "nearest_station": "Nearest MTR or transport station if mentioned or clearly implied, preserving original language (e.g. 旺角東站, Mong Kok East), or unknown",
+    "address_text": "Best available address or partial address from the evidence. Prefer Chinese when available for geocoding accuracy (e.g. 彌敦道123號旺角). If only English is available, include it as-is (e.g. 123 Nathan Road Mong Kok). Return unknown if missing.",
+    "building_name": "Building or estate name if mentioned. Prefer Chinese when available (e.g. 沙田第一城, 美孚新邨). If only English, include as-is (e.g. City One Shatin). Return unknown if missing.",
+    "nearest_station": "Nearest MTR or transport station if mentioned or clearly implied. Prefer Chinese when available (e.g. 旺角東站, 沙田站). If only English, include as-is (e.g. Mong Kok East). Return unknown if missing.",
     "location_confidence": "high if full or partial address is available, medium if building name or station is available but no street address, low if only district or vague area hint, unknown if no location information at all",
     "decision_signals": [
         {{

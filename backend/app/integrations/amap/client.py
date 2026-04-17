@@ -12,6 +12,9 @@ logger = logging.getLogger(__name__)
 _BASE = "https://restapi.amap.com"
 _TIMEOUT = 10.0
 
+# Hong Kong administrative codes all start with "810" (810000 HK SAR, 810001 中西区, ...)
+_HK_ADCODE_PREFIX = "810"
+
 
 class AmapClient:
     """Thin async wrapper around Amap Web Service API endpoints."""
@@ -47,7 +50,15 @@ class AmapClient:
         if not geocodes:
             logger.warning("Amap geocode returned no results for %r", address)
             return None
-        location = geocodes[0].get("location", "")
+        top = geocodes[0]
+        adcode = str(top.get("adcode") or "")
+        if not adcode.startswith(_HK_ADCODE_PREFIX):
+            logger.warning(
+                "Amap geocode returned non-HK result for %r (adcode=%s, city=%s)",
+                address, adcode, top.get("city"),
+            )
+            return None
+        location = top.get("location", "")
         try:
             lng, lat = location.split(",")
             return float(lng), float(lat)

@@ -4,19 +4,26 @@ EXTRACTION_PROMPT = """Extract the key rental fields from the Hong Kong rental e
 The evidence may include listing copy, agent or landlord chat, tenant notes, and OCR text from screenshots.
 
 Important rules:
-1. Combine all sources into one current decision read. Do not assume the original listing is always the final truth.
-2. If later chat or notes clarify a practical rental condition, you may use that clarification in the canonical field.
-3. If sources conflict and you cannot safely resolve the current state, keep the canonical field conservative and add a decision signal about the conflict or ambiguity.
-4. Relative timing notes such as "available at semester start", "move in at the start of school", or "after finals" are still usable timing notes. Do not mark them unknown just because they are not exact calendar dates.
-5. Notes such as "school dorm, maintenance included", "owner covers repairs", or "landlord handles repairs" should not be treated as unknown repair responsibility.
-6. If a field is missing, ambiguous, or not mentioned, return "unknown".
-7. decision_signals is optional. Return an empty list when there is nothing clearly decision-relevant beyond the canonical fields.
+1. You MUST return every key listed in the JSON schema below, in the exact order shown. Never skip a key. Use "unknown" only when the evidence is truly silent about that field.
+2. Location fields (address_text, building_name, nearest_station, district) are especially important. If the evidence contains any building name, estate name, street, or station — even in English only — copy it into the matching field verbatim. Do not drop English place names.
+3. Combine all sources into one current decision read. Do not assume the original listing is always the final truth.
+4. If later chat or notes clarify a practical rental condition, you may use that clarification in the canonical field.
+5. If sources conflict and you cannot safely resolve the current state, keep the canonical field conservative and add a decision signal about the conflict or ambiguity.
+6. Relative timing notes such as "available at semester start", "move in at the start of school", or "after finals" are still usable timing notes. Do not mark them unknown just because they are not exact calendar dates.
+7. Notes such as "school dorm, maintenance included", "owner covers repairs", or "landlord handles repairs" should not be treated as unknown repair responsibility.
+8. decision_signals is only for the predefined keys listed below. Return an empty list when there is nothing clearly decision-relevant.
+9. raw_facts is for any factual observation that does not fit the typed fields above but might still matter to the tenant (e.g. "landlord is the owner, not an agent", "unit renovated last year", "photos show air-conditioner in every room", "chat mentions pet-friendly"). Do NOT repeat facts already captured in the typed fields. Return an empty list if nothing noteworthy.
 
 Evidence:
 {text}
 
-Return JSON only with these fields:
+Return JSON only with these fields, in this exact order:
 {{
+    "address_text": "Best available address or partial address from the evidence. Prefer Chinese when available for geocoding accuracy (e.g. 彌敦道123號旺角). If only English is available, include it as-is (e.g. 123 Nathan Road Mong Kok). Return unknown if missing.",
+    "building_name": "Building or estate name if mentioned. Prefer Chinese when available (e.g. 沙田第一城, 美孚新邨). If only English, include as-is (e.g. City One Shatin). Return unknown if missing.",
+    "nearest_station": "Nearest MTR or transport station if mentioned or clearly implied. Prefer Chinese when available (e.g. 旺角東站, 沙田站). If only English, include as-is (e.g. Mong Kok East). Return unknown if missing.",
+    "district": "District or area name",
+    "location_confidence": "high if full or partial address is available, medium if building name or station is available but no street address, low if only district or vague area hint, unknown if no location information at all",
     "monthly_rent": "Monthly rent including currency symbol when available, e.g. $15000 or HKD 15,000",
     "management_fee_amount": "Management fee amount",
     "management_fee_included": true/false/unknown,
@@ -27,16 +34,11 @@ Return JSON only with these fields:
     "lease_term": "A short normalized lease note, e.g. 2 years, 1 year fixed 1 year optional, monthly rolling, no break clause, short-term only, or unknown",
     "move_in_date": "A short normalized availability note, e.g. available now, available from May 2026, ready after current tenant leaves, negotiable timing, or unknown",
     "repair_responsibility": "A short normalized note about who appears to handle repairs, e.g. landlord handles major repairs, tenant pays minor repairs, agency says owner will cover repairs, or unknown",
-    "district": "District or area name",
     "furnished": "Furniture and appliance status",
     "size_sqft": "Size in square feet",
     "bedrooms": "Number of bedrooms or room type",
     "suspected_sdu": true/false/unknown,
     "sdu_detection_reason": "Short reason such as keyword_match, room_only_layout, or unknown",
-    "address_text": "Best available address or partial address from the evidence. Prefer Chinese when available for geocoding accuracy (e.g. 彌敦道123號旺角). If only English is available, include it as-is (e.g. 123 Nathan Road Mong Kok). Return unknown if missing.",
-    "building_name": "Building or estate name if mentioned. Prefer Chinese when available (e.g. 沙田第一城, 美孚新邨). If only English, include as-is (e.g. City One Shatin). Return unknown if missing.",
-    "nearest_station": "Nearest MTR or transport station if mentioned or clearly implied. Prefer Chinese when available (e.g. 旺角東站, 沙田站). If only English, include as-is (e.g. Mong Kok East). Return unknown if missing.",
-    "location_confidence": "high if full or partial address is available, medium if building name or station is available but no street address, low if only district or vague area hint, unknown if no location information at all",
     "decision_signals": [
         {{
             "key": "One of commute_advantage, building_amenity, condition_positive, bathroom_sharing, listing_ambiguity, source_conflict, holding_fee_risk, agent_pressure, trust_concern, fee_discount, photo_quality_concern, repair_support_signal, move_in_timing_signal, other_decision_signal",
@@ -46,6 +48,9 @@ Return JSON only with these fields:
             "evidence": "Short quote or paraphrase grounded in the evidence",
             "note": "Optional short explanation of why this matters, or null"
         }}
+    ],
+    "raw_facts": [
+        "Short neutral factual observation under 25 words, grounded in the evidence."
     ]
 }}
 """

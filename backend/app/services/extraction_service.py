@@ -79,6 +79,19 @@ def normalize_signal_value(value: object) -> str:
     return str(value).strip()
 
 
+def normalize_raw_facts(value: object) -> list[str]:
+    """Normalize the free-form raw_facts list returned by the extractor."""
+    if not isinstance(value, list):
+        return []
+    facts: list[str] = []
+    for item in value:
+        text = _coerce_to_str(item).strip()
+        if not text or text.lower() in {"unknown", "n/a", "none"}:
+            continue
+        facts.append(text[:200])
+    return facts
+
+
 def normalize_decision_signals(value: object) -> list[dict[str, str]]:
     """Normalize flexible decision signals from the extractor."""
     if not isinstance(value, list):
@@ -156,6 +169,7 @@ class ExtractionService:
             return CandidateExtractedInfo(
                 candidate_id=candidate.id,
                 decision_signals=[],
+                raw_facts=[],
                 ocr_texts=ocr_texts,
             )
 
@@ -169,6 +183,7 @@ class ExtractionService:
             return CandidateExtractedInfo(
                 candidate_id=candidate.id,
                 decision_signals=[],
+                raw_facts=[],
                 ocr_texts=ocr_texts,
             )
 
@@ -196,6 +211,7 @@ class ExtractionService:
             location_confidence=normalize_value(data.get("location_confidence", "unknown")),
             location_source="extracted",
             decision_signals=normalize_decision_signals(data.get("decision_signals", [])),
+            raw_facts=normalize_raw_facts(data.get("raw_facts", [])),
             ocr_texts=ocr_texts,
         )
 

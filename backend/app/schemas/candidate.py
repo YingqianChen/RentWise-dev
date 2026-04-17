@@ -49,6 +49,7 @@ class ExtractedInfoResponse(BaseModel):
     location_confidence: str = "unknown"
     location_source: str = "unknown"
     decision_signals: List[DecisionSignalResponse] = Field(default_factory=list)
+    raw_facts: List[str] = Field(default_factory=list)
     ocr_texts: List[str]
 
 

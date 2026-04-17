@@ -29,15 +29,18 @@ class AmapClient:
     async def geocode(self, address: str, city: str = "香港") -> Optional[tuple[float, float]]:
         """Geocode *address* → ``(longitude, latitude)`` or *None*.
 
-        If the first attempt returns no results, retries with "香港" appended
-        to help Amap resolve English or ambiguous place names.
+        Tries progressively stronger Hong Kong hints so English place names
+        have more chances to resolve inside the HK admin region.
         """
         result = await self._geocode_once(address, city)
         if result is not None:
             return result
-        # Retry with explicit Hong Kong suffix for English addresses
         if "香港" not in address and "Hong Kong" not in address:
-            return await self._geocode_once(f"{address} 香港", city)
+            result = await self._geocode_once(f"{address} 香港", city)
+            if result is not None:
+                return result
+        if "特别行政区" not in address:
+            return await self._geocode_once(f"{address} 香港特别行政区", city)
         return None
 
     async def _geocode_once(self, address: str, city: str) -> Optional[tuple[float, float]]:

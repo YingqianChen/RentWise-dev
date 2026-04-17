@@ -1240,6 +1240,22 @@ export default function CandidateDetailPage() {
             </dl>
           </details>
 
+          {extracted && extracted.raw_facts && extracted.raw_facts.length > 0 && (
+            <details className="bg-white rounded-lg border border-gray-200 p-6">
+              <summary className="text-lg font-semibold text-gray-900 cursor-pointer">
+                Other observations
+              </summary>
+              <p className="mt-2 text-xs text-gray-500">
+                Additional facts the assistant noticed but did not fit the typed fields above. Shown for context; not used in the recommendation.
+              </p>
+              <ul className="mt-4 space-y-2 list-disc pl-5 text-sm text-gray-700">
+                {extracted.raw_facts.map((fact, index) => (
+                  <li key={`raw-fact-${index}`}>{fact}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+
           {extracted && extracted.decision_signals.length > 0 && (
             <details className="bg-white rounded-lg border border-gray-200 p-6">
               <summary className="text-lg font-semibold text-gray-900 cursor-pointer">

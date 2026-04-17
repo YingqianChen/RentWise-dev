@@ -104,6 +104,7 @@ export interface ExtractedInfo {
   location_confidence: "high" | "medium" | "low" | "unknown";
   location_source: string;
   decision_signals: DecisionSignal[];
+  raw_facts: string[];
   ocr_texts: string[];
 }
 

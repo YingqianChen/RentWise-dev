@@ -210,6 +210,9 @@ class CandidateExtractedInfo(Base):
     decision_signals: Mapped[list[dict[str, str]]] = mapped_column(
         JSONB, default=list, nullable=False
     )
+    raw_facts: Mapped[List[str]] = mapped_column(
+        JSONB, default=list, nullable=False
+    )
     ocr_texts: Mapped[List[str]] = mapped_column(
         ARRAY(String), default=list, nullable=False
     )

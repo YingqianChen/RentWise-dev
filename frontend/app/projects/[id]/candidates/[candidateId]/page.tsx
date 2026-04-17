@@ -1,8 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import {
+  AlertTriangle,
+  ArrowLeftRight,
+  CheckCircle2,
+  ChevronLeft,
+  Clock,
+  Copy,
+  DollarSign,
+  FileText,
+  Gauge,
+  MapPin,
+  MessageSquare,
+  Pencil,
+  RefreshCw,
+  Sparkles,
+  Trash2,
+  XCircle,
+} from "lucide-react";
 
 import {
   compareCandidates,
@@ -24,6 +42,202 @@ import type {
   ComparisonResponse,
   DecisionSignal,
 } from "@/lib/types";
+
+function cn(...classes: Array<string | false | null | undefined>): string {
+  return classes.filter(Boolean).join(" ");
+}
+
+type ButtonVariant = "default" | "outline" | "ghost";
+type ButtonSize = "default" | "sm";
+
+function Button({
+  variant = "default",
+  size = "default",
+  className,
+  disabled,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+}) {
+  const base =
+    "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg font-medium transition focus:outline-none focus:ring-2 focus:ring-primary-500/40 disabled:opacity-50 disabled:pointer-events-none";
+  const sizeCls = size === "sm" ? "h-8 px-2.5 text-sm" : "h-9 px-3.5 text-sm";
+  const variantCls =
+    variant === "outline"
+      ? "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+      : variant === "ghost"
+        ? "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+        : "bg-gray-900 text-white hover:bg-black";
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      className={cn(base, sizeCls, variantCls, className)}
+      {...props}
+    />
+  );
+}
+
+function Badge({
+  variant = "default",
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLSpanElement> & { variant?: "default" | "outline" | "secondary" }) {
+  const base =
+    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap";
+  const variantCls =
+    variant === "outline"
+      ? "border border-gray-200 bg-white text-gray-700"
+      : variant === "secondary"
+        ? "bg-gray-100 text-gray-700"
+        : "bg-gray-900 text-white";
+  return <span className={cn(base, variantCls, className)} {...props} />;
+}
+
+function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-4 overflow-hidden rounded-xl border border-gray-200 bg-white text-gray-900 shadow-sm",
+        className
+      )}
+      {...props}
+    />
+  );
+}
+
+function CardHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={cn("px-5 pt-5 pb-0", className)} {...props} />;
+}
+
+function CardContent({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={cn("px-5 pb-5", className)} {...props} />;
+}
+
+function CardTitle({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn("text-base font-semibold leading-snug text-gray-900", className)}
+      {...props}
+    />
+  );
+}
+
+function CardDescription({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={cn("mt-1 text-sm text-gray-500", className)} {...props} />;
+}
+
+function Separator({ className }: { className?: string }) {
+  return <div className={cn("h-px w-full bg-gray-200", className)} />;
+}
+
+function Alert({
+  variant = "default",
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement> & { variant?: "default" | "destructive" | "info" }) {
+  const variantCls =
+    variant === "destructive"
+      ? "border-red-200 bg-red-50 text-red-900"
+      : variant === "info"
+        ? "border-blue-200 bg-blue-50 text-blue-900"
+        : "border-gray-200 bg-white text-gray-900";
+  return (
+    <div
+      role="alert"
+      className={cn("flex items-start gap-3 rounded-lg border p-4 text-sm", variantCls, className)}
+      {...props}
+    />
+  );
+}
+
+function AlertTitle({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={cn("font-semibold", className)} {...props} />;
+}
+
+function AlertDescription({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={cn("mt-0.5 text-sm opacity-90", className)} {...props} />;
+}
+
+type TabsContextValue = {
+  value: string;
+  setValue: (value: string) => void;
+};
+
+const TabsContext = createContext<TabsContextValue | null>(null);
+
+function Tabs({
+  defaultValue,
+  children,
+  className,
+}: {
+  defaultValue: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const [value, setValue] = useState(defaultValue);
+  return (
+    <TabsContext.Provider value={{ value, setValue }}>
+      <div className={cn("flex flex-col gap-4", className)}>{children}</div>
+    </TabsContext.Provider>
+  );
+}
+
+function TabsList({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div
+      className={cn(
+        "inline-flex h-9 w-fit items-center justify-start gap-1 rounded-lg bg-gray-100 p-1 text-sm text-gray-600",
+        className
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+function TabsTrigger({
+  value,
+  children,
+  className,
+}: {
+  value: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const ctx = useContext(TabsContext);
+  if (!ctx) throw new Error("TabsTrigger must be inside Tabs");
+  const active = ctx.value === value;
+  return (
+    <button
+      type="button"
+      onClick={() => ctx.setValue(value)}
+      className={cn(
+        "inline-flex h-7 items-center gap-1.5 rounded-md px-3 font-medium transition",
+        active ? "bg-white text-gray-900 shadow-sm" : "text-gray-600 hover:text-gray-900",
+        className
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function TabsContent({
+  value,
+  children,
+  className,
+}: {
+  value: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const ctx = useContext(TabsContext);
+  if (!ctx) return null;
+  if (ctx.value !== value) return null;
+  return <div className={className}>{children}</div>;
+}
 
 function actionLabel(action?: string | null) {
   switch (action) {
@@ -56,11 +270,22 @@ function recommendationLabel(value?: string | null) {
 function recommendationTone(value?: string | null) {
   switch (value) {
     case "shortlist_recommendation":
-      return "bg-green-100 text-green-800 border-green-200";
+      return "bg-emerald-50 text-emerald-700 ring-emerald-200";
     case "likely_reject":
-      return "bg-red-100 text-red-800 border-red-200";
+      return "bg-red-50 text-red-700 ring-red-200";
     default:
-      return "bg-yellow-100 text-yellow-800 border-yellow-200";
+      return "bg-amber-50 text-amber-700 ring-amber-200";
+  }
+}
+
+function recommendationAccentBar(value?: string | null) {
+  switch (value) {
+    case "shortlist_recommendation":
+      return "bg-emerald-500";
+    case "likely_reject":
+      return "bg-red-500";
+    default:
+      return "bg-amber-500";
   }
 }
 
@@ -83,6 +308,22 @@ function riskLabel(flag?: string | null) {
   }
 }
 
+function riskTone(flag?: string | null) {
+  switch (flag) {
+    case "none":
+      return "text-emerald-700 bg-emerald-50 ring-emerald-200";
+    case "high_risk":
+    case "over_budget":
+    case "hidden_cost_risk":
+      return "text-red-700 bg-red-50 ring-red-200";
+    case "possible_additional_cost":
+    case "needs_confirmation":
+      return "text-amber-700 bg-amber-50 ring-amber-200";
+    default:
+      return "text-gray-600 bg-gray-100 ring-gray-200";
+  }
+}
+
 function confidenceLabel(level?: string | null) {
   switch (level) {
     case "high":
@@ -91,6 +332,17 @@ function confidenceLabel(level?: string | null) {
       return "Medium";
     default:
       return "Low";
+  }
+}
+
+function confidenceRatio(level?: string | null) {
+  switch (level) {
+    case "high":
+      return 0.92;
+    case "medium":
+      return 0.58;
+    default:
+      return 0.25;
   }
 }
 
@@ -293,14 +545,54 @@ function signalTone(category: string) {
   switch (category) {
     case "trust":
     case "conflict":
-      return "bg-red-50 border-red-200";
+      return "bg-red-50 border-red-200 text-red-900";
     case "cost":
     case "timing":
     case "living_arrangement":
-      return "bg-amber-50 border-amber-200";
+      return "bg-amber-50 border-amber-200 text-amber-900";
     default:
-      return "bg-gray-50 border-gray-200";
+      return "bg-gray-50 border-gray-200 text-gray-800";
   }
+}
+
+function KeyFact({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-gray-100 text-gray-600">
+        <Icon className="h-3.5 w-3.5" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500">{label}</p>
+        <p className="mt-0.5 truncate text-sm font-medium text-gray-900">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function ConfidenceBar({ level }: { level?: string | null }) {
+  const ratio = confidenceRatio(level);
+  const color =
+    level === "high"
+      ? "bg-emerald-500"
+      : level === "medium"
+        ? "bg-amber-500"
+        : "bg-red-500";
+  return (
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-200">
+      <div
+        className={cn("h-full rounded-full transition-all", color)}
+        style={{ width: `${Math.round(ratio * 100)}%` }}
+      />
+    </div>
+  );
 }
 
 export default function CandidateDetailPage() {
@@ -329,6 +621,7 @@ export default function CandidateDetailPage() {
     raw_chat_text: "",
     raw_note_text: "",
   });
+
   const isProcessing =
     candidate?.processing_stage !== null &&
     candidate?.processing_stage !== undefined &&
@@ -521,18 +814,59 @@ export default function CandidateDetailPage() {
     }
   };
 
+  const keyFacts = useMemo(() => {
+    if (!candidate) return [];
+    const extracted = candidate.extracted_info;
+    const facts: { icon: React.ComponentType<{ className?: string }>; label: string; value: string }[] = [];
+    const rent = candidate.cost_assessment?.known_monthly_cost
+      ? `HKD ${candidate.cost_assessment.known_monthly_cost.toLocaleString()}`
+      : extracted?.monthly_rent && extracted.monthly_rent !== "unknown"
+        ? extracted.monthly_rent
+        : "Unknown";
+    facts.push({ icon: DollarSign, label: "Monthly cost", value: rent });
+    if (extracted?.district && extracted.district !== "unknown") {
+      facts.push({ icon: MapPin, label: "District", value: extracted.district });
+    }
+    if (extracted?.building_name) {
+      facts.push({ icon: MapPin, label: "Building", value: extracted.building_name });
+    }
+    if (extracted?.nearest_station) {
+      facts.push({ icon: MapPin, label: "Nearest station", value: extracted.nearest_station });
+    }
+    if (extracted?.deposit && extracted.deposit !== "unknown") {
+      facts.push({ icon: DollarSign, label: "Deposit", value: extracted.deposit });
+    }
+    if (extracted?.size_sqft && extracted.size_sqft !== "unknown") {
+      facts.push({ icon: Gauge, label: "Size", value: `${extracted.size_sqft} sqft` });
+    }
+    if (extracted?.move_in_date && extracted.move_in_date !== "unknown") {
+      facts.push({ icon: Clock, label: "Move-in", value: extracted.move_in_date });
+    }
+    if (candidate.commute_evidence?.status === "ready" && candidate.commute_evidence.estimated_minutes) {
+      facts.push({
+        icon: Clock,
+        label: "Commute",
+        value: `${candidate.commute_evidence.estimated_minutes} min to ${candidate.commute_evidence.destination_label ?? "destination"}`,
+      });
+    }
+    return facts;
+  }, [candidate]);
+
   if (loading) {
     return (
-      <main className="min-h-screen flex items-center justify-center">
-        <div className="text-gray-600">Loading candidate...</div>
+      <main className="flex min-h-screen items-center justify-center bg-gray-50">
+        <div className="flex items-center gap-2 text-gray-500">
+          <RefreshCw className="h-4 w-4 animate-spin" />
+          <span>Loading candidate...</span>
+        </div>
       </main>
     );
   }
 
   if (!candidate) {
     return (
-      <main className="min-h-screen flex items-center justify-center">
-        <div className="text-gray-600">Candidate not found.</div>
+      <main className="flex min-h-screen items-center justify-center bg-gray-50">
+        <div className="text-gray-500">Candidate not found.</div>
       </main>
     );
   }
@@ -543,150 +877,995 @@ export default function CandidateDetailPage() {
   const assessment = candidate.candidate_assessment;
   const benchmark = candidate.benchmark;
   const decisionBlockers = buildDecisionBlockers(candidate);
+  const monthlyCostDisplay = cost?.known_monthly_cost
+    ? `HKD ${cost.known_monthly_cost.toLocaleString()}`
+    : "Unknown";
 
   return (
-    <main className="min-h-screen p-8">
-      <div className="max-w-4xl mx-auto">
-        <div className="mb-6">
-          <Link
-            href={`/projects/${projectId}`}
-            className="text-sm text-gray-500 hover:text-gray-700 mb-2 inline-block"
-          >
-            Back to project
-          </Link>
-          <div className="flex justify-between items-start gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">{candidate.name}</h1>
-              <p className="text-sm text-gray-600 mt-1">
-                Review this candidate as a decision task, not just a data record.
-              </p>
-            </div>
-            <div className="flex gap-2 flex-wrap justify-end">
-              <button
-                onClick={() => {
-                  setSaveError("");
-                  setIsEditing((current) => !current);
-                }}
-                disabled={actionLoading || isProcessing}
-                className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition disabled:opacity-50"
+    <main className="min-h-screen bg-gray-50">
+      <div className="mx-auto max-w-6xl px-4 py-6 lg:px-6 lg:py-8">
+        {/* Header */}
+        <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <Link
+              href={`/projects/${projectId}`}
+              className="inline-flex items-center gap-1 text-sm text-gray-500 transition hover:text-gray-900"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+              Back to project
+            </Link>
+            <h1 className="mt-2 text-2xl font-semibold tracking-tight text-gray-900">
+              {candidate.name}
+            </h1>
+            <p className="mt-1 text-sm text-gray-500">
+              Review this candidate as a decision task, not just a data record.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSaveError("");
+                setIsEditing((current) => !current);
+              }}
+              disabled={actionLoading || isProcessing}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              {isEditing ? "Close editor" : "Edit"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleReassess}
+              disabled={actionLoading || isProcessing}
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5", actionLoading && "animate-spin")} />
+              Reassess
+            </Button>
+            {candidate.user_decision !== "undecided" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowConfirm("delete")}
+                className="text-red-600 hover:text-red-700"
               >
-                {isEditing ? "Close editor" : "Edit candidate"}
-              </button>
-              <button
-                onClick={handleReassess}
-                disabled={actionLoading || isProcessing}
-                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition disabled:opacity-50"
-              >
-                Reassess
-              </button>
-              {candidate.user_decision === "undecided" ? (
-                <>
-                  <button
-                    onClick={() => setShowConfirm("shortlist")}
-                    disabled={isProcessing}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50"
-                  >
-                    Shortlist
-                  </button>
-                  <button
-                    onClick={() => setShowConfirm("reject")}
-                    disabled={isProcessing}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition disabled:opacity-50"
-                  >
-                    Reject
-                  </button>
-                  <button
-                    onClick={() => setShowConfirm("delete")}
-                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
-                  >
-                    Delete
-                  </button>
-                </>
-              ) : (
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`px-3 py-1 rounded-lg text-sm ${
-                      candidate.user_decision === "shortlisted"
-                        ? "bg-green-100 text-green-700"
-                        : "bg-red-100 text-red-700"
-                    }`}
-                  >
-                    {candidate.user_decision === "shortlisted" ? "Shortlisted" : "Rejected"}
-                  </span>
-                  <button
-                    onClick={() => setShowConfirm("delete")}
-                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
-                  >
-                    Delete
-                  </button>
-                </div>
-              )}
-            </div>
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete
+              </Button>
+            )}
           </div>
         </div>
 
+        {/* Processing banner */}
         {candidate.processing_stage && candidate.processing_stage !== "completed" && (
-          <section
-            className={`rounded-lg border p-5 mb-6 ${
-              candidate.processing_stage === "failed"
-                ? "bg-red-50 border-red-200"
-                : "bg-blue-50 border-blue-200"
-            }`}
+          <Alert
+            variant={candidate.processing_stage === "failed" ? "destructive" : "info"}
+            className="mb-6"
           >
-            <p
-              className={`text-sm font-medium uppercase tracking-[0.18em] mb-2 ${
-                candidate.processing_stage === "failed" ? "text-red-700" : "text-blue-700"
-              }`}
-            >
-              {processingStageLabel(candidate.processing_stage)}
-            </p>
-            <p className={`${candidate.processing_stage === "failed" ? "text-red-900" : "text-blue-900"} leading-7`}>
-              {candidate.processing_error || processingStageDescription(candidate.processing_stage)}
-            </p>
-            {candidate.processing_stage !== "failed" && (
-              <p className="text-sm text-blue-700 mt-3">
-                This page refreshes automatically while the background import is still running.
-              </p>
-            )}
-          </section>
+            <RefreshCw
+              className={cn(
+                "h-4 w-4 shrink-0",
+                candidate.processing_stage !== "failed" && "animate-spin"
+              )}
+            />
+            <div className="flex-1">
+              <AlertTitle>{processingStageLabel(candidate.processing_stage)}</AlertTitle>
+              <AlertDescription>
+                {candidate.processing_error || processingStageDescription(candidate.processing_stage)}
+                {candidate.processing_stage !== "failed" && (
+                  <p className="mt-2">This page refreshes automatically while the import runs.</p>
+                )}
+              </AlertDescription>
+            </div>
+          </Alert>
         )}
 
-        {showConfirm && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-md">
-              <h2 className="text-xl font-bold mb-4">
-                {showConfirm === "shortlist"
-                  ? "Confirm shortlist"
-                  : showConfirm === "reject"
-                    ? "Confirm rejection"
-                    : "Delete candidate"}
-              </h2>
-              <p className="text-gray-600 mb-6">
-                {showConfirm === "shortlist"
-                  ? "Add this candidate to your shortlist?"
-                  : showConfirm === "reject"
-                    ? "Mark this candidate as rejected? You can reassess it later if needed."
-                    : "Delete this candidate and all related assessments from the project? This cannot be undone."}
-              </p>
-              <div className="flex gap-3 justify-end">
-                <button
-                  onClick={() => setShowConfirm(null)}
-                  className="px-4 py-2 text-gray-600 hover:text-gray-900"
+        {/* Two-pane layout */}
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="min-w-0 space-y-6">
+            {/* Decision Hero */}
+            {assessment && (
+              <Card className="py-0">
+                <div className={cn("h-1 w-full", recommendationAccentBar(assessment.top_level_recommendation))} />
+                <div className="grid gap-6 p-6 md:grid-cols-[1.4fr_1fr]">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1",
+                          recommendationTone(assessment.top_level_recommendation)
+                        )}
+                      >
+                        {assessment.top_level_recommendation === "shortlist_recommendation" && (
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                        )}
+                        {assessment.top_level_recommendation === "likely_reject" && (
+                          <XCircle className="h-3.5 w-3.5" />
+                        )}
+                        {assessment.top_level_recommendation === "not_ready" && (
+                          <AlertTriangle className="h-3.5 w-3.5" />
+                        )}
+                        {recommendationLabel(assessment.top_level_recommendation)}
+                      </span>
+                      <Badge variant="outline">
+                        <Sparkles className="h-3 w-3" />
+                        Next: {actionLabel(assessment.next_best_action)}
+                      </Badge>
+                    </div>
+                    <p className="mt-4 text-[11px] font-medium uppercase tracking-wider text-gray-500">
+                      Decision snapshot
+                    </p>
+                    <h2 className="mt-1 text-xl font-semibold text-gray-900">What matters now</h2>
+                    <p className="mt-2 text-sm leading-relaxed text-gray-700">{assessment.summary}</p>
+                    {assessment.labels.length > 0 && (
+                      <div className="mt-4 flex flex-wrap gap-1.5">
+                        {assessment.labels.map((label) => (
+                          <Badge key={label} variant="secondary">
+                            {label}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-4 rounded-lg bg-gray-50 p-4">
+                    <div>
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500">
+                        Known monthly cost
+                      </p>
+                      <p className="mt-1 text-2xl font-semibold tracking-tight text-gray-900">
+                        {monthlyCostDisplay}
+                      </p>
+                    </div>
+                    <Separator />
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500">
+                          Confidence
+                        </p>
+                        <span className="text-xs font-medium text-gray-900">
+                          {confidenceLabel(assessment.recommendation_confidence)}
+                        </span>
+                      </div>
+                      <div className="mt-1.5">
+                        <ConfidenceBar level={assessment.recommendation_confidence} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500">
+                          Decision risk
+                        </p>
+                        <span className="text-xs font-medium text-gray-900">
+                          {confidenceLabel(assessment.decision_risk_level)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            )}
+
+            {/* Tabs: Cost / Clause / Commute / Fit */}
+            <Tabs defaultValue="cost">
+              <TabsList>
+                <TabsTrigger value="cost">
+                  <DollarSign className="h-3.5 w-3.5" />
+                  Cost
+                </TabsTrigger>
+                <TabsTrigger value="clause">
+                  <FileText className="h-3.5 w-3.5" />
+                  Clause
+                </TabsTrigger>
+                <TabsTrigger value="commute">
+                  <MapPin className="h-3.5 w-3.5" />
+                  Commute
+                </TabsTrigger>
+                <TabsTrigger value="fit">
+                  <Gauge className="h-3.5 w-3.5" />
+                  Fit
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="cost">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Cost read</CardTitle>
+                    <CardDescription>
+                      What the assistant can confirm about the real monthly cost and move-in cost.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-xs text-gray-500">Known monthly cost</p>
+                        <p className="mt-1 text-lg font-semibold text-gray-900">{monthlyCostDisplay}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Confidence</p>
+                        <p className="mt-1 text-lg font-semibold text-gray-900">
+                          {confidenceLabel(cost?.monthly_cost_confidence)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Cost risk</p>
+                        <span
+                          className={cn(
+                            "mt-1 inline-flex rounded-md px-2 py-0.5 text-sm font-medium ring-1",
+                            riskTone(cost?.cost_risk_flag)
+                          )}
+                        >
+                          {riskLabel(cost?.cost_risk_flag)}
+                        </span>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Move-in cost (known part)</p>
+                        <p className="mt-1 text-sm font-medium text-gray-900">
+                          {cost?.move_in_cost_known_part
+                            ? `HKD ${cost.move_in_cost_known_part.toLocaleString()}`
+                            : "Unknown"}
+                        </p>
+                      </div>
+                    </div>
+                    {cost?.summary && (
+                      <p className="text-sm leading-relaxed text-gray-700">{cost.summary}</p>
+                    )}
+                    {cost?.monthly_cost_missing_items && cost.monthly_cost_missing_items.length > 0 && (
+                      <div>
+                        <p className="text-xs text-gray-500">Missing cost fields</p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {cost.monthly_cost_missing_items.map((item) => (
+                            <Badge key={item} variant="outline">
+                              {item}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="clause">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Clause read</CardTitle>
+                    <CardDescription>
+                      Repair, lease flexibility, and move-in timing. Drill down for the nuance.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                        <p className="text-xs text-gray-500">Repair responsibility</p>
+                        <p className="mt-1 text-sm font-medium text-gray-900">
+                          {repairResponsibilityLabel(clause?.repair_responsibility_level)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                        <p className="text-xs text-gray-500">Lease term</p>
+                        <p className="mt-1 text-sm font-medium text-gray-900">
+                          {leaseTermLabel(clause?.lease_term_level)}
+                        </p>
+                        <p className="mt-1 text-xs text-gray-500">
+                          {leaseTermDescription(clause?.lease_term_level)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                        <p className="text-xs text-gray-500">Move-in timing</p>
+                        <p className="mt-1 text-sm font-medium text-gray-900">
+                          {moveInTimingLabel(clause?.move_in_date_level)}
+                        </p>
+                        <p className="mt-1 text-xs text-gray-500">
+                          {moveInTimingDescription(clause?.move_in_date_level)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                        <p className="text-xs text-gray-500">Clause risk</p>
+                        <p className="mt-1">
+                          <span
+                            className={cn(
+                              "inline-flex rounded-md px-2 py-0.5 text-sm font-medium ring-1",
+                              riskTone(clause?.clause_risk_flag)
+                            )}
+                          >
+                            {riskLabel(clause?.clause_risk_flag)}
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                    {clause?.summary && (
+                      <p className="text-sm leading-relaxed text-gray-700">{clause.summary}</p>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="commute">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Commute estimate</CardTitle>
+                    <CardDescription>
+                      How this candidate fits your configured commute destination.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {!candidate.commute_evidence ? (
+                      <p className="text-sm text-gray-500">No commute information recorded yet.</p>
+                    ) : candidate.commute_evidence.status === "ready" ? (
+                      <div className="space-y-3">
+                        <div className="flex items-baseline gap-3">
+                          <p className="text-3xl font-semibold tracking-tight text-gray-900">
+                            {candidate.commute_evidence.estimated_minutes}
+                          </p>
+                          <p className="text-sm text-gray-500">
+                            min to {candidate.commute_evidence.destination_label}
+                          </p>
+                        </div>
+                        <p className="text-sm text-gray-700">
+                          Mode: {candidate.commute_evidence.mode}
+                          {candidate.commute_evidence.route_summary &&
+                            ` — ${candidate.commute_evidence.route_summary}`}
+                        </p>
+                        {candidate.commute_evidence.confidence_note && (
+                          <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 ring-1 ring-amber-200">
+                            {candidate.commute_evidence.confidence_note}
+                          </p>
+                        )}
+                      </div>
+                    ) : candidate.commute_evidence.status === "not_configured" ? (
+                      <p className="text-sm text-gray-500">
+                        Add a commute destination in project settings to see travel estimates.
+                      </p>
+                    ) : candidate.commute_evidence.status === "insufficient_candidate_location" ? (
+                      <div className="rounded-md bg-amber-50 p-3 text-sm text-amber-900 ring-1 ring-amber-200">
+                        <p className="font-medium">Location not precise enough</p>
+                        <p className="mt-1 text-amber-800">
+                          Edit the candidate to add an address or building name, then reassess.
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-500">
+                        {candidate.commute_evidence.confidence_note || "Commute calculation failed."}
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="fit">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Market and fit context</CardTitle>
+                    <CardDescription>District benchmark and situational fit signals.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {benchmark && benchmark.status === "available" ? (
+                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                          <p className="text-sm font-medium text-gray-900">
+                            Median rent in {benchmark.district}
+                          </p>
+                          <p className="text-lg font-semibold text-gray-900">
+                            HKD {benchmark.median_monthly_rent?.toLocaleString()}
+                          </p>
+                        </div>
+                        <p className="mt-1 text-xs text-gray-500">
+                          {benchmark.source_period} · HKD{" "}
+                          {benchmark.median_monthly_rent_per_sqm?.toLocaleString()} per sq m / mo
+                        </p>
+                        {benchmark.fit_note && (
+                          <p className="mt-3 text-sm text-gray-700">{benchmark.fit_note}</p>
+                        )}
+                        {benchmark.record_note === "fewer_than_10_records" && (
+                          <p className="mt-2 text-xs text-amber-700">
+                            Based on fewer than 10 rental records.
+                          </p>
+                        )}
+                        {benchmark.disclaimer && (
+                          <p className="mt-2 text-xs text-gray-500">{benchmark.disclaimer}</p>
+                        )}
+                      </div>
+                    ) : benchmark ? (
+                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                        <p className="text-sm text-gray-700">{benchmarkStatusCopy(benchmark)}</p>
+                        <p className="mt-2 text-xs text-gray-500">
+                          For subdivided units only. General reference, not property-specific.
+                        </p>
+                      </div>
+                    ) : null}
+
+                    {assessment && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                          <p className="text-xs text-gray-500">Potential value</p>
+                          <p className="mt-1 text-sm font-medium text-gray-900">
+                            {confidenceLabel(assessment.potential_value_level)}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                          <p className="text-xs text-gray-500">Completeness</p>
+                          <p className="mt-1 text-sm font-medium text-gray-900">
+                            {confidenceLabel(assessment.completeness_level)}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                          <p className="text-xs text-gray-500">Critical uncertainty</p>
+                          <p className="mt-1 text-sm font-medium text-gray-900">
+                            {confidenceLabel(assessment.critical_uncertainty_level)}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                          <p className="text-xs text-gray-500">Information gain</p>
+                          <p className="mt-1 text-sm font-medium text-gray-900">
+                            {confidenceLabel(assessment.information_gain_level)}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+
+            {/* Outreach Draft */}
+            <Card>
+              <CardHeader>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <MessageSquare className="h-4 w-4" />
+                      Outreach draft
+                    </CardTitle>
+                    <CardDescription>
+                      Turn the open questions into a short message you can send.
+                    </CardDescription>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {contactPlan && (
+                      <Button variant="outline" size="sm" onClick={handleCopyContactDraft}>
+                        {contactPlanCopied ? (
+                          <>
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Copied
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-3.5 w-3.5" />
+                            Copy message
+                          </>
+                        )}
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      onClick={handleGenerateContactPlan}
+                      disabled={contactPlanLoading || isProcessing}
+                    >
+                      {contactPlanLoading ? (
+                        <>
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                          Drafting...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="h-3.5 w-3.5" />
+                          {contactPlan ? "Refresh draft" : "Draft outreach"}
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {contactPlanError && <p className="mb-3 text-sm text-red-600">{contactPlanError}</p>}
+                {contactPlan ? (
+                  <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500">
+                        Contact goal
+                      </p>
+                      <p className="mt-1 text-sm leading-relaxed text-gray-700">
+                        {contactPlan.contact_goal}
+                      </p>
+                      <p className="mt-4 text-[11px] font-medium uppercase tracking-wider text-gray-500">
+                        Best questions to ask
+                      </p>
+                      <ol className="mt-2 space-y-2.5 text-sm text-gray-700">
+                        {contactPlan.questions.map((question, index) => (
+                          <li key={question} className="flex gap-2">
+                            <span className="shrink-0 text-xs font-semibold text-gray-400">
+                              {index + 1}.
+                            </span>
+                            <span>{question}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500">
+                        English message draft
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Keep it lightweight; edit tone before sending.
+                      </p>
+                      <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-gray-700">
+                        {contactPlan.message_draft}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">
+                    Draft on demand — the assistant will pull in the current gaps and open questions.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Edit form (conditional) */}
+            {isEditing && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Edit candidate</CardTitle>
+                  <CardDescription>
+                    Update source text and the assistant will rerun extraction and assessment.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form className="space-y-4" onSubmit={handleEditSave}>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Candidate name
+                      </label>
+                      <input
+                        type="text"
+                        value={formState.name}
+                        onChange={(e) =>
+                          setFormState((current) => ({ ...current, name: e.target.value }))
+                        }
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                        placeholder="Candidate name"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Listing text
+                      </label>
+                      <textarea
+                        value={formState.raw_listing_text}
+                        onChange={(e) =>
+                          setFormState((current) => ({ ...current, raw_listing_text: e.target.value }))
+                        }
+                        rows={6}
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                        placeholder="Paste the listing description here."
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Chat transcript
+                      </label>
+                      <textarea
+                        value={formState.raw_chat_text}
+                        onChange={(e) =>
+                          setFormState((current) => ({ ...current, raw_chat_text: e.target.value }))
+                        }
+                        rows={5}
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                        placeholder="Paste agent or landlord messages here."
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">Notes</label>
+                      <textarea
+                        value={formState.raw_note_text}
+                        onChange={(e) =>
+                          setFormState((current) => ({ ...current, raw_note_text: e.target.value }))
+                        }
+                        rows={4}
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                        placeholder="Add anything you observed or want to remember."
+                      />
+                    </div>
+                    {saveError && <p className="text-sm text-red-600">{saveError}</p>}
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={handleEditCancel}
+                        disabled={actionLoading}
+                      >
+                        Cancel
+                      </Button>
+                      <Button type="submit" disabled={actionLoading}>
+                        {actionLoading ? "Saving..." : "Save and reassess"}
+                      </Button>
+                    </div>
+                  </form>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Evidence drill-down */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Evidence</CardTitle>
+                <CardDescription>
+                  Raw extraction, OCR text, and observations — open only when you need to audit a claim.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <details className="group rounded-lg border border-gray-200 bg-gray-50 p-4 open:bg-white">
+                  <summary className="flex cursor-pointer items-center justify-between gap-2 text-sm font-medium text-gray-900">
+                    <span className="inline-flex items-center gap-2">
+                      <FileText className="h-3.5 w-3.5 text-gray-500" />
+                      Structured listing fields
+                    </span>
+                    <span className="text-xs text-gray-500 group-open:hidden">Expand</span>
+                    <span className="hidden text-xs text-gray-500 group-open:inline">Collapse</span>
+                  </summary>
+                  <dl className="mt-4 grid gap-x-6 gap-y-2 text-sm md:grid-cols-2">
+                    {extracted?.monthly_rent && (
+                      <div className="flex justify-between gap-4 border-b border-gray-200/60 py-1.5">
+                        <dt className="text-gray-500">Monthly rent</dt>
+                        <dd className="font-medium text-gray-900">{extracted.monthly_rent}</dd>
+                      </div>
+                    )}
+                    {extracted?.district && (
+                      <div className="flex justify-between gap-4 border-b border-gray-200/60 py-1.5">
+                        <dt className="text-gray-500">District</dt>
+                        <dd className="font-medium text-gray-900">{extracted.district}</dd>
+                      </div>
+                    )}
+                    {extracted?.building_name && (
+                      <div className="flex justify-between gap-4 border-b border-gray-200/60 py-1.5">
+                        <dt className="text-gray-500">Building</dt>
+                        <dd className="font-medium text-gray-900">{extracted.building_name}</dd>
+                      </div>
+                    )}
+                    {extracted?.nearest_station && (
+                      <div className="flex justify-between gap-4 border-b border-gray-200/60 py-1.5">
+                        <dt className="text-gray-500">Nearest station</dt>
+                        <dd className="font-medium text-gray-900">{extracted.nearest_station}</dd>
+                      </div>
+                    )}
+                    {extracted?.deposit && (
+                      <div className="flex justify-between gap-4 border-b border-gray-200/60 py-1.5">
+                        <dt className="text-gray-500">Deposit</dt>
+                        <dd className="text-gray-900">{extracted.deposit}</dd>
+                      </div>
+                    )}
+                    {extracted?.agent_fee && (
+                      <div className="flex justify-between gap-4 border-b border-gray-200/60 py-1.5">
+                        <dt className="text-gray-500">Agent fee</dt>
+                        <dd className="text-gray-900">{extracted.agent_fee}</dd>
+                      </div>
+                    )}
+                    {extracted?.management_fee_amount && (
+                      <div className="flex justify-between gap-4 border-b border-gray-200/60 py-1.5">
+                        <dt className="text-gray-500">Management fee</dt>
+                        <dd className="text-gray-900">
+                          {extracted.management_fee_amount}
+                          {extracted.management_fee_included === true
+                            ? " (included)"
+                            : extracted.management_fee_included === false
+                              ? " (separate)"
+                              : ""}
+                        </dd>
+                      </div>
+                    )}
+                    {extracted?.lease_term && (
+                      <div className="flex justify-between gap-4 border-b border-gray-200/60 py-1.5">
+                        <dt className="text-gray-500">Lease term</dt>
+                        <dd className="text-gray-900">{extracted.lease_term}</dd>
+                      </div>
+                    )}
+                    {extracted?.move_in_date && (
+                      <div className="flex justify-between gap-4 border-b border-gray-200/60 py-1.5">
+                        <dt className="text-gray-500">Move-in date</dt>
+                        <dd className="text-gray-900">{extracted.move_in_date}</dd>
+                      </div>
+                    )}
+                    {extracted?.furnished && (
+                      <div className="flex justify-between gap-4 border-b border-gray-200/60 py-1.5">
+                        <dt className="text-gray-500">Furnishing</dt>
+                        <dd className="text-gray-900">{extracted.furnished}</dd>
+                      </div>
+                    )}
+                    {extracted?.size_sqft && (
+                      <div className="flex justify-between gap-4 border-b border-gray-200/60 py-1.5">
+                        <dt className="text-gray-500">Size</dt>
+                        <dd className="text-gray-900">{extracted.size_sqft} sqft</dd>
+                      </div>
+                    )}
+                  </dl>
+                </details>
+
+                {extracted && extracted.raw_facts && extracted.raw_facts.length > 0 && (
+                  <details className="group rounded-lg border border-gray-200 bg-gray-50 p-4 open:bg-white">
+                    <summary className="flex cursor-pointer items-center justify-between gap-2 text-sm font-medium text-gray-900">
+                      <span className="inline-flex items-center gap-2">
+                        <Sparkles className="h-3.5 w-3.5 text-gray-500" />
+                        Other observations
+                      </span>
+                      <span className="text-xs text-gray-500 group-open:hidden">
+                        {extracted.raw_facts.length} notes
+                      </span>
+                    </summary>
+                    <p className="mt-2 text-xs text-gray-500">
+                      Facts the assistant noticed but did not fit typed fields. Shown for context; not used in the recommendation.
+                    </p>
+                    <ul className="mt-3 list-disc space-y-1.5 pl-5 text-sm text-gray-700">
+                      {extracted.raw_facts.map((fact, index) => (
+                        <li key={`raw-fact-${index}`}>{fact}</li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+
+                {extracted && extracted.decision_signals.length > 0 && (
+                  <details className="group rounded-lg border border-gray-200 bg-gray-50 p-4 open:bg-white">
+                    <summary className="flex cursor-pointer items-center justify-between gap-2 text-sm font-medium text-gray-900">
+                      <span className="inline-flex items-center gap-2">
+                        <AlertTriangle className="h-3.5 w-3.5 text-gray-500" />
+                        Decision signals
+                      </span>
+                      <span className="text-xs text-gray-500 group-open:hidden">
+                        {extracted.decision_signals.length} signals
+                      </span>
+                    </summary>
+                    <div className="mt-4 space-y-2">
+                      {extracted.decision_signals.map((signal: DecisionSignal, index) => (
+                        <div
+                          key={`${signal.key}-${index}`}
+                          className={cn("rounded-lg border p-3", signalTone(signal.category))}
+                        >
+                          <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                            <span className="text-sm font-medium">{signal.label}</span>
+                            <Badge variant="outline" className="bg-white/70">
+                              {signalCategoryLabel(signal.category)}
+                            </Badge>
+                            <Badge variant="outline" className="bg-white/70">
+                              {signalSourceLabel(signal.source)}
+                            </Badge>
+                          </div>
+                          <p className="text-sm opacity-90">{signal.evidence}</p>
+                          {signal.note && <p className="mt-1.5 text-xs opacity-75">{signal.note}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+
+                {candidate.source_assets.length > 0 && (
+                  <details className="group rounded-lg border border-gray-200 bg-gray-50 p-4 open:bg-white">
+                    <summary className="flex cursor-pointer items-center justify-between gap-2 text-sm font-medium text-gray-900">
+                      <span className="inline-flex items-center gap-2">
+                        <FileText className="h-3.5 w-3.5 text-gray-500" />
+                        OCR evidence
+                      </span>
+                      <span className="text-xs text-gray-500 group-open:hidden">
+                        {candidate.source_assets.length} files
+                      </span>
+                    </summary>
+                    <div className="mt-4 space-y-3">
+                      {candidate.source_assets.map((asset) => (
+                        <div key={asset.id} className="rounded-lg border border-gray-200 bg-white p-3">
+                          <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-gray-900">
+                                {asset.original_filename}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {asset.file_size
+                                  ? `${Math.round(asset.file_size / 1024)} KB`
+                                  : "Unknown size"}
+                              </p>
+                            </div>
+                            <span
+                              className={cn(
+                                "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                                asset.ocr_status === "succeeded"
+                                  ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                                  : asset.ocr_status === "failed"
+                                    ? "bg-red-50 text-red-700 ring-1 ring-red-200"
+                                    : "bg-gray-100 text-gray-700"
+                              )}
+                            >
+                              OCR {asset.ocr_status}
+                            </span>
+                          </div>
+                          {asset.ocr_text ? (
+                            <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-md bg-gray-50 p-3 text-xs text-gray-600">
+                              {asset.ocr_text}
+                            </pre>
+                          ) : (
+                            <p className="text-xs text-gray-500">No OCR text was saved.</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+
+                {candidate.combined_text && (
+                  <details className="group rounded-lg border border-gray-200 bg-gray-50 p-4 open:bg-white">
+                    <summary className="flex cursor-pointer items-center gap-2 text-sm font-medium text-gray-900">
+                      <FileText className="h-3.5 w-3.5 text-gray-500" />
+                      Source text
+                    </summary>
+                    <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-white p-3 text-xs text-gray-600">
+                      {candidate.combined_text}
+                    </pre>
+                  </details>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Sticky sidebar */}
+          <aside className="space-y-4 lg:sticky lg:top-6 lg:self-start">
+            {/* CTAs */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Decide</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {candidate.user_decision === "undecided" ? (
+                  <>
+                    <Button
+                      className="w-full bg-emerald-600 hover:bg-emerald-700"
+                      onClick={() => setShowConfirm("shortlist")}
+                      disabled={isProcessing}
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Shortlist
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="w-full text-red-600 hover:text-red-700"
+                      onClick={() => setShowConfirm("reject")}
+                      disabled={isProcessing}
+                    >
+                      <XCircle className="h-3.5 w-3.5" />
+                      Reject
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="w-full"
+                      onClick={() => setShowConfirm("delete")}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Delete
+                    </Button>
+                  </>
+                ) : (
+                  <div
+                    className={cn(
+                      "rounded-lg px-3 py-2 text-sm font-medium ring-1",
+                      candidate.user_decision === "shortlisted"
+                        ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                        : "bg-red-50 text-red-700 ring-red-200"
+                    )}
+                  >
+                    {candidate.user_decision === "shortlisted" ? "Shortlisted" : "Rejected"}
+                  </div>
+                )}
+                <Link
+                  href={`/projects/${projectId}/compare?ids=${candidateId}`}
+                  className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
                 >
+                  <ArrowLeftRight className="h-3.5 w-3.5" />
+                  Add to compare
+                </Link>
+              </CardContent>
+            </Card>
+
+            {/* Key facts */}
+            {keyFacts.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm">Key facts</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {keyFacts.map((fact) => (
+                    <KeyFact key={fact.label} icon={fact.icon} label={fact.label} value={fact.value} />
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Blockers */}
+            {decisionBlockers.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-1.5 text-sm">
+                    <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+                    Open blockers
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ul className="space-y-2 text-sm text-gray-700">
+                    {decisionBlockers.map((blocker) => (
+                      <li key={blocker} className="flex gap-2">
+                        <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                        <span>{blocker}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Compare context */}
+            {compareContext && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm">Compare context</CardTitle>
+                  <CardDescription className="text-xs">
+                    {compareContext.comparison.summary.headline}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-xs leading-relaxed text-gray-700">
+                    {compareContext.card.decision_explanation}
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {buildCompareSetNames(compareContext.comparison).map((name) => (
+                      <Badge key={name} variant="secondary">
+                        {name}
+                      </Badge>
+                    ))}
+                  </div>
+                  <Link
+                    href={`/projects/${projectId}/compare?ids=${encodeURIComponent(
+                      buildCompareSetIds(compareContext.comparison).join(",")
+                    )}`}
+                    className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-gray-900 px-3 text-sm font-medium text-white transition hover:bg-black"
+                  >
+                    Open compare workspace
+                  </Link>
+                </CardContent>
+              </Card>
+            )}
+          </aside>
+        </div>
+
+        {/* Confirm modal */}
+        {showConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <Card className="w-full max-w-md">
+              <CardHeader>
+                <CardTitle>
+                  {showConfirm === "shortlist"
+                    ? "Confirm shortlist"
+                    : showConfirm === "reject"
+                      ? "Confirm rejection"
+                      : "Delete candidate"}
+                </CardTitle>
+                <CardDescription>
+                  {showConfirm === "shortlist"
+                    ? "Add this candidate to your shortlist?"
+                    : showConfirm === "reject"
+                      ? "Mark this candidate as rejected? You can reassess it later if needed."
+                      : "Delete this candidate and all related assessments? This cannot be undone."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex justify-end gap-2">
+                <Button variant="ghost" onClick={() => setShowConfirm(null)}>
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
                   onClick={() =>
                     showConfirm === "delete" ? void handleDelete() : void handleAction(showConfirm)
                   }
                   disabled={actionLoading}
-                  className={`px-4 py-2 text-white rounded-lg ${
-                    showConfirm === "shortlist"
-                      ? "bg-green-600 hover:bg-green-700"
-                      : showConfirm === "reject"
-                        ? "bg-red-600 hover:bg-red-700"
-                        : "bg-gray-900 hover:bg-black"
-                  }`}
+                  className={cn(
+                    showConfirm === "shortlist" && "bg-emerald-600 hover:bg-emerald-700",
+                    showConfirm === "reject" && "bg-red-600 hover:bg-red-700",
+                    showConfirm === "delete" && "bg-gray-900 hover:bg-black"
+                  )}
                 >
                   {actionLoading
                     ? showConfirm === "delete"
@@ -695,606 +1874,11 @@ export default function CandidateDetailPage() {
                     : showConfirm === "delete"
                       ? "Confirm delete"
                       : "Confirm"}
-                </button>
-              </div>
-            </div>
+                </Button>
+              </CardContent>
+            </Card>
           </div>
         )}
-
-        {assessment && (
-          <section className="bg-primary-50 border border-primary-200 rounded-lg p-6 mb-6">
-            <div className="grid lg:grid-cols-[1.15fr_0.85fr] gap-6">
-              <div>
-                <div className="mb-4 flex flex-wrap items-center gap-2">
-                  <span
-                    className={`inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium ${recommendationTone(
-                      assessment.top_level_recommendation
-                    )}`}
-                  >
-                    {recommendationLabel(assessment.top_level_recommendation)}
-                  </span>
-                  <span className="inline-flex items-center rounded-full border border-primary-200 bg-white px-3 py-1 text-sm text-primary-900">
-                    Next move: {actionLabel(assessment.next_best_action)}
-                  </span>
-                </div>
-                <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary-700 mb-2">Decision snapshot</p>
-                <h2 className="text-2xl font-semibold text-primary-950">What matters now</h2>
-                <p className="text-primary-900 mt-3 leading-7">{assessment.summary}</p>
-                {assessment.labels.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mt-4">
-                    {assessment.labels.map((label) => (
-                      <span key={label} className="text-xs bg-white text-primary-800 px-2 py-1 rounded-full border border-primary-200">
-                        {label}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="grid sm:grid-cols-3 lg:grid-cols-1 gap-3">
-                <div className="rounded-lg border border-primary-200 bg-white/80 px-4 py-3">
-                  <p className="text-xs uppercase tracking-[0.16em] text-primary-700">Confidence</p>
-                  <p className="mt-2 text-lg font-semibold text-primary-950">{confidenceLabel(assessment.recommendation_confidence)}</p>
-                </div>
-                <div className="rounded-lg border border-primary-200 bg-white/80 px-4 py-3">
-                  <p className="text-xs uppercase tracking-[0.16em] text-primary-700">Decision risk</p>
-                  <p className="mt-2 text-lg font-semibold text-primary-950">{confidenceLabel(assessment.decision_risk_level)}</p>
-                </div>
-                <div className="rounded-lg border border-primary-200 bg-white/80 px-4 py-3">
-                  <p className="text-xs uppercase tracking-[0.16em] text-primary-700">Known monthly cost</p>
-                  <p className="mt-2 text-lg font-semibold text-primary-950">
-                    {cost?.known_monthly_cost ? `HKD ${cost.known_monthly_cost.toLocaleString()}` : "Unknown"}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-6 border-t border-primary-200 pt-5 grid lg:grid-cols-[1fr_0.72fr] gap-5">
-              <div>
-                <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary-700 mb-2">
-                  Current decision blockers
-                </p>
-                {decisionBlockers.length > 0 ? (
-                  <ul className="space-y-2 text-sm text-primary-950">
-                    {decisionBlockers.map((blocker) => (
-                      <li key={blocker} className="flex gap-2">
-                        <span className="text-primary-400">*</span>
-                        <span>{blocker}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-primary-900">
-                    No single blocker dominates right now, so this decision is mainly about whether the current fit is strong enough to pursue.
-                  </p>
-                )}
-              </div>
-              <div className="rounded-lg border border-primary-200 bg-white/70 px-4 py-4">
-                <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary-700 mb-2">
-                  Keep the page light
-                </p>
-                <p className="text-sm text-primary-900 leading-7">
-                  If you need to contact the landlord or agent, use the outreach draft below. Benchmark notes, OCR text, and deeper assessment evidence stay secondary until you need them.
-                </p>
-              </div>
-            </div>
-          </section>
-        )}
-
-        {compareContext && (
-          <section className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
-            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium uppercase tracking-[0.18em] text-gray-500 mb-2">
-                  Current compare context
-                </p>
-                <h2 className="text-xl font-semibold text-gray-900">
-                  {compareContext.comparison.summary.headline}
-                </h2>
-                <p className="text-gray-700 mt-2">{compareContext.card.decision_explanation}</p>
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {buildCompareSetNames(compareContext.comparison).map((name) => (
-                    <span key={name} className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded-full">
-                      {name}
-                    </span>
-                  ))}
-                </div>
-                <p className="text-sm text-gray-600 mt-3">
-                  Main tradeoff: {compareContext.card.main_tradeoff}
-                </p>
-                {compareContext.card.open_blocker && (
-                  <p className="text-sm text-gray-600 mt-1">
-                    Open blocker: {compareContext.card.open_blocker}
-                  </p>
-                )}
-              </div>
-              <div className="flex flex-col gap-2">
-                <Link
-                  href={`/projects/${projectId}/compare?ids=${encodeURIComponent(
-                    buildCompareSetIds(compareContext.comparison).join(",")
-                  )}`}
-                  className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-black transition whitespace-nowrap text-center"
-                >
-                  Open compare workspace
-                </Link>
-                <Link
-                  href={`/projects/${projectId}`}
-                  className="text-sm text-primary-600 hover:text-primary-700 text-center"
-                >
-                  Choose different candidates
-                </Link>
-              </div>
-            </div>
-          </section>
-        )}
-
-        <section className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
-          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-            <div className="max-w-2xl">
-              <p className="text-sm font-medium uppercase tracking-[0.18em] text-gray-500 mb-2">
-                Ask agent / landlord
-              </p>
-              <h2 className="text-xl font-semibold text-gray-900">Draft the next message only when you need it</h2>
-              <p className="text-gray-700 mt-2 leading-7">
-                This uses the current assessment to turn your open questions into a short outreach plan, instead of repeating the whole analysis again.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {contactPlan && (
-                <button
-                  onClick={handleCopyContactDraft}
-                  className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition whitespace-nowrap"
-                >
-                  {contactPlanCopied ? "Copied" : "Copy message"}
-                </button>
-              )}
-              <button
-                onClick={handleGenerateContactPlan}
-                disabled={contactPlanLoading || isProcessing}
-                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition disabled:opacity-50 whitespace-nowrap"
-              >
-                {contactPlanLoading ? "Drafting..." : contactPlan ? "Refresh draft" : "Draft outreach"}
-              </button>
-            </div>
-          </div>
-
-          {contactPlanError && <p className="text-sm text-red-600 mt-4">{contactPlanError}</p>}
-
-          {contactPlan && (
-            <div className="mt-5 border-t border-gray-200 pt-5 grid lg:grid-cols-[0.95fr_1.2fr] gap-5">
-              <div className="rounded-lg bg-gray-50 border border-gray-200 p-4">
-                <p className="text-sm font-medium uppercase tracking-[0.18em] text-gray-500 mb-2">
-                  Contact goal
-                </p>
-                <p className="text-sm text-gray-800 leading-7">{contactPlan.contact_goal}</p>
-
-                <p className="text-sm font-medium uppercase tracking-[0.18em] text-gray-500 mt-5 mb-2">
-                  Best questions to ask
-                </p>
-                <ol className="space-y-3 text-sm text-gray-700">
-                  {contactPlan.questions.map((question, index) => (
-                    <li key={question} className="flex gap-3">
-                      <span className="text-xs font-semibold text-gray-400 pt-0.5">{index + 1}.</span>
-                      <span>{question}</span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-
-              <div className="rounded-lg bg-gray-50 border border-gray-200 p-4">
-                <p className="text-sm font-medium uppercase tracking-[0.18em] text-gray-500 mb-2">
-                  English message draft
-                </p>
-                <p className="text-xs text-gray-500 mb-3">
-                  Keep this lightweight, then edit tone or details before sending.
-                </p>
-                <p className="text-sm text-gray-800 leading-7 whitespace-pre-wrap">{contactPlan.message_draft}</p>
-              </div>
-            </div>
-          )}
-        </section>
-
-        {candidate.commute_evidence && (
-          <section className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
-            <p className="text-sm font-medium uppercase tracking-[0.18em] text-gray-500 mb-2">Commute estimate</p>
-            {candidate.commute_evidence.status === "ready" ? (
-              <>
-                <h2 className="text-xl font-semibold text-gray-900">
-                  {candidate.commute_evidence.estimated_minutes} min to {candidate.commute_evidence.destination_label}
-                </h2>
-                <p className="text-sm text-gray-600 mt-2">
-                  Mode: {candidate.commute_evidence.mode}
-                  {candidate.commute_evidence.route_summary && ` — ${candidate.commute_evidence.route_summary}`}
-                </p>
-                {candidate.commute_evidence.confidence_note && (
-                  <p className="text-sm text-amber-700 mt-2">{candidate.commute_evidence.confidence_note}</p>
-                )}
-              </>
-            ) : candidate.commute_evidence.status === "not_configured" ? (
-              <p className="text-sm text-gray-600">
-                Add a commute destination in project settings to see travel estimates.
-              </p>
-            ) : candidate.commute_evidence.status === "insufficient_candidate_location" ? (
-              <p className="text-sm text-gray-600">
-                Commute unavailable: location not precise enough. Edit the candidate to add an address or building name.
-              </p>
-            ) : (
-              <p className="text-sm text-gray-600">
-                {candidate.commute_evidence.confidence_note || "Commute calculation failed."}
-              </p>
-            )}
-          </section>
-        )}
-
-        {benchmark && (
-          <details className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
-            <summary className="cursor-pointer">
-              <p className="text-lg font-semibold text-gray-900">Benchmark context</p>
-              <p className="text-sm text-gray-500 mt-1">
-                Open this only when district-level SDU pricing would meaningfully change your read.
-              </p>
-            </summary>
-            <div className="mt-4">
-              <p className="text-sm font-medium uppercase tracking-[0.18em] text-gray-500 mb-2">
-                SDU district benchmark
-              </p>
-            {benchmark.status === "available" ? (
-              <>
-                <h2 className="text-xl font-semibold text-gray-900">
-                  Median rent in {benchmark.district}: HKD {benchmark.median_monthly_rent?.toLocaleString()}
-                </h2>
-                <p className="text-sm text-gray-600 mt-2">
-                  {benchmark.source_period} | HKD {benchmark.median_monthly_rent_per_sqm?.toLocaleString()} per sq m per month
-                </p>
-                {benchmark.fit_note && <p className="text-sm text-gray-700 mt-3">{benchmark.fit_note}</p>}
-                {benchmark.record_note === "fewer_than_10_records" && (
-                  <p className="text-sm text-amber-700 mt-3">Based on fewer than 10 rental records.</p>
-                )}
-                <p className="text-sm text-gray-500 mt-3">{benchmark.disclaimer}</p>
-              </>
-            ) : (
-              <>
-                <p className="text-sm text-gray-700">{benchmarkStatusCopy(benchmark)}</p>
-                <p className="text-sm text-gray-500 mt-3">
-                  For subdivided units only. General reference, not property-specific.
-                </p>
-              </>
-            )}
-            </div>
-          </details>
-        )}
-
-        {isEditing && (
-          <section className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
-            <div className="flex items-start justify-between gap-4 mb-4">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900">Edit candidate</h2>
-                <p className="text-sm text-gray-600 mt-1">
-                  Update the source text and we will rerun extraction and assessment.
-                </p>
-              </div>
-            </div>
-            <form className="space-y-4" onSubmit={handleEditSave}>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Candidate name</label>
-                <input
-                  type="text"
-                  value={formState.name}
-                  onChange={(e) => setFormState((current) => ({ ...current, name: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  placeholder="Candidate name"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Listing text</label>
-                <textarea
-                  value={formState.raw_listing_text}
-                  onChange={(e) =>
-                    setFormState((current) => ({ ...current, raw_listing_text: e.target.value }))
-                  }
-                  rows={6}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  placeholder="Paste the listing description here."
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Chat transcript</label>
-                <textarea
-                  value={formState.raw_chat_text}
-                  onChange={(e) =>
-                    setFormState((current) => ({ ...current, raw_chat_text: e.target.value }))
-                  }
-                  rows={5}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  placeholder="Paste agent or landlord messages here."
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-                <textarea
-                  value={formState.raw_note_text}
-                  onChange={(e) =>
-                    setFormState((current) => ({ ...current, raw_note_text: e.target.value }))
-                  }
-                  rows={4}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  placeholder="Add anything you observed or want to remember."
-                />
-              </div>
-              {saveError && <p className="text-sm text-red-600">{saveError}</p>}
-              <div className="flex gap-3 justify-end">
-                <button
-                  type="button"
-                  onClick={handleEditCancel}
-                  className="px-4 py-2 text-gray-600 hover:text-gray-900"
-                  disabled={actionLoading}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={actionLoading}
-                  className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
-                >
-                  {actionLoading ? "Saving..." : "Save and reassess"}
-                </button>
-              </div>
-            </form>
-          </section>
-        )}
-
-        <section className="mt-6 space-y-4">
-          {candidate.source_assets.length > 0 && (
-            <details className="bg-white rounded-lg border border-gray-200 p-6">
-              <summary className="cursor-pointer">
-                <p className="text-lg font-semibold text-gray-900">OCR evidence</p>
-                <p className="text-sm text-gray-500 mt-1">
-                  Inspect the raw text from each uploaded file before you question the downstream extraction.
-                </p>
-              </summary>
-              <div className="space-y-4 mt-4">
-                {candidate.source_assets.map((asset) => (
-                  <div key={asset.id} className="border border-gray-200 rounded-lg p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
-                      <div>
-                        <p className="font-medium text-gray-900">{asset.original_filename}</p>
-                        <p className="text-sm text-gray-500">
-                          {asset.file_size ? `${Math.round(asset.file_size / 1024)} KB` : "Unknown size"}
-                        </p>
-                      </div>
-                      <span
-                        className={`text-xs px-2.5 py-1 rounded-full ${
-                          asset.ocr_status === "succeeded"
-                            ? "bg-green-100 text-green-700"
-                            : asset.ocr_status === "failed"
-                              ? "bg-red-100 text-red-700"
-                              : "bg-gray-100 text-gray-700"
-                        }`}
-                      >
-                        OCR {asset.ocr_status}
-                      </span>
-                    </div>
-                    {asset.ocr_text ? (
-                      <pre className="text-sm text-gray-600 whitespace-pre-wrap bg-gray-50 p-3 rounded-lg overflow-auto max-h-64">
-                        {asset.ocr_text}
-                      </pre>
-                    ) : (
-                      <p className="text-sm text-gray-600">
-                        No OCR text was saved for this file.
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
-
-          <details className="bg-white rounded-lg border border-gray-200 p-6">
-            <summary className="cursor-pointer">
-              <p className="text-lg font-semibold text-gray-900">Supporting assessment details</p>
-              <p className="text-sm text-gray-500 mt-1">
-                Open the deeper cost, clause, and extraction context only when you need to inspect why the decision looks this way.
-              </p>
-            </summary>
-            <div className="grid md:grid-cols-2 gap-6 mt-4">
-              {cost && (
-                <section>
-                  <h2 className="text-base font-semibold text-gray-900 mb-4">Cost view</h2>
-                  <div className="grid grid-cols-2 gap-4 mb-4">
-                    <div>
-                      <div className="text-sm text-gray-600">Known monthly cost</div>
-                      <div className="text-xl font-semibold">
-                        {cost.known_monthly_cost ? `HKD ${cost.known_monthly_cost.toLocaleString()}` : "Unknown"}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-sm text-gray-600">Confidence</div>
-                      <div className="text-xl font-semibold">{confidenceLabel(cost.monthly_cost_confidence)}</div>
-                    </div>
-                  </div>
-                  <div className="mb-4">
-                    <div className="text-sm text-gray-600">Cost risk</div>
-                    <div className="text-lg font-medium">{riskLabel(cost.cost_risk_flag)}</div>
-                  </div>
-                  <p className="text-sm text-gray-700">{cost.summary}</p>
-                  {cost.monthly_cost_missing_items.length > 0 && (
-                    <div className="mt-4">
-                      <div className="text-sm text-gray-600 mb-1">Missing cost fields</div>
-                      <div className="flex flex-wrap gap-2">
-                        {cost.monthly_cost_missing_items.map((item) => (
-                          <span key={item} className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded-full">
-                            {item}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </section>
-              )}
-
-              {clause && (
-                <section>
-                  <h2 className="text-base font-semibold text-gray-900 mb-4">Clause view</h2>
-                  <div className="grid grid-cols-2 gap-4 mb-4">
-                    <div>
-                      <div className="text-sm text-gray-600">Repair responsibility</div>
-                      <div className="text-lg font-medium">{repairResponsibilityLabel(clause.repair_responsibility_level)}</div>
-                    </div>
-                    <div>
-                      <div className="text-sm text-gray-600">Lease term</div>
-                      <div className="text-lg font-medium">{leaseTermLabel(clause.lease_term_level)}</div>
-                    </div>
-                    <div>
-                      <div className="text-sm text-gray-600">Move-in timing</div>
-                      <div className="text-lg font-medium">{moveInTimingLabel(clause.move_in_date_level)}</div>
-                    </div>
-                    <div>
-                      <div className="text-sm text-gray-600">Clause confidence</div>
-                      <div className="text-lg font-medium">{confidenceLabel(clause.clause_confidence)}</div>
-                    </div>
-                  </div>
-                  <div className="space-y-2 mb-4">
-                    <p className="text-sm text-gray-700">
-                      <span className="font-medium text-gray-900">Lease read:</span> {leaseTermDescription(clause.lease_term_level)}
-                    </p>
-                    <p className="text-sm text-gray-700">
-                      <span className="font-medium text-gray-900">Timing read:</span> {moveInTimingDescription(clause.move_in_date_level)}
-                    </p>
-                  </div>
-                  <div className="mb-4">
-                    <div className="text-sm text-gray-600">Clause risk</div>
-                    <div className="text-lg font-medium">{riskLabel(clause.clause_risk_flag)}</div>
-                  </div>
-                  <p className="text-sm text-gray-700">{clause.summary}</p>
-                </section>
-              )}
-            </div>
-          </details>
-
-          <details className="bg-white rounded-lg border border-gray-200 p-6">
-            <summary className="text-lg font-semibold text-gray-900 cursor-pointer">
-              Structured listing details
-            </summary>
-            <dl className="grid md:grid-cols-2 gap-x-8 gap-y-3 mt-4">
-              {extracted?.monthly_rent && (
-                <>
-                  <dt className="text-gray-600">Monthly rent</dt>
-                  <dd className="font-medium text-gray-900">{extracted.monthly_rent}</dd>
-                </>
-              )}
-              {extracted?.district && (
-                <>
-                  <dt className="text-gray-600">District</dt>
-                  <dd className="font-medium text-gray-900">{extracted.district}</dd>
-                </>
-              )}
-              {extracted?.deposit && (
-                <>
-                  <dt className="text-gray-600">Deposit</dt>
-                  <dd className="text-gray-900">{extracted.deposit}</dd>
-                </>
-              )}
-              {extracted?.agent_fee && (
-                <>
-                  <dt className="text-gray-600">Agent fee</dt>
-                  <dd className="text-gray-900">{extracted.agent_fee}</dd>
-                </>
-              )}
-              {extracted?.management_fee_amount && (
-                <>
-                  <dt className="text-gray-600">Management fee</dt>
-                  <dd className="text-gray-900">
-                    {extracted.management_fee_amount}
-                    {extracted.management_fee_included === true
-                      ? " (included)"
-                      : extracted.management_fee_included === false
-                        ? " (separate)"
-                        : ""}
-                  </dd>
-                </>
-              )}
-              {extracted?.lease_term && (
-                <>
-                  <dt className="text-gray-600">Lease term</dt>
-                  <dd className="text-gray-900">{extracted.lease_term}</dd>
-                </>
-              )}
-              {extracted?.move_in_date && (
-                <>
-                  <dt className="text-gray-600">Move-in date</dt>
-                  <dd className="text-gray-900">{extracted.move_in_date}</dd>
-                </>
-              )}
-              {extracted?.furnished && (
-                <>
-                  <dt className="text-gray-600">Furnishing</dt>
-                  <dd className="text-gray-900">{extracted.furnished}</dd>
-                </>
-              )}
-              {extracted?.size_sqft && (
-                <>
-                  <dt className="text-gray-600">Size</dt>
-                  <dd className="text-gray-900">{extracted.size_sqft} sqft</dd>
-                </>
-              )}
-            </dl>
-          </details>
-
-          {extracted && extracted.raw_facts && extracted.raw_facts.length > 0 && (
-            <details className="bg-white rounded-lg border border-gray-200 p-6">
-              <summary className="text-lg font-semibold text-gray-900 cursor-pointer">
-                Other observations
-              </summary>
-              <p className="mt-2 text-xs text-gray-500">
-                Additional facts the assistant noticed but did not fit the typed fields above. Shown for context; not used in the recommendation.
-              </p>
-              <ul className="mt-4 space-y-2 list-disc pl-5 text-sm text-gray-700">
-                {extracted.raw_facts.map((fact, index) => (
-                  <li key={`raw-fact-${index}`}>{fact}</li>
-                ))}
-              </ul>
-            </details>
-          )}
-
-          {extracted && extracted.decision_signals.length > 0 && (
-            <details className="bg-white rounded-lg border border-gray-200 p-6">
-              <summary className="text-lg font-semibold text-gray-900 cursor-pointer">
-                Decision signals
-              </summary>
-              <div className="mt-4 space-y-3">
-                {extracted.decision_signals.map((signal: DecisionSignal, index) => (
-                  <div
-                    key={`${signal.key}-${index}`}
-                    className={`rounded-lg border p-4 ${signalTone(signal.category)}`}
-                  >
-                    <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <span className="text-sm font-medium text-gray-900">{signal.label}</span>
-                      <span className="text-xs text-gray-600 bg-white/70 border border-gray-200 px-2 py-0.5 rounded-full">
-                        {signalCategoryLabel(signal.category)}
-                      </span>
-                      <span className="text-xs text-gray-600 bg-white/70 border border-gray-200 px-2 py-0.5 rounded-full">
-                        {signalSourceLabel(signal.source)}
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-700">{signal.evidence}</p>
-                    {signal.note && <p className="text-sm text-gray-600 mt-2">{signal.note}</p>}
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
-
-          {candidate.combined_text && (
-            <details className="bg-white rounded-lg border border-gray-200 p-6">
-              <summary className="text-lg font-semibold text-gray-900 cursor-pointer">
-                Source text
-              </summary>
-              <pre className="text-sm text-gray-600 whitespace-pre-wrap bg-gray-50 p-4 rounded-lg overflow-auto max-h-64 mt-4">
-                {candidate.combined_text}
-              </pre>
-            </details>
-          )}
-        </section>
       </div>
     </main>
   );
@@ -1346,4 +1930,3 @@ function findCompareCardForCandidate(
 
   return null;
 }
-

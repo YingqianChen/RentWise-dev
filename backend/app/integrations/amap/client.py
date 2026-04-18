@@ -70,6 +70,48 @@ class AmapClient:
             return None
 
     # ------------------------------------------------------------------
+    # POI text search (better fit for MTR stations, buildings, landmarks)
+    # ------------------------------------------------------------------
+
+    async def search_poi(self, keywords: str, city: str = "香港") -> Optional[tuple[float, float]]:
+        """Place-text POI search → ``(longitude, latitude)`` of top HK result or *None*.
+
+        Amap geocoding (``/v3/geocode/geo``) handles street addresses. MTR stations,
+        building names, and landmarks are POIs and resolve much better through
+        ``/v3/place/text``. Used as a fallback when geocoding fails.
+        """
+        params = {
+            "key": self._api_key,
+            "keywords": keywords,
+            "city": city,
+            "citylimit": "true",
+            "offset": 5,
+            "page": 1,
+        }
+        data = await self._get("/v3/place/text", params)
+        if data is None:
+            return None
+        pois = data.get("pois") or []
+        if not pois:
+            logger.warning("Amap POI search returned no results for %r", keywords)
+            return None
+        for poi in pois:
+            adcode = str(poi.get("adcode") or "")
+            if not adcode.startswith(_HK_ADCODE_PREFIX):
+                continue
+            location = poi.get("location", "")
+            try:
+                lng, lat = location.split(",")
+                return float(lng), float(lat)
+            except (ValueError, AttributeError):
+                continue
+        logger.warning(
+            "Amap POI search: no HK results for %r (top adcode=%s)",
+            keywords, pois[0].get("adcode"),
+        )
+        return None
+
+    # ------------------------------------------------------------------
     # Routing
     # ------------------------------------------------------------------
 

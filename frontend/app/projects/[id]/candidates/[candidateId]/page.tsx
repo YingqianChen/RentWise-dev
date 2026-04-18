@@ -1221,8 +1221,14 @@ export default function CandidateDetailPage() {
                     ) : candidate.commute_evidence.status === "insufficient_candidate_location" ? (
                       <div className="rounded-md bg-amber-50 p-3 text-sm text-amber-900 ring-1 ring-amber-200">
                         <p className="font-medium">Location not precise enough</p>
+                        {candidate.commute_evidence.confidence_note && (
+                          <p className="mt-1 text-amber-800">
+                            {candidate.commute_evidence.confidence_note}
+                          </p>
+                        )}
                         <p className="mt-1 text-amber-800">
-                          Edit the candidate to add an address or building name, then reassess.
+                          Try editing the candidate to add a more specific address or Chinese
+                          place name, then reassess.
                         </p>
                       </div>
                     ) : (

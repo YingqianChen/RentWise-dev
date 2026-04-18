@@ -67,19 +67,42 @@ class CommuteService:
                 confidence_note="Could not geocode destination.",
             )
 
-        # 5. Try geocoding each candidate location until one succeeds
+        # 5. Resolve candidate coordinates. Amap's /geocode is weak on English HK
+        #    place names (e.g. "Sha Tin MTR", "City One Shatin"); fall back to POI
+        #    text search (/place/text) which handles stations and buildings much
+        #    better. Try both for each query before moving on.
         candidate_coords = None
+        resolved_via: Optional[str] = None
+        tried: list[str] = []
         for query in location_queries:
-            candidate_coords = await self._client.geocode(query)
-            if candidate_coords is not None:
+            coords = await self._client.geocode(query)
+            tried.append(f"geocode({query})")
+            if coords is not None:
+                candidate_coords = coords
+                resolved_via = f"geocode '{query}'"
+                break
+            coords = await self._client.search_poi(query)
+            tried.append(f"poi({query})")
+            if coords is not None:
+                candidate_coords = coords
+                resolved_via = f"POI '{query}'"
                 break
         if candidate_coords is None:
+            logger.warning(
+                "Commute: all location lookups failed for candidate %s; tried=%s",
+                candidate.id, tried,
+            )
             return CommuteEvidence(
                 status="insufficient_candidate_location",
                 destination_label=dest_label,
                 mode=project.commute_mode,
-                confidence_note=f"Could not geocode candidate location. Tried: {', '.join(location_queries)}.",
+                confidence_note=(
+                    "Could not resolve a Hong Kong location from the candidate. Tried: "
+                    + ", ".join(location_queries)
+                    + "."
+                ),
             )
+        logger.info("Commute: resolved candidate %s via %s", candidate.id, resolved_via)
 
         # 6. Calculate route
         route = await self._calculate_route(project.commute_mode, candidate_coords, dest_coords)
@@ -107,13 +130,18 @@ class CommuteService:
 
     @staticmethod
     def _location_queries(candidate: CandidateListing) -> list[str]:
-        """Return all usable location texts, most specific first."""
+        """Return all usable location texts, most specific first.
+
+        Order: full address > building name > nearest station > district.
+        District is a last-ditch fallback — the resulting commute estimate will be
+        rough but at least directional.
+        """
         ei = candidate.extracted_info
         if ei is None:
             return []
         return [
             value
-            for value in (ei.address_text, ei.building_name, ei.nearest_station)
+            for value in (ei.address_text, ei.building_name, ei.nearest_station, ei.district)
             if value and value.lower() not in ("unknown", "")
         ]
 

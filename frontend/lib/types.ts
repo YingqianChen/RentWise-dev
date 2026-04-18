@@ -141,6 +141,12 @@ export interface CostAssessment {
   summary: string;
 }
 
+export interface LegalReference {
+  quote: string;
+  source_page: number;
+  chunk_id?: string | null;
+}
+
 export interface ClauseAssessment {
   candidate_id: string;
   repair_responsibility_level: "clear" | "supported_but_unconfirmed" | "unclear" | "tenant_heavy" | "unknown";
@@ -149,6 +155,7 @@ export interface ClauseAssessment {
   clause_confidence: "high" | "medium" | "low";
   clause_risk_flag: "none" | "needs_confirmation" | "high_risk";
   summary: string;
+  legal_references?: LegalReference[] | null;
 }
 
 export interface CandidateAssessment {

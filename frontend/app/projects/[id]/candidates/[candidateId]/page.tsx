@@ -1242,6 +1242,23 @@ export default function CandidateDetailPage() {
                     {clause?.summary && (
                       <p className="text-sm leading-relaxed text-gray-700">{clause.summary}</p>
                     )}
+                    {clause?.legal_references && clause.legal_references.length > 0 && (
+                      <div className="rounded-lg border border-violet-100 bg-violet-50/60 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-violet-700">
+                          Ordinance reference
+                        </p>
+                        <ul className="mt-2 space-y-2">
+                          {clause.legal_references.map((ref, idx) => (
+                            <li key={ref.chunk_id ?? idx} className="text-xs leading-relaxed text-gray-700">
+                              <span className="italic">「{ref.quote}」</span>
+                              <span className="ml-1 text-gray-500">
+                                — 《业主与租客（综合）条例》指南 p.{ref.source_page}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </TabsContent>

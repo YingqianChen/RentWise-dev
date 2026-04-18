@@ -85,6 +85,13 @@ class CostAssessmentResponse(BaseModel):
     summary: str
 
 
+class LegalReference(BaseModel):
+    """Excerpt from the HK tenancy ordinance guide."""
+    quote: str
+    source_page: int
+    chunk_id: Optional[str] = None
+
+
 class ClauseAssessmentResponse(BaseModel):
     """Clause assessment response"""
     model_config = ConfigDict(from_attributes=True)
@@ -96,6 +103,7 @@ class ClauseAssessmentResponse(BaseModel):
     clause_confidence: str
     clause_risk_flag: str
     summary: str
+    legal_references: Optional[List[LegalReference]] = None
 
 
 class CandidateAssessmentResponse(BaseModel):

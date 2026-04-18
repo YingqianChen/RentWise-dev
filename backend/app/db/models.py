@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import date, datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import (
     Boolean, Date, DateTime, Float, ForeignKey, String, Text, Integer,
@@ -275,6 +275,9 @@ class ClauseAssessment(Base):
         String(50), default="none", nullable=False
     )  # none | needs_confirmation | high_risk
     summary: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    legal_references: Mapped[Optional[List[Dict[str, Any]]]] = mapped_column(
+        JSONB, nullable=True
+    )  # [{quote, source_page, chunk_id}] — sourced from AGuideToTenancy_ch.pdf via BM25+LLM rerank
 
     # Relationships
     candidate: Mapped["CandidateListing"] = relationship("CandidateListing", back_populates="clause_assessment")

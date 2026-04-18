@@ -2,15 +2,49 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date
-from typing import Optional
+from typing import Any, Optional
 import re
 
 from ..db.models import CandidateExtractedInfo, ClauseAssessment
+from .tenancy_rag_service import TenancyChunk, TenancyRagService, get_tenancy_rag_service
+
+
+logger = logging.getLogger(__name__)
+
+
+# Topic → seed query for BM25. Keys align with the internal risk level names
+# returned by ``_assess_*`` methods below. Values are whitespace-joined seed
+# terms the tokeniser will split into jieba tokens that match the ordinance
+# index.
+_RAG_TOPIC_QUERIES: dict[str, str] = {
+    "repair_tenant_heavy": "維修 責任 業主 租客 損壞 維護",
+    "repair_unclear": "維修 責任 業主 租客 損壞 維護",
+    "repair_supported_but_unconfirmed": "維修 責任 業主 租客 損壞 維護",
+    "lease_unstable": "租約 租期 提前 終止 通知 退租",
+    "lease_rigid": "租約 固定 租期 生約 死約 提前 終止",
+    "move_in_mismatch": "交楼 入住 日期 租約 起租",
+    "move_in_uncertain": "交楼 入住 日期 租約 起租",
+}
+
+_RAG_TOP_K = 5
+_RAG_FINAL_REFS = 2
+_RAG_QUOTE_MAX_CHARS = 180
 
 
 class ClauseAssessmentService:
     """Assess key clause risk for a candidate."""
+
+    def __init__(self, rag_service: Optional[TenancyRagService] = None) -> None:
+        self._rag = rag_service
+
+
+    @property
+    def rag(self) -> TenancyRagService:
+        if self._rag is None:
+            self._rag = get_tenancy_rag_service()
+        return self._rag
 
     _MONTH_NAMES = {
         "january": 1,
@@ -344,3 +378,137 @@ class ClauseAssessmentService:
                     if part
                 )
         return " ".join(fragments)
+
+    # ------------------------------------------------------------------
+    # RAG enrichment
+
+    async def attach_legal_references(self, assessment: ClauseAssessment) -> ClauseAssessment:
+        """Populate ``assessment.legal_references`` from the tenancy ordinance.
+
+        No-op when ``clause_risk_flag == "none"`` — clean clauses don't warrant
+        surfacing "here is the law that governs this" noise. Otherwise:
+
+            1. Build a seed query by concatenating ordinance-topic queries for
+               each risk level that tripped.
+            2. BM25 top-5 over the guide.
+            3. LLM rerank down to up to 2 refs; on any LLM failure fall back to
+               raw BM25 top-2 so the UI still has something to show.
+        """
+        if assessment.clause_risk_flag == "none":
+            assessment.legal_references = None
+            return assessment
+
+        topics = _collect_topics(assessment)
+        if not topics:
+            assessment.legal_references = None
+            return assessment
+
+        query = " ".join(_RAG_TOPIC_QUERIES[t] for t in topics)
+        candidates = self.rag.retrieve(query, k=_RAG_TOP_K)
+        if not candidates:
+            assessment.legal_references = None
+            return assessment
+
+        refs = await _llm_rerank(candidates, topics) or _fallback_refs(candidates)
+        assessment.legal_references = refs or None
+        return assessment
+
+
+def _collect_topics(assessment: ClauseAssessment) -> list[str]:
+    """Map assessment levels to topic keys. Preserves ordering for determinism."""
+    topics: list[str] = []
+    if assessment.repair_responsibility_level == "tenant_heavy":
+        topics.append("repair_tenant_heavy")
+    elif assessment.repair_responsibility_level == "unclear":
+        topics.append("repair_unclear")
+    elif assessment.repair_responsibility_level == "supported_but_unconfirmed":
+        topics.append("repair_supported_but_unconfirmed")
+
+    if assessment.lease_term_level == "unstable":
+        topics.append("lease_unstable")
+    elif assessment.lease_term_level == "rigid":
+        topics.append("lease_rigid")
+
+    if assessment.move_in_date_level == "mismatch":
+        topics.append("move_in_mismatch")
+    elif assessment.move_in_date_level == "uncertain":
+        topics.append("move_in_uncertain")
+    return topics
+
+
+def _fallback_refs(candidates: list[TenancyChunk]) -> list[dict[str, Any]]:
+    return [
+        {
+            "quote": _truncate_quote(chunk.text),
+            "source_page": chunk.source_page,
+            "chunk_id": chunk.id,
+        }
+        for chunk in candidates[:_RAG_FINAL_REFS]
+    ]
+
+
+def _truncate_quote(text: str) -> str:
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= _RAG_QUOTE_MAX_CHARS:
+        return text
+    return text[: _RAG_QUOTE_MAX_CHARS - 1].rstrip() + "…"
+
+
+async def _llm_rerank(
+    candidates: list[TenancyChunk],
+    topics: list[str],
+) -> Optional[list[dict[str, Any]]]:
+    """Ask the LLM to pick the most relevant ids; None on any failure."""
+    catalogue_lines: list[str] = []
+    for chunk in candidates:
+        catalogue_lines.append(f"[{chunk.id}] (p{chunk.source_page}) {chunk.text[:240]}")
+    catalogue = "\n".join(catalogue_lines)
+
+    topic_label = ", ".join(topics)
+    prompt = (
+        "You are reranking legal excerpts for a Hong Kong tenancy clause review.\n"
+        f"The flagged assessment topics are: {topic_label}.\n"
+        "Below are BM25 candidates from 《業主與租客（綜合）條例》. Pick up to "
+        f"{_RAG_FINAL_REFS} excerpts that most directly inform the flagged topics. "
+        "Prefer excerpts that state obligations, rights, or timelines over generic "
+        "introductory text. If none are relevant, return an empty list.\n\n"
+        "Candidates:\n"
+        f"{catalogue}\n\n"
+        "Respond with strict JSON of the form:\n"
+        '{"selected_ids": ["chunk_id_1", "chunk_id_2"]}'
+    )
+
+    try:
+        from ..integrations.llm.utils import chat_completion_json  # local — avoids
+        # forcing config load (which requires SECRET_KEY / DATABASE_URL) on modules
+        # that merely import ClauseAssessmentService for type use in tests.
+
+        response = await chat_completion_json(prompt, temperature=0.0, max_tokens=200)
+    except Exception as exc:  # noqa: BLE001 — any LLM failure falls back to BM25
+        logger.warning("tenancy RAG rerank failed (%s); falling back to BM25 top-k", exc)
+        return None
+
+    if not isinstance(response, dict):
+        return None
+    raw_ids = response.get("selected_ids") or []
+    if not isinstance(raw_ids, list):
+        return None
+
+    by_id = {chunk.id: chunk for chunk in candidates}
+    picked: list[dict[str, Any]] = []
+    for raw_id in raw_ids:
+        if not isinstance(raw_id, str):
+            continue
+        chunk = by_id.get(raw_id)
+        if chunk is None:
+            continue
+        picked.append(
+            {
+                "quote": _truncate_quote(chunk.text),
+                "source_page": chunk.source_page,
+                "chunk_id": chunk.id,
+            }
+        )
+        if len(picked) >= _RAG_FINAL_REFS:
+            break
+    return picked or None

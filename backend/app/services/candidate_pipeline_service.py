@@ -33,6 +33,7 @@ class CandidatePipelineService:
             extracted_info,
             move_in_target=project.move_in_target,
         )
+        await self.clause_service.attach_legal_references(clause_assessment)
         candidate_assessment = self.candidate_service.assess(
             extracted_info=extracted_info,
             cost_assessment=cost_assessment,

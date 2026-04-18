@@ -15,6 +15,116 @@ _TIMEOUT = 10.0
 # Hong Kong administrative codes all start with "810" (810000 HK SAR, 810001 中西区, ...)
 _HK_ADCODE_PREFIX = "810"
 
+# Map Amap busline "type" strings to our compact mode enum.
+_MODE_BY_BUSLINE_TYPE = {
+    "地铁线路": "subway",
+    "地铁": "subway",
+    "机场快线": "airport_express",
+    "城际铁路": "rail",
+    "普通铁路": "rail",
+    "专线小巴": "minibus",
+    "小巴": "minibus",
+}
+
+
+def _busline_mode(busline_type: str) -> str:
+    return _MODE_BY_BUSLINE_TYPE.get(busline_type or "", "bus")
+
+
+def _to_int(value, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _parse_transit_segments(raw_segments: list) -> list[dict]:
+    """Flatten Amap transit segments into ordered legs.
+
+    Each raw segment can contain ``walking``, ``bus`` (with ``buslines[]``),
+    ``railway``, and/or ``taxi``. We emit one leg per mode present, preserving
+    order within the segment. Empty walking stubs (0s / <=10m) are dropped —
+    Amap likes to pad routes with them.
+    """
+    legs: list[dict] = []
+    for seg in raw_segments:
+        walking = seg.get("walking") or {}
+        walk_sec = _to_int(walking.get("duration"))
+        walk_m = _to_int(walking.get("distance"))
+        if walk_sec > 0 or walk_m > 10:
+            legs.append({
+                "mode": "walking",
+                "line_name": None,
+                "from_station": None,
+                "to_station": None,
+                "duration_minutes": max(1, round(walk_sec / 60)) if walk_sec else None,
+                "distance_meters": walk_m or None,
+            })
+
+        bus = seg.get("bus") or {}
+        for busline in (bus.get("buslines") or [])[:1]:  # take the first option per segment
+            bl_type = busline.get("type") or ""
+            bl_sec = _to_int(busline.get("duration"))
+            legs.append({
+                "mode": _busline_mode(bl_type),
+                "line_name": busline.get("name") or None,
+                "from_station": (busline.get("departure_stop") or {}).get("name") or None,
+                "to_station": (busline.get("arrival_stop") or {}).get("name") or None,
+                "duration_minutes": max(1, round(bl_sec / 60)) if bl_sec else None,
+                "distance_meters": _to_int(busline.get("distance")) or None,
+            })
+
+        railway = seg.get("railway") or {}
+        if railway.get("name"):
+            rw_sec = _to_int(railway.get("time"))
+            legs.append({
+                "mode": "rail",
+                "line_name": railway.get("name"),
+                "from_station": (railway.get("departure_stop") or {}).get("name") or None,
+                "to_station": (railway.get("arrival_stop") or {}).get("name") or None,
+                "duration_minutes": max(1, round(rw_sec / 60)) if rw_sec else None,
+                "distance_meters": _to_int(railway.get("distance")) or None,
+            })
+
+        taxi = seg.get("taxi") or {}
+        if _to_int(taxi.get("distance")) > 0:
+            tx_sec = _to_int(taxi.get("drivetime"))
+            legs.append({
+                "mode": "taxi",
+                "line_name": None,
+                "from_station": taxi.get("sname") or None,
+                "to_station": taxi.get("tname") or None,
+                "duration_minutes": max(1, round(tx_sec / 60)) if tx_sec else None,
+                "distance_meters": _to_int(taxi.get("distance")) or None,
+            })
+    return legs
+
+
+def _endpoints(legs: list[dict]) -> tuple[Optional[str], Optional[str]]:
+    non_walking = [leg for leg in legs if leg["mode"] != "walking"]
+    if not non_walking:
+        return None, None
+    return non_walking[0].get("from_station"), non_walking[-1].get("to_station")
+
+
+def _summary_from_legs(legs: list[dict]) -> Optional[str]:
+    parts: list[str] = []
+    for leg in legs:
+        mode = leg["mode"]
+        if mode == "walking":
+            mins = leg.get("duration_minutes")
+            parts.append(f"步行{mins}分钟" if mins else "步行")
+            continue
+        line = leg.get("line_name") or ""
+        dest = leg.get("to_station") or ""
+        if line and dest:
+            parts.append(f"{line} → {dest}")
+        elif line:
+            parts.append(line)
+        elif dest:
+            parts.append(dest)
+    return " · ".join(parts) if parts else None
+
 
 class AmapClient:
     """Thin async wrapper around Amap Web Service API endpoints."""
@@ -118,7 +228,18 @@ class AmapClient:
     async def route_transit(
         self, origin: str, destination: str, city: str = "香港"
     ) -> Optional[dict]:
-        """Transit routing → ``{duration_minutes, route_summary}`` or *None*."""
+        """Transit routing → structured legs or *None*.
+
+        Return shape::
+
+            {
+                "duration_minutes": int,
+                "origin_station": str | None,
+                "destination_station": str | None,
+                "segments": [CommuteSegment-shaped dicts...],
+                "route_summary": str | None,
+            }
+        """
         params = {
             "key": self._api_key,
             "origin": origin,
@@ -139,18 +260,18 @@ class AmapClient:
             duration_sec = int(best.get("duration", 0))
         except (TypeError, ValueError):
             duration_sec = 0
-        segments = best.get("segments") or []
-        summary_parts = []
-        for seg in segments[:3]:
-            bus = seg.get("bus", {})
-            buslines = bus.get("buslines") or []
-            if buslines:
-                summary_parts.append(buslines[0].get("name", ""))
-        route_summary = " → ".join(filter(None, summary_parts)) or None
-        return {"duration_minutes": max(1, round(duration_sec / 60)), "route_summary": route_summary}
+        legs = _parse_transit_segments(best.get("segments") or [])
+        origin_station, destination_station = _endpoints(legs)
+        return {
+            "duration_minutes": max(1, round(duration_sec / 60)),
+            "origin_station": origin_station,
+            "destination_station": destination_station,
+            "segments": legs,
+            "route_summary": _summary_from_legs(legs),
+        }
 
     async def route_driving(self, origin: str, destination: str) -> Optional[dict]:
-        """Driving routing → ``{duration_minutes, route_summary}`` or *None*."""
+        """Driving routing → duration + empty legs (schema parity)."""
         params = {
             "key": self._api_key,
             "origin": origin,
@@ -169,10 +290,16 @@ class AmapClient:
             duration_sec = int(best.get("duration", 0))
         except (TypeError, ValueError):
             duration_sec = 0
-        return {"duration_minutes": max(1, round(duration_sec / 60)), "route_summary": None}
+        return {
+            "duration_minutes": max(1, round(duration_sec / 60)),
+            "origin_station": None,
+            "destination_station": None,
+            "segments": [],
+            "route_summary": None,
+        }
 
     async def route_walking(self, origin: str, destination: str) -> Optional[dict]:
-        """Walking routing → ``{duration_minutes, route_summary}`` or *None*."""
+        """Walking routing → duration + single walking leg."""
         params = {
             "key": self._api_key,
             "origin": origin,
@@ -189,9 +316,25 @@ class AmapClient:
         best = paths[0]
         try:
             duration_sec = int(best.get("duration", 0))
+            distance_m = int(best.get("distance", 0))
         except (TypeError, ValueError):
-            duration_sec = 0
-        return {"duration_minutes": max(1, round(duration_sec / 60)), "route_summary": None}
+            duration_sec, distance_m = 0, 0
+        duration_min = max(1, round(duration_sec / 60))
+        leg = {
+            "mode": "walking",
+            "line_name": None,
+            "from_station": None,
+            "to_station": None,
+            "duration_minutes": duration_min,
+            "distance_meters": distance_m or None,
+        }
+        return {
+            "duration_minutes": duration_min,
+            "origin_station": None,
+            "destination_station": None,
+            "segments": [leg],
+            "route_summary": None,
+        }
 
     # ------------------------------------------------------------------
     # Internal HTTP helper

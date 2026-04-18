@@ -9,9 +9,21 @@ from ..core.config import settings
 from ..db.models import CandidateListing, SearchProject
 from ..integrations.als.client import AlsClient
 from ..integrations.amap.client import AmapClient
-from ..schemas.commute import CommuteEvidence
+from ..schemas.commute import CommuteEvidence, CommuteSegment
 
 logger = logging.getLogger(__name__)
+
+# HK lat/lng envelope. RentWise is HK-only; any coord outside this is a bug,
+# regardless of which upstream (ALS / Amap geocode / Amap POI) returned it.
+_HK_BBOX = (113.80, 22.15, 114.45, 22.56)  # min_lng, min_lat, max_lng, max_lat
+
+
+def _in_hk(coords: Optional[tuple[float, float]]) -> bool:
+    if coords is None:
+        return False
+    lng, lat = coords
+    min_lng, min_lat, max_lng, max_lat = _HK_BBOX
+    return min_lng <= lng <= max_lng and min_lat <= lat <= max_lat
 
 
 class CommuteService:
@@ -79,21 +91,30 @@ class CommuteService:
         candidate_coords = None
         resolved_via: Optional[str] = None
         tried: list[str] = []
+
+        async def _try(path: str, query: str, coro) -> Optional[tuple[float, float]]:
+            coords = await coro
+            if coords is None:
+                tried.append(f"{path}({query})->none")
+                return None
+            if not _in_hk(coords):
+                tried.append(f"{path}({query})->out-of-bbox {coords}")
+                return None
+            tried.append(f"{path}({query})->{coords}")
+            return coords
+
         for query in location_queries:
-            coords = await self._als.geocode(query)
-            tried.append(f"als({query})")
+            coords = await _try("als", query, self._als.geocode(query))
             if coords is not None:
                 candidate_coords = coords
                 resolved_via = f"ALS '{query}'"
                 break
-            coords = await self._client.geocode(query)
-            tried.append(f"geocode({query})")
+            coords = await _try("geocode", query, self._client.geocode(query))
             if coords is not None:
                 candidate_coords = coords
                 resolved_via = f"geocode '{query}'"
                 break
-            coords = await self._client.search_poi(query)
-            tried.append(f"poi({query})")
+            coords = await _try("poi", query, self._client.search_poi(query))
             if coords is not None:
                 candidate_coords = coords
                 resolved_via = f"POI '{query}'"
@@ -126,11 +147,16 @@ class CommuteService:
             )
 
         # 7. Success
+        raw_segments = route.get("segments") or []
+        segments = [CommuteSegment(**seg) for seg in raw_segments] or None
         return CommuteEvidence(
             status="ready",
             estimated_minutes=route["duration_minutes"],
             mode=project.commute_mode,
             route_summary=route.get("route_summary"),
+            origin_station=route.get("origin_station"),
+            destination_station=route.get("destination_station"),
+            segments=segments,
             destination_label=dest_label,
             confidence_note=self._confidence_note(candidate),
         )
@@ -161,18 +187,35 @@ class CommuteService:
     ) -> Optional[tuple[float, float]]:
         """Use cached lat/lng when available; otherwise geocode the destination query.
 
-        Same ALS → Amap geocode → Amap POI ladder as the candidate side.
+        Same ALS → Amap geocode → Amap POI ladder as the candidate side. Every
+        returned coord goes through the HK bbox check — including cached values,
+        since rows written before the ALS integration may hold non-HK points.
         """
         if project.commute_destination_lat is not None and project.commute_destination_lng is not None:
-            return (project.commute_destination_lng, project.commute_destination_lat)
+            cached = (project.commute_destination_lng, project.commute_destination_lat)
+            if _in_hk(cached):
+                return cached
+            logger.warning(
+                "Commute: cached destination coords out of HK bbox for project %s (%s); re-geocoding",
+                project.id, cached,
+            )
         query = project.commute_destination_query
-        coords = await self._als.geocode(query)
-        if coords is not None:
+        for path, coro in (
+            ("als", self._als.geocode(query)),
+            ("geocode", self._client.geocode(query)),
+            ("poi", self._client.search_poi(query)),
+        ):
+            coords = await coro
+            if coords is None:
+                continue
+            if not _in_hk(coords):
+                logger.warning(
+                    "Commute: destination %s(%r) out of HK bbox: %s",
+                    path, query, coords,
+                )
+                continue
             return coords
-        coords = await self._client.geocode(query)
-        if coords is not None:
-            return coords
-        return await self._client.search_poi(query)
+        return None
 
     async def _calculate_route(
         self,

@@ -10,7 +10,8 @@ RentWise 是一个面向香港租客的候选房源研究工作区。你把 list
 - `backend/` — FastAPI + SQLAlchemy + Alembic
 - `frontend/` — Next.js 14 + React + TypeScript + Tailwind
 - `legacy/` — 已归档的 Streamlit 原型，仅供参考
-- `docs/` — 设计说明
+- `docs/design-notes.md` — 关键设计决策与权衡
+- `docs/resume-highlights.md` — 4 项技术亮点（面向汇报 / 面试）
 - `document/` — benchmark 使用的原始 PDF
 
 ## RentWise 做什么
@@ -38,6 +39,10 @@ RentWise 是一个面向香港租客的候选房源研究工作区。你把 list
 - 主 geocoder：香港政府 ALS（免费、无需 key，对中英文 HK 地址都权威）
 - 兜底 geocoder 与全部 routing：Amap（需要 `AMAP_API_KEY`）
 - 支持 transit / driving / walking 三种出行方式
+- Geocoder 选择走 LangGraph LLM tool-use agent：在 ALS / Amap geocode /
+  Amap POI / MTR 站点查表 之间按候选信息选工具；所有坐标都要过
+  Hong Kong bounding box 闸门，越境坐标在路径规划前被拒。
+  设置 `COMMUTE_AGENT_ENABLED=false` 即回退到旧的确定性解析器。
 - 降级友好：解析失败时只隐藏通勤卡片，不阻断其他功能
 
 **UI**
@@ -62,7 +67,9 @@ RentWise/
   frontend/
     app/                   # Next.js app router 页面
     lib/                   # api client、types、auth helpers
-  docs/                    # 设计说明
+  docs/
+    design-notes.md        # 关键设计决策与权衡
+    resume-highlights.md   # 4 项技术亮点（面向汇报 / 面试）
   document/                # 源 PDF
   legacy/                  # 归档原型
 ```
@@ -89,6 +96,11 @@ RentWise/
 - `app/services/benchmark_service.py` — SDU 中位租金 benchmark 查找
 - `app/services/commute_service.py` — 先解析 candidate 与目的地，再做路径规划
 - `app/services/candidate_contact_plan_service.py` — 外联草稿
+- `app/services/tenancy_rag_service.py` — 对香港租务指南的 BM25 + jieba
+  检索器；为条款评估提供法条引用
+- `app/agent/commute_resolver_agent.py` — LangGraph tool-use agent：
+  在 ALS / Amap geocode / Amap POI 之间为每个候选选择合适的解析路径
+- `app/agent/tools/commute_tools.py` — 工具 schema + 执行器 + HK 边框闸门
 - `app/integrations/als/client.py` — 香港政府 ALS 地址查询服务客户端
 - `app/integrations/amap/client.py` — 高德 geocode / POI / 路径规划客户端
 
@@ -222,6 +234,19 @@ set RUN_DB_INTEGRATION=1
 compare grouping + explanation + briefing fallback、OCR parsing、benchmark
 lookup。
 
+另有独立的 eval suite 位于 `backend/tests/evals/`，用于守护 LLM 流水线
+的质量回归：extraction 黄金样本、commute agent 黄金场景、tenancy RAG
+的 BM25 召回测试。通过 `pytest.mark.eval` 门控，默认 skip：
+
+```bash
+cd backend
+GROQ_API_KEY=... AMAP_API_KEY=... pytest -m eval -q
+```
+
+每次运行都会把结构化 JSON 报告写入 `backend/tests/evals/reports/`，便于
+commit 间 diff 质量漂移。fixture 与 floor 细节见
+`backend/tests/evals/README.md`。
+
 ## 数据安全清单
 
 推送到 GitHub 前确认：
@@ -255,10 +280,19 @@ RentWise 使用三条独立的 evidence 层。三者都不直接进入主 candid
 - 所有 geocoder 都失败时会显示 "Location not precise enough" 并附带
   具体 confidence_note，而不是掩盖失败原因。
 
-**3. Tenancy guide RAG**（未实现）
-- `document/AGuideToTenancy_ch.pdf` 是扫描件；全文 OCR 与窄范围
-  explanation-support retrieval 要等 OCR 质量达标后再做，目前不在
-  短期 roadmap 内。
+**3. Tenancy guide RAG**（已上线）
+- 源文档：`document/AGuideToTenancy_ch.pdf`（CID 编码扫描件）通过
+  PyMuPDF 按页栅格化后用 `rapidocr_onnxruntime` 做 OCR，切成 ~400
+  字的 chunk，jieba 分词，BM25Okapi 建索引。索引产物
+  `backend/app/data/tenancy_index.json`（22 个 chunk）入 git；
+  用 `python -m scripts.build_tenancy_index` 重建。
+- 仅当某候选的 `clause_risk_flag != "none"` 时触发。流水线：
+  BM25 top-5 → LLM rerank 到 top-2（LLM 失败则回退到 raw BM25 top-2）。
+- 输出写入 `ClauseAssessment.legal_references`（JSONB 列，迁移
+  `20260418_0008`）。前端在 candidate detail 页面渲染为
+  "Ordinance reference" 卡片。
+- 不用向量检索、不用外部 API：中文法律文本关键词密度高，BM25 足够；
+  留本地运行也避开了已停用的课程 Ollama endpoint。
 
 ## 阶段状态
 
@@ -275,5 +309,5 @@ RentWise 使用三条独立的 evidence 层。三者都不直接进入主 candid
 1. 更多分析输出并不会自动带来更好决策。产品最强的时刻，是用户在几秒内
    就能看到下一步该做什么。
 2. 外部 evidence 应该支撑信任，而不是制造虚假精确感。Benchmark 保持范围
-   克制；commute 永远是支撑证据，不进入隐藏打分；tenancy RAG 要等源质量
-   就绪再做。
+   克制；commute 永远是支撑证据，不进入隐藏打分；tenancy RAG 用带页码的
+   原文引用代替改写 —— 源头本身就是论据。

@@ -11,7 +11,8 @@ is kept in `README_zh.md`; update both together.
 - `backend/` — FastAPI + SQLAlchemy + Alembic
 - `frontend/` — Next.js 14 + React + TypeScript + Tailwind
 - `legacy/` — archived Streamlit prototype, reference only
-- `docs/` — design notes
+- `docs/design-notes.md` — key design decisions and tradeoffs
+- `docs/resume-highlights.md` — 4 technical highlights for demos / interviews
 - `document/` — source PDFs used by benchmarks
 
 ## What RentWise does
@@ -44,6 +45,12 @@ is kept in `README_zh.md`; update both together.
   English and Chinese)
 - Fallback geocoder and all routing: Amap (requires `AMAP_API_KEY`)
 - Supports transit / driving / walking
+- Geocoder selection runs through a LangGraph LLM tool-use agent —
+  it picks between ALS / Amap geocode / Amap POI / MTR-station
+  lookup per candidate, subject to a Hong-Kong bounding-box gate
+  that rejects mainland coordinates before they reach routing.
+  Set `COMMUTE_AGENT_ENABLED=false` to fall back to the deterministic
+  resolver.
 - Degrades gracefully — commute evidence simply hides when the location
   or destination can't be resolved; never blocks the rest of the app
 
@@ -70,7 +77,9 @@ RentWise/
   frontend/
     app/                   # Next.js app router pages
     lib/                   # api client, types, auth helpers
-  docs/                    # design notes
+  docs/
+    design-notes.md        # key design decisions and tradeoffs
+    resume-highlights.md   # 4 technical highlights for demos / interviews
   document/                # source PDFs
   legacy/                  # archived prototype
 ```
@@ -94,6 +103,11 @@ RentWise/
 - `app/services/benchmark_service.py` — SDU median-rent benchmark lookup
 - `app/services/commute_service.py` — geocode candidate + destination, then route
 - `app/services/candidate_contact_plan_service.py` — outreach draft
+- `app/services/tenancy_rag_service.py` — BM25 + jieba retriever over the HK
+  tenancy ordinance guide; backs clause-assessment legal citations
+- `app/agent/commute_resolver_agent.py` — LangGraph tool-use agent that
+  picks between ALS / Amap geocode / Amap POI to resolve candidate coordinates
+- `app/agent/tools/commute_tools.py` — tool schemas + executors + HK-bbox gate
 - `app/integrations/als/client.py` — HK Gov Address Lookup Service client
 - `app/integrations/amap/client.py` — Amap geocode / POI / route client
 
@@ -230,6 +244,21 @@ The suite covers priority ranking, investigation checklist, candidate
 recommendation, compare grouping + explanation + briefing fallback, OCR
 parsing, and benchmark lookup.
 
+A separate pytest-marked eval suite under `backend/tests/evals/` guards
+against regressions in the LLM pipeline: golden listings for extraction,
+golden commute scenarios for the resolver agent, and a BM25-only recall
+test for the tenancy index. Gated behind `pytest.mark.eval` and skipped
+by default:
+
+```bash
+cd backend
+GROQ_API_KEY=... AMAP_API_KEY=... pytest -m eval -q
+```
+
+Structured JSON reports are written to `backend/tests/evals/reports/`
+so quality drift can be diffed commit-to-commit. See
+`backend/tests/evals/README.md` for the fixture / floor details.
+
 ## Data safety checklist
 
 Before pushing to GitHub:
@@ -263,10 +292,21 @@ main candidate score directly — they exist to support user judgment.
 - Surfaces "Location not precise enough" with the actual confidence
   note when all geocoders fail, instead of hiding the reason.
 
-**3. Tenancy guide RAG** (not implemented)
-- `document/AGuideToTenancy_ch.pdf` is scan-heavy; full-document OCR
-  and narrow explanation-support retrieval are deferred until OCR
-  quality is proven. Not on the short roadmap.
+**3. Tenancy guide RAG** (active)
+- Source: `document/AGuideToTenancy_ch.pdf` (CID-encoded scan) rendered
+  page-by-page via PyMuPDF and OCR'd with `rapidocr_onnxruntime`,
+  chunked at ~400 characters, tokenized with jieba, indexed with
+  BM25Okapi. Index is committed at `backend/app/data/tenancy_index.json`
+  (22 chunks); rebuild with `python -m scripts.build_tenancy_index`.
+- Retrieval runs only when a candidate's `clause_risk_flag != "none"`.
+  Pipeline: BM25 top-5 → LLM rerank to top-2 (raw BM25 top-2 fallback
+  if the LLM call fails).
+- Output attaches to `ClauseAssessment.legal_references` (JSONB column,
+  migration `20260418_0008`). The frontend surfaces it as an
+  "Ordinance reference" card on the candidate detail page.
+- No embeddings, no external API: keyword-dense legal Chinese is well
+  suited to BM25, and staying local sidesteps the retired course Ollama
+  endpoint.
 
 ## Phase status
 
@@ -285,4 +325,5 @@ Two truths that drive the current direction:
    seconds.
 2. External evidence should support trust, not create fake precision.
    Benchmark stays scoped. Commute is support evidence, never a hidden
-   scoring input. Tenancy RAG waits until the source is ready.
+   scoring input. Tenancy RAG quotes the ordinance verbatim with page
+   citations rather than paraphrasing — the source is the argument.

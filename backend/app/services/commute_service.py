@@ -5,25 +5,16 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+from ..agent.commute_resolver_agent import CommuteResolverAgent
+from ..agent.tools.commute_tools import ToolContext
 from ..core.config import settings
 from ..db.models import CandidateListing, SearchProject
 from ..integrations.als.client import AlsClient
 from ..integrations.amap.client import AmapClient
+from ..integrations.geocoding.hk_bbox import in_hk as _in_hk
 from ..schemas.commute import CommuteEvidence, CommuteSegment
 
 logger = logging.getLogger(__name__)
-
-# HK lat/lng envelope. RentWise is HK-only; any coord outside this is a bug,
-# regardless of which upstream (ALS / Amap geocode / Amap POI) returned it.
-_HK_BBOX = (113.80, 22.15, 114.45, 22.56)  # min_lng, min_lat, max_lng, max_lat
-
-
-def _in_hk(coords: Optional[tuple[float, float]]) -> bool:
-    if coords is None:
-        return False
-    lng, lat = coords
-    min_lng, min_lat, max_lng, max_lat = _HK_BBOX
-    return min_lng <= lng <= max_lng and min_lat <= lat <= max_lat
 
 
 class CommuteService:
@@ -34,6 +25,19 @@ class CommuteService:
         if settings.AMAP_API_KEY:
             self._client = AmapClient(settings.AMAP_API_KEY)
         self._als = AlsClient()
+        self._resolver_agent: Optional[CommuteResolverAgent] = None
+
+    def _get_resolver_agent(self) -> CommuteResolverAgent:
+        """Build the tool-use agent lazily so missing Amap config doesn't block tests."""
+        if self._resolver_agent is None:
+            self._resolver_agent = CommuteResolverAgent(
+                ToolContext(
+                    als=self._als,
+                    amap_geocode=self._client,
+                    amap_poi=self._client,
+                )
+            )
+        return self._resolver_agent
 
     async def build_for_candidate(
         self,
@@ -81,44 +85,45 @@ class CommuteService:
                 confidence_note="Could not geocode destination.",
             )
 
-        # 5. Resolve candidate coordinates. Priority:
-        #    (a) HK Gov ALS — authoritative HK geocoder, handles English place
-        #        names like "Sha Tin MTR station" and "City One Shatin" that
-        #        Amap's /geocode stumbles on;
-        #    (b) Amap /geocode — mainland-style address geocoding, good for
-        #        Chinese addresses;
-        #    (c) Amap /place/text POI search — last-ditch keyword match.
-        candidate_coords = None
+        # 5. Resolve candidate coordinates. Try the LLM tool-use agent first,
+        #    then fall back to the deterministic ALS → Amap geocode → POI ladder.
+        candidate_coords: Optional[tuple[float, float]] = None
         resolved_via: Optional[str] = None
         tried: list[str] = []
 
-        async def _try(path: str, query: str, coro) -> Optional[tuple[float, float]]:
-            coords = await coro
-            if coords is None:
-                tried.append(f"{path}({query})->none")
-                return None
-            if not _in_hk(coords):
-                tried.append(f"{path}({query})->out-of-bbox {coords}")
-                return None
-            tried.append(f"{path}({query})->{coords}")
-            return coords
+        if settings.COMMUTE_AGENT_ENABLED:
+            agent_facts = self._agent_facts(candidate)
+            try:
+                result = await self._get_resolver_agent().ainvoke(agent_facts)
+            except Exception as exc:
+                logger.warning(
+                    "Commute: resolver agent raised for candidate %s, falling back: %s",
+                    candidate.id, exc,
+                )
+                result = None
+            if result is not None:
+                logger.info(
+                    "Commute: agent trace candidate=%s steps=%s resolved_via=%s give_up=%s",
+                    candidate.id,
+                    result.steps_taken,
+                    result.resolved_via,
+                    result.give_up_reason,
+                )
+                for obs in result.observations:
+                    tried.append(
+                        f"agent:{obs.get('tool')}({obs.get('query')})"
+                        f"->{'ok' if obs.get('accepted') else obs.get('reason')}"
+                    )
+                if result.resolved_coords is not None:
+                    candidate_coords = result.resolved_coords
+                    resolved_via = f"agent:{result.resolved_via}"
 
-        for query in location_queries:
-            coords = await _try("als", query, self._als.geocode(query))
-            if coords is not None:
-                candidate_coords = coords
-                resolved_via = f"ALS '{query}'"
-                break
-            coords = await _try("geocode", query, self._client.geocode(query))
-            if coords is not None:
-                candidate_coords = coords
-                resolved_via = f"geocode '{query}'"
-                break
-            coords = await _try("poi", query, self._client.search_poi(query))
-            if coords is not None:
-                candidate_coords = coords
-                resolved_via = f"POI '{query}'"
-                break
+        if candidate_coords is None:
+            candidate_coords, resolved_via, fallback_tried = await self._deterministic_resolve(
+                location_queries
+            )
+            tried.extend(fallback_tried)
+
         if candidate_coords is None:
             logger.warning(
                 "Commute: all location lookups failed for candidate %s; tried=%s",
@@ -164,6 +169,48 @@ class CommuteService:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    async def _deterministic_resolve(
+        self, location_queries: list[str]
+    ) -> tuple[Optional[tuple[float, float]], Optional[str], list[str]]:
+        """Fallback ladder: ALS → Amap geocode → Amap POI per query, HK-bbox gated."""
+        tried: list[str] = []
+
+        async def _try(path: str, query: str, coro) -> Optional[tuple[float, float]]:
+            coords = await coro
+            if coords is None:
+                tried.append(f"{path}({query})->none")
+                return None
+            if not _in_hk(coords):
+                tried.append(f"{path}({query})->out-of-bbox {coords}")
+                return None
+            tried.append(f"{path}({query})->{coords}")
+            return coords
+
+        for query in location_queries:
+            coords = await _try("als", query, self._als.geocode(query))
+            if coords is not None:
+                return coords, f"ALS '{query}'", tried
+            coords = await _try("geocode", query, self._client.geocode(query))
+            if coords is not None:
+                return coords, f"geocode '{query}'", tried
+            coords = await _try("poi", query, self._client.search_poi(query))
+            if coords is not None:
+                return coords, f"POI '{query}'", tried
+        return None, None, tried
+
+    @staticmethod
+    def _agent_facts(candidate: CandidateListing) -> dict:
+        """Shape the candidate's location signals for the resolver agent prompt."""
+        ei = candidate.extracted_info
+        if ei is None:
+            return {}
+        return {
+            "address_text": ei.address_text or None,
+            "building_name": ei.building_name or None,
+            "nearest_station": ei.nearest_station or None,
+            "district": ei.district or None,
+        }
 
     @staticmethod
     def _location_queries(candidate: CandidateListing) -> list[str]:

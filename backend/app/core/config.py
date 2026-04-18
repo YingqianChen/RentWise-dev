@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     # Amap (高德地图) for commute estimation
     AMAP_API_KEY: str = ""
 
+    # Commute resolver agent — LLM-driven tool-use loop for candidate location
+    # resolution. Disable to fall back to the deterministic ALS→Amap geocode→POI
+    # ladder (same behaviour as before the agent landed).
+    COMMUTE_AGENT_ENABLED: bool = True
+    COMMUTE_AGENT_MAX_STEPS: int = 6
+
     # Application
     APP_ENV: str = "development"  # development | production
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days

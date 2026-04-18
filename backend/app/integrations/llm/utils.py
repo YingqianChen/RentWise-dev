@@ -72,3 +72,24 @@ async def chat_with_messages(
         temperature=temperature,
         max_tokens=max_tokens,
     )
+
+
+async def chat_completion_tools(
+    messages: List[Dict[str, str]],
+    tools: List[Dict[str, Any]],
+    model: Optional[str] = None,
+    temperature: float = 0.0,
+    max_tokens: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Chat completion with tool use. See ``LLMProvider.chat_completion_tools``."""
+    provider = get_provider()
+    if model is None:
+        model = get_model_name()
+
+    return await provider.chat_completion_tools(
+        messages=messages,
+        tools=tools,
+        model=model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )

@@ -37,6 +37,30 @@ class LLMProvider(ABC):
         """Chat completion with JSON output"""
         pass
 
+    @abstractmethod
+    async def chat_completion_tools(
+        self,
+        messages: List[Dict[str, str]],
+        tools: List[Dict[str, Any]],
+        model: str,
+        temperature: float = 0.0,
+        max_tokens: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Chat completion with tool use.
+
+        Returns a uniform shape across providers::
+
+            {
+                "tool_calls": [{"id": str, "name": str, "args": dict}, ...],
+                "content": str | None,
+                "finish_reason": "tool_calls" | "stop" | "length",
+            }
+
+        ``tools`` follows OpenAI's schema: each item is ``{"type": "function",
+        "function": {"name": str, "description": str, "parameters": <JSONSchema>}}``.
+        """
+        pass
+
 
 class OllamaProvider(LLMProvider):
     """Ollama provider"""
@@ -101,6 +125,41 @@ class OllamaProvider(LLMProvider):
             raise ValueError("Model response does not contain a valid JSON object.")
         return json.loads(text[start: end + 1])
 
+    async def chat_completion_tools(
+        self,
+        messages: List[Dict[str, str]],
+        tools: List[Dict[str, Any]],
+        model: str,
+        temperature: float = 0.0,
+        max_tokens: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Emulate tool-calling via JSON mode for Ollama.
+
+        Ollama models don't return structured ``tool_calls``, so we inline the
+        tool catalogue into a system hint and ask for a JSON object shaped like
+        ``{"tool_name": "...", "args": {...}}`` or ``{"final_answer": "..."}``.
+        """
+        rendered = _render_tool_catalogue(tools)
+        augmented = [
+            {
+                "role": "system",
+                "content": (
+                    "You can call tools. Respond with JSON only, matching one of:\n"
+                    '  {"tool_name": "<name>", "args": {<kwargs>}}\n'
+                    '  {"final_answer": "<text>"}\n'
+                    f"Available tools:\n{rendered}"
+                ),
+            },
+            *messages,
+        ]
+        obj = await self.chat_completion_json(
+            messages=augmented,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        return _normalize_ollama_tool_response(obj)
+
 
 class GroqProvider(LLMProvider):
     """Groq provider"""
@@ -163,6 +222,93 @@ class GroqProvider(LLMProvider):
         if start == -1 or end == -1 or end <= start:
             raise ValueError("Model response does not contain a valid JSON object.")
         return json.loads(text[start: end + 1])
+
+    async def chat_completion_tools(
+        self,
+        messages: List[Dict[str, str]],
+        tools: List[Dict[str, Any]],
+        model: str,
+        temperature: float = 0.0,
+        max_tokens: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Native Groq tool-calling (OpenAI-compatible)."""
+        kwargs = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "tools": tools,
+            "tool_choice": "auto",
+        }
+        if max_tokens:
+            kwargs["max_tokens"] = max_tokens
+
+        response = await self.client.chat.completions.create(**kwargs)
+        choice = response.choices[0]
+        message = choice.message
+        raw_tool_calls = getattr(message, "tool_calls", None) or []
+        tool_calls = []
+        for tc in raw_tool_calls:
+            fn = getattr(tc, "function", None)
+            name = getattr(fn, "name", None) if fn else None
+            arg_str = getattr(fn, "arguments", None) if fn else None
+            try:
+                args = json.loads(arg_str) if arg_str else {}
+            except json.JSONDecodeError:
+                args = {}
+            if name:
+                tool_calls.append({"id": getattr(tc, "id", ""), "name": name, "args": args})
+        return {
+            "tool_calls": tool_calls,
+            "content": message.content,
+            "finish_reason": choice.finish_reason or "stop",
+        }
+
+
+# ---------------------------------------------------------------------------
+# Ollama tool-use emulation helpers
+# ---------------------------------------------------------------------------
+
+
+def _render_tool_catalogue(tools: List[Dict[str, Any]]) -> str:
+    """Pretty-print the OpenAI-style tools list for inclusion in an Ollama prompt."""
+    lines: List[str] = []
+    for t in tools:
+        fn = t.get("function") or {}
+        name = fn.get("name", "?")
+        desc = fn.get("description", "")
+        params = fn.get("parameters") or {}
+        lines.append(f"- {name}: {desc}")
+        props = (params.get("properties") or {})
+        if props:
+            for pname, pspec in props.items():
+                ptype = pspec.get("type", "any")
+                pdesc = pspec.get("description", "")
+                lines.append(f"    {pname} ({ptype}): {pdesc}")
+    return "\n".join(lines)
+
+
+def _normalize_ollama_tool_response(obj: Dict[str, Any]) -> Dict[str, Any]:
+    """Coerce Ollama JSON-mode output into the uniform tool-calls shape."""
+    if isinstance(obj.get("final_answer"), str):
+        return {
+            "tool_calls": [],
+            "content": obj["final_answer"],
+            "finish_reason": "stop",
+        }
+    tool_name = obj.get("tool_name") or obj.get("tool")
+    args = obj.get("args") or obj.get("arguments") or {}
+    if isinstance(tool_name, str):
+        return {
+            "tool_calls": [{"id": "ollama_call_0", "name": tool_name, "args": args if isinstance(args, dict) else {}}],
+            "content": None,
+            "finish_reason": "tool_calls",
+        }
+    # Nothing we can parse — treat as a plain response.
+    return {
+        "tool_calls": [],
+        "content": json.dumps(obj, ensure_ascii=False),
+        "finish_reason": "stop",
+    }
 
 
 # Provider instance cache

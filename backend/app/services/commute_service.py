@@ -13,6 +13,7 @@ from ..integrations.als.client import AlsClient
 from ..integrations.amap.client import AmapClient
 from ..integrations.geocoding.hk_bbox import in_hk as _in_hk
 from ..schemas.commute import CommuteEvidence, CommuteSegment
+from .mtr_station_service import get_mtr_station_service
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ class CommuteService:
                     als=self._als,
                     amap_geocode=self._client,
                     amap_poi=self._client,
+                    mtr=get_mtr_station_service(),
                 )
             )
         return self._resolver_agent

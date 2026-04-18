@@ -36,6 +36,18 @@ class FakeGeocoder:
         return self._answers.get(query)
 
 
+class FakeMtrLookup:
+    """Maps station queries to ``(lng, lat, canonical)`` tuples."""
+
+    def __init__(self, answers: dict[str, Optional[tuple[float, float, str]]]) -> None:
+        self._answers = answers
+        self.calls: list[str] = []
+
+    def lookup(self, raw: str) -> Optional[tuple[float, float, str]]:
+        self.calls.append(raw)
+        return self._answers.get(raw)
+
+
 class ScriptedPlanner:
     """Returns pre-scripted tool calls in order; records full prompt history."""
 
@@ -214,6 +226,51 @@ async def test_agent_gives_up_when_planner_returns_text_only():
     assert result.resolved_coords is None
     assert result.give_up_reason is not None
     assert result.give_up_reason.startswith("planner_returned_no_tool_call")
+
+
+@pytest.mark.asyncio
+async def test_agent_uses_mtr_station_lookup_for_explicit_station_name():
+    """When ``nearest_station`` names an MTR station, agent should prefer the
+    deterministic lookup tool and finish in a single step with the platform
+    coord — exactly the trajectory that prevents Amap from snapping to an
+    adjacent station (the Sha Tin → 大围 bug this tool was built for)."""
+    sha_tin_coords = (114.1872, 22.3818)
+    als = FakeGeocoder({})
+    amap = FakeGeocoder({})
+    mtr = FakeMtrLookup(
+        {"Sha Tin MTR Station": (sha_tin_coords[0], sha_tin_coords[1], "Sha Tin")}
+    )
+    planner = ScriptedPlanner(
+        [
+            _tool_call("mtr_station_lookup", query="Sha Tin MTR Station"),
+            _tool_call(
+                "finish",
+                coords=[sha_tin_coords[0], sha_tin_coords[1]],
+                resolved_via="mtr_station_lookup 'Sha Tin MTR Station'",
+            ),
+        ]
+    )
+    agent = CommuteResolverAgent(
+        ToolContext(als=als, amap_geocode=amap, amap_poi=amap, mtr=mtr),
+        planner=planner,
+        max_steps=6,
+    )
+
+    result = await agent.ainvoke(
+        {"nearest_station": "Sha Tin MTR Station", "district": "Sha Tin"}
+    )
+
+    assert result.resolved_coords == sha_tin_coords
+    assert "mtr_station_lookup" in result.resolved_via
+    assert result.give_up_reason is None
+    assert len(result.observations) == 1
+    obs = result.observations[0]
+    assert obs["accepted"] is True
+    assert obs["matched_station"] == "Sha Tin"
+    # Crucially, ALS/Amap must not have been touched — that's the whole point.
+    assert als.calls == []
+    assert amap.calls == []
+    assert mtr.calls == ["Sha Tin MTR Station"]
 
 
 @pytest.mark.asyncio

@@ -16,6 +16,7 @@ from typing import Any, Awaitable, Callable, Optional, Protocol
 from ...integrations.als.client import AlsClient
 from ...integrations.amap.client import AmapClient
 from ...integrations.geocoding.hk_bbox import in_hk
+from ...services.mtr_station_service import MtrStationService, get_mtr_station_service
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,11 @@ class _SupportsPoi(Protocol):
         ...
 
 
+class _SupportsMtrLookup(Protocol):
+    def lookup(self, raw: str) -> Optional[tuple[float, float, str]]:
+        ...
+
+
 @dataclass
 class ToolContext:
     """Dependency bundle injected when a tool is executed."""
@@ -43,6 +49,7 @@ class ToolContext:
     als: _SupportsGeocode
     amap_geocode: _SupportsGeocode
     amap_poi: _SupportsPoi
+    mtr: Optional[_SupportsMtrLookup] = None
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +119,32 @@ async def _amap_poi_search(args: dict, ctx: ToolContext) -> dict:
     return _observation("amap_poi_search", query, coords)
 
 
+async def _mtr_station_lookup(args: dict, ctx: ToolContext) -> dict:
+    query = (args.get("query") or "").strip()
+    if not query:
+        return {"tool": "mtr_station_lookup", "accepted": False, "reason": "empty_query"}
+    if ctx.mtr is None:
+        return {
+            "tool": "mtr_station_lookup",
+            "query": query,
+            "accepted": False,
+            "reason": "mtr_lookup_not_configured",
+        }
+    result = ctx.mtr.lookup(query)
+    if result is None:
+        return {
+            "tool": "mtr_station_lookup",
+            "query": query,
+            "accepted": False,
+            "reason": "ambiguous_station_or_district_or_unknown",
+        }
+    lng, lat, canonical = result
+    observation = _observation("mtr_station_lookup", query, (lng, lat))
+    if observation.get("accepted"):
+        observation["matched_station"] = canonical
+    return observation
+
+
 TOOL_SCHEMAS: list[dict] = [
     {
         "type": "function",
@@ -178,6 +211,36 @@ TOOL_SCHEMAS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "mtr_station_lookup",
+            "description": (
+                "Deterministic lookup of Hong Kong MTR station coordinates "
+                "from a curated table. Use this whenever `nearest_station` "
+                "*explicitly* names an MTR station — the input MUST contain "
+                "'MTR', 'Station', '站', '地鐵站', or '港鐵站'. Bare names "
+                "like 'Sha Tin' / '沙田' are ambiguous (district vs. station) "
+                "and will be rejected. NEVER pass a `district` value into "
+                "this tool. Returns a platform-level HK coordinate when the "
+                "station is recognised."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "Station name WITH an explicit marker, e.g. "
+                            "'Sha Tin MTR Station', 'Mong Kok East Station', "
+                            "'沙田站', '旺角東站', '荃灣港鐵站'."
+                        ),
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "finish",
             "description": (
                 "Call once you have an accepted coordinate from a previous "
@@ -230,6 +293,7 @@ TOOL_EXECUTORS: dict[str, ToolFn] = {
     "als_geocode": _als_geocode,
     "amap_geocode": _amap_geocode,
     "amap_poi_search": _amap_poi_search,
+    "mtr_station_lookup": _mtr_station_lookup,
 }
 
 
@@ -248,4 +312,9 @@ def build_default_context(amap_client: Optional[AmapClient]) -> ToolContext:
             return None
 
     amap = amap_client if amap_client is not None else _NoAmap()
-    return ToolContext(als=AlsClient(), amap_geocode=amap, amap_poi=amap)
+    return ToolContext(
+        als=AlsClient(),
+        amap_geocode=amap,
+        amap_poi=amap,
+        mtr=get_mtr_station_service(),
+    )

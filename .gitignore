@@ -63,6 +63,9 @@ backend/.pytest_cache/
 *.log
 rentwise-course.html
 
+# Eval run artifacts (regenerated per run)
+backend/tests/evals/reports/
+
 # OS files
 .DS_Store
 Thumbs.db

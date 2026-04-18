@@ -6,18 +6,24 @@ import Link from "next/link";
 import {
   AlertTriangle,
   ArrowLeftRight,
+  ArrowRight,
+  Bus,
   CheckCircle2,
   ChevronLeft,
   Clock,
   Copy,
   DollarSign,
   FileText,
+  Footprints,
   Gauge,
   MapPin,
   MessageSquare,
   Pencil,
+  Plane,
   RefreshCw,
   Sparkles,
+  Train,
+  TrainFront,
   Trash2,
   XCircle,
 } from "lucide-react";
@@ -38,6 +44,7 @@ import type {
   BenchmarkEvidence,
   Candidate,
   CandidateContactPlan,
+  CommuteSegment,
   CompareCandidateCard,
   ComparisonResponse,
   DecisionSignal,
@@ -130,6 +137,45 @@ function CardDescription({ className, ...props }: React.HTMLAttributes<HTMLDivEl
 
 function Separator({ className }: { className?: string }) {
   return <div className={cn("h-px w-full bg-gray-200", className)} />;
+}
+
+const COMMUTE_MODE_STYLE: Record<string, { cls: string; label: string; Icon: React.ComponentType<{ className?: string }> }> = {
+  walking: { cls: "bg-gray-100 text-gray-700 ring-gray-200", label: "Walk", Icon: Footprints },
+  subway: { cls: "bg-violet-50 text-violet-800 ring-violet-200", label: "MTR", Icon: TrainFront },
+  rail: { cls: "bg-indigo-50 text-indigo-800 ring-indigo-200", label: "Rail", Icon: Train },
+  airport_express: { cls: "bg-purple-50 text-purple-800 ring-purple-200", label: "Airport Express", Icon: Plane },
+  bus: { cls: "bg-blue-50 text-blue-800 ring-blue-200", label: "Bus", Icon: Bus },
+  minibus: { cls: "bg-emerald-50 text-emerald-800 ring-emerald-200", label: "Minibus", Icon: Bus },
+  taxi: { cls: "bg-amber-50 text-amber-800 ring-amber-200", label: "Taxi", Icon: Bus },
+};
+
+function CommuteLegChip({ leg }: { leg: CommuteSegment }) {
+  const style = COMMUTE_MODE_STYLE[leg.mode] ?? COMMUTE_MODE_STYLE.bus;
+  const Icon = style.Icon;
+  const labelParts: string[] = [];
+  if (leg.mode === "walking") {
+    labelParts.push("Walk");
+  } else if (leg.line_name) {
+    labelParts.push(leg.line_name);
+  } else {
+    labelParts.push(style.label);
+  }
+  if (leg.duration_minutes) {
+    labelParts.push(`${leg.duration_minutes} min`);
+  } else if (leg.mode === "walking" && leg.distance_meters) {
+    labelParts.push(`${leg.distance_meters} m`);
+  }
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset",
+        style.cls,
+      )}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {labelParts.join(" · ")}
+    </span>
+  );
 }
 
 function Alert({
@@ -843,10 +889,14 @@ export default function CandidateDetailPage() {
       facts.push({ icon: Clock, label: "Move-in", value: extracted.move_in_date });
     }
     if (candidate.commute_evidence?.status === "ready" && candidate.commute_evidence.estimated_minutes) {
+      const ce = candidate.commute_evidence;
+      const leg = ce.origin_station && ce.destination_station
+        ? ` · ${ce.origin_station} → ${ce.destination_station}`
+        : "";
       facts.push({
         icon: Clock,
         label: "Commute",
-        value: `${candidate.commute_evidence.estimated_minutes} min to ${candidate.commute_evidence.destination_label ?? "destination"}`,
+        value: `${ce.estimated_minutes} min to ${ce.destination_label ?? "destination"}${leg}`,
       });
     }
     return facts;
@@ -882,8 +932,12 @@ export default function CandidateDetailPage() {
     : "Unknown";
 
   return (
-    <main className="min-h-screen bg-gray-50">
-      <div className="mx-auto max-w-6xl px-4 py-6 lg:px-6 lg:py-8">
+    <main className="relative min-h-screen overflow-hidden bg-gray-50">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-[360px] bg-gradient-to-br from-violet-100 via-blue-50 to-emerald-50"
+      />
+      <div className="relative mx-auto max-w-6xl px-4 py-6 lg:px-6 lg:py-8">
         {/* Header */}
         <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
@@ -894,10 +948,20 @@ export default function CandidateDetailPage() {
               <ChevronLeft className="h-3.5 w-3.5" />
               Back to project
             </Link>
-            <h1 className="mt-2 text-2xl font-semibold tracking-tight text-gray-900">
-              {candidate.name}
-            </h1>
-            <p className="mt-1 text-sm text-gray-500">
+            <div className="mt-2 flex items-center gap-3">
+              <div className="flex h-10 w-10 flex-none items-center justify-center rounded-xl bg-gray-900 text-white">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-700">
+                  RentWise · Candidate
+                </p>
+                <h1 className="truncate text-2xl font-semibold tracking-tight text-gray-900">
+                  {candidate.name}
+                </h1>
+              </div>
+            </div>
+            <p className="mt-2 text-sm text-gray-500">
               Review this candidate as a decision task, not just a data record.
             </p>
           </div>
@@ -1194,7 +1258,7 @@ export default function CandidateDetailPage() {
                     {!candidate.commute_evidence ? (
                       <p className="text-sm text-gray-500">No commute information recorded yet.</p>
                     ) : candidate.commute_evidence.status === "ready" ? (
-                      <div className="space-y-3">
+                      <div className="space-y-4">
                         <div className="flex items-baseline gap-3">
                           <p className="text-3xl font-semibold tracking-tight text-gray-900">
                             {candidate.commute_evidence.estimated_minutes}
@@ -1203,13 +1267,26 @@ export default function CandidateDetailPage() {
                             min to {candidate.commute_evidence.destination_label}
                           </p>
                         </div>
-                        <p className="text-sm text-gray-700">
-                          Mode: {candidate.commute_evidence.mode}
-                          {candidate.commute_evidence.route_summary &&
-                            ` — ${candidate.commute_evidence.route_summary}`}
-                        </p>
+                        {candidate.commute_evidence.origin_station && (
+                          <div className="flex items-center gap-2 text-sm font-medium text-gray-800">
+                            <TrainFront className="h-4 w-4 text-gray-500" />
+                            <span>{candidate.commute_evidence.origin_station}</span>
+                            <ArrowRight className="h-3.5 w-3.5 text-gray-400" />
+                            <span>{candidate.commute_evidence.destination_station ?? candidate.commute_evidence.destination_label}</span>
+                          </div>
+                        )}
+                        {candidate.commute_evidence.segments && candidate.commute_evidence.segments.length > 0 && (
+                          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
+                            {candidate.commute_evidence.segments.map((leg, idx) => (
+                              <span key={idx} className="inline-flex items-center gap-1.5">
+                                {idx > 0 && <ArrowRight className="h-3 w-3 text-gray-300" />}
+                                <CommuteLegChip leg={leg} />
+                              </span>
+                            ))}
+                          </div>
+                        )}
                         {candidate.commute_evidence.confidence_note && (
-                          <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 ring-1 ring-amber-200">
+                          <p className="text-xs text-gray-500">
                             {candidate.commute_evidence.confidence_note}
                           </p>
                         )}
@@ -1219,18 +1296,16 @@ export default function CandidateDetailPage() {
                         Add a commute destination in project settings to see travel estimates.
                       </p>
                     ) : candidate.commute_evidence.status === "insufficient_candidate_location" ? (
-                      <div className="rounded-md bg-amber-50 p-3 text-sm text-amber-900 ring-1 ring-amber-200">
-                        <p className="font-medium">Location not precise enough</p>
-                        {candidate.commute_evidence.confidence_note && (
-                          <p className="mt-1 text-amber-800">
-                            {candidate.commute_evidence.confidence_note}
-                          </p>
-                        )}
-                        <p className="mt-1 text-amber-800">
-                          Try editing the candidate to add a more specific address or Chinese
-                          place name, then reassess.
-                        </p>
-                      </div>
+                      <Alert className="border-amber-200 bg-amber-50 text-amber-900">
+                        <AlertTriangle className="h-4 w-4 flex-none text-amber-600" />
+                        <div className="min-w-0">
+                          <AlertTitle>Location not precise enough</AlertTitle>
+                          <AlertDescription className="text-amber-800">
+                            {candidate.commute_evidence.confidence_note ??
+                              "Add a more specific address or Chinese place name, then reassess."}
+                          </AlertDescription>
+                        </div>
+                      </Alert>
                     ) : (
                       <p className="text-sm text-gray-500">
                         {candidate.commute_evidence.confidence_note || "Commute calculation failed."}

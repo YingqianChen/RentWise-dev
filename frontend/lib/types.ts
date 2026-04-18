@@ -177,11 +177,32 @@ export interface BenchmarkEvidence {
   fit_note: string | null;
 }
 
+export type CommuteSegmentMode =
+  | "walking"
+  | "subway"
+  | "bus"
+  | "minibus"
+  | "rail"
+  | "airport_express"
+  | "taxi";
+
+export interface CommuteSegment {
+  mode: CommuteSegmentMode | string;
+  line_name: string | null;
+  from_station: string | null;
+  to_station: string | null;
+  duration_minutes: number | null;
+  distance_meters: number | null;
+}
+
 export interface CommuteEvidence {
   status: "not_configured" | "insufficient_candidate_location" | "ready" | "failed";
   estimated_minutes: number | null;
   mode: string | null;
   route_summary: string | null;
+  origin_station: string | null;
+  destination_station: string | null;
+  segments: CommuteSegment[] | null;
   destination_label: string | null;
   confidence_note: string | null;
 }

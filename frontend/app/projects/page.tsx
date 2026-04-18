@@ -1,14 +1,119 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Building2,
+  Coins,
+  FolderPlus,
+  LogOut,
+  Plus,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 
 import { createProject, deleteProject, getCurrentUser, getProjects } from "@/lib/api";
 import { clearToken, getToken } from "@/lib/auth";
 import type { Project } from "@/lib/types";
 
-function formatProjectStatus(status: Project["status"]) {
+function cn(...classes: Array<string | false | null | undefined>): string {
+  return classes.filter(Boolean).join(" ");
+}
+
+type ButtonVariant = "default" | "outline" | "ghost" | "danger";
+type ButtonSize = "default" | "sm";
+
+function Button({
+  variant = "default",
+  size = "default",
+  className,
+  disabled,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+}) {
+  const base =
+    "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg font-medium transition focus:outline-none focus:ring-2 focus:ring-primary-500/40 disabled:opacity-50 disabled:pointer-events-none";
+  const sizeCls = size === "sm" ? "h-8 px-2.5 text-sm" : "h-9 px-3.5 text-sm";
+  const variantCls =
+    variant === "outline"
+      ? "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+      : variant === "ghost"
+        ? "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+        : variant === "danger"
+          ? "bg-red-600 text-white hover:bg-red-700"
+          : "bg-gray-900 text-white hover:bg-black";
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      className={cn(base, sizeCls, variantCls, className)}
+      {...props}
+    />
+  );
+}
+
+function Badge({
+  tone = "neutral",
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLSpanElement> & {
+  tone?: "neutral" | "emerald" | "amber" | "red" | "blue" | "violet";
+}) {
+  const toneCls =
+    tone === "emerald"
+      ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+      : tone === "amber"
+        ? "bg-amber-50 text-amber-800 ring-amber-200"
+        : tone === "red"
+          ? "bg-red-50 text-red-700 ring-red-200"
+          : tone === "blue"
+            ? "bg-blue-50 text-blue-700 ring-blue-200"
+            : tone === "violet"
+              ? "bg-violet-50 text-violet-700 ring-violet-200"
+              : "bg-gray-100 text-gray-700 ring-gray-200";
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ring-1 ring-inset",
+        toneCls,
+        className
+      )}
+      {...props}
+    />
+  );
+}
+
+function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl border border-gray-200 bg-white text-gray-900 shadow-sm",
+        className
+      )}
+      {...props}
+    />
+  );
+}
+
+function statusTone(status: Project["status"]) {
+  switch (status) {
+    case "active":
+      return "emerald" as const;
+    case "completed":
+      return "violet" as const;
+    case "archived":
+      return "neutral" as const;
+    default:
+      return "neutral" as const;
+  }
+}
+
+function statusLabel(status: Project["status"]) {
   switch (status) {
     case "active":
       return "Active";
@@ -33,6 +138,7 @@ export default function ProjectsPage() {
   const [formError, setFormError] = useState("");
   const [deleteError, setDeleteError] = useState("");
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     const token = getToken();
@@ -58,11 +164,19 @@ export default function ProjectsPage() {
     }
   };
 
+  const stats = useMemo(() => {
+    const active = projects.filter((p) => p.status === "active").length;
+    const archived = projects.filter((p) => p.status === "archived").length;
+    const completed = projects.filter((p) => p.status === "completed").length;
+    return { total: projects.length, active, archived, completed };
+  }, [projects]);
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     const token = getToken();
     if (!token) return;
 
+    setCreating(true);
     try {
       setFormError("");
       const newProject = await createProject(token, {
@@ -76,6 +190,8 @@ export default function ProjectsPage() {
     } catch (err) {
       console.error("Failed to create project:", err);
       setFormError(err instanceof Error ? err.message : "Failed to create project.");
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -104,171 +220,253 @@ export default function ProjectsPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen flex items-center justify-center">
-        <div className="text-gray-600">Loading projects...</div>
+      <main className="min-h-screen bg-gray-50">
+        <div className="flex min-h-screen items-center justify-center text-sm text-gray-500">
+          Loading projects...
+        </div>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen p-8">
-      <div className="max-w-4xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <p className="text-sm uppercase tracking-[0.2em] text-primary-600 mb-2">Workspace</p>
-            <h1 className="text-2xl font-bold text-gray-900">Search projects</h1>
-            {user && <p className="text-sm text-gray-600 mt-1">{user.email}</p>}
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={() => setShowCreate(true)}
-              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
-            >
-              New project
-            </button>
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 text-gray-600 hover:text-gray-900 transition"
-            >
-              Sign out
-            </button>
-          </div>
-        </div>
-
-        {showCreate && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-md">
-              <h2 className="text-xl font-bold mb-4">Create project</h2>
-              <form onSubmit={handleCreate} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Project title</label>
-                  <input
-                    type="text"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    placeholder="Spring 2026 search"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Budget cap in HKD (optional)</label>
-                  <input
-                    type="number"
-                    value={maxBudget}
-                    onChange={(e) => setMaxBudget(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    placeholder="22000"
-                  />
-                </div>
-                {formError && <p className="text-sm text-red-600">{formError}</p>}
-                <div className="flex gap-3 justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setShowCreate(false)}
-                    className="px-4 py-2 text-gray-600 hover:text-gray-900"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-                  >
-                    Create
-                  </button>
-                </div>
-              </form>
+    <main className="relative min-h-screen overflow-hidden bg-gray-50">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-[360px] bg-gradient-to-br from-violet-100 via-blue-50 to-emerald-50"
+      />
+      <div className="relative mx-auto w-full max-w-5xl px-4 py-10">
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gray-900 text-white shadow-sm">
+              <Sparkles className="h-5 w-5" />
             </div>
-          </div>
-        )}
-
-        {showDelete && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-md">
-              <h2 className="text-xl font-bold mb-4">Delete project</h2>
-              <p className="text-gray-600 mb-4">
-                Delete <span className="font-medium text-gray-900">{showDelete.title}</span> and all of its
-                candidates, assessments, and investigation items?
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-700">
+                RentWise
               </p>
-              <p className="text-sm text-red-600 mb-6">This action cannot be undone.</p>
-              {deleteError && <p className="text-sm text-red-600 mb-4">{deleteError}</p>}
-              <div className="flex gap-3 justify-end">
-                <button
-                  type="button"
-                  onClick={() => setShowDelete(null)}
-                  className="px-4 py-2 text-gray-600 hover:text-gray-900"
-                  disabled={deletingProjectId === showDelete.id}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleDelete()}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
-                  disabled={deletingProjectId === showDelete.id}
-                >
-                  {deletingProjectId === showDelete.id ? "Deleting..." : "Delete project"}
-                </button>
-              </div>
+              <h1 className="text-2xl font-semibold text-gray-900">Search projects</h1>
+              {user && <p className="mt-0.5 text-sm text-gray-500">{user.email}</p>}
             </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button onClick={() => setShowCreate(true)}>
+              <Plus className="h-4 w-4" />
+              New project
+            </Button>
+            <Button variant="ghost" onClick={handleLogout}>
+              <LogOut className="h-4 w-4" />
+              Sign out
+            </Button>
+          </div>
+        </header>
+
+        {projects.length > 0 && (
+          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatCard label="Total" value={stats.total} tone="neutral" />
+            <StatCard label="Active" value={stats.active} tone="emerald" />
+            <StatCard label="Completed" value={stats.completed} tone="violet" />
+            <StatCard label="Archived" value={stats.archived} tone="neutral" />
           </div>
         )}
 
         {projects.length === 0 ? (
-          <div className="text-center py-16 bg-white rounded-lg border border-gray-200">
-            <div className="text-gray-400 mb-4">
-              <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={1.5}
-                  d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
-                />
-              </svg>
-            </div>
-            <h2 className="text-xl font-medium text-gray-700 mb-2">No projects yet</h2>
-            <p className="text-gray-500 mb-4">
-              Create your first search workspace and start organizing rental candidates.
-            </p>
-            <button
-              onClick={() => setShowCreate(true)}
-              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-            >
-              Create project
-            </button>
-          </div>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {projects.map((project) => (
-              <div
-                key={project.id}
-                className="p-6 bg-white rounded-lg border border-gray-200 hover:border-primary-300 hover:shadow-md transition"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <Link href={`/projects/${project.id}`} className="block flex-1 min-w-0">
-                    <h3 className="font-semibold text-lg text-gray-900 mb-2">{project.title}</h3>
-                    {project.max_budget && (
-                      <p className="text-sm text-gray-600">Budget cap: HKD {project.max_budget.toLocaleString()}</p>
-                    )}
-                    <p className="text-sm text-gray-500 mt-2">Status: {formatProjectStatus(project.status)}</p>
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDeleteError("");
-                      setShowDelete(project);
-                    }}
-                    className="text-sm text-red-600 hover:text-red-700"
-                    aria-label={`Delete ${project.title}`}
-                  >
-                    Delete
-                  </button>
-                </div>
+          <Card className="mt-8 border-dashed">
+            <div className="flex flex-col items-center px-6 py-16 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-violet-50 text-violet-700">
+                <FolderPlus className="h-6 w-6" />
               </div>
+              <h2 className="mt-4 text-lg font-semibold text-gray-900">No projects yet</h2>
+              <p className="mt-1 max-w-sm text-sm text-gray-500">
+                Create your first search workspace and start organizing rental candidates with
+                AI-powered assessment.
+              </p>
+              <Button className="mt-6" onClick={() => setShowCreate(true)}>
+                <Plus className="h-4 w-4" />
+                Create project
+              </Button>
+            </div>
+          </Card>
+        ) : (
+          <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {projects.map((project) => (
+              <Card
+                key={project.id}
+                className="group relative overflow-hidden transition hover:border-gray-300 hover:shadow-md"
+              >
+                <Link href={`/projects/${project.id}`} className="block p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <h3 className="line-clamp-2 text-base font-semibold text-gray-900">
+                      {project.title}
+                    </h3>
+                    <ArrowRight className="h-4 w-4 shrink-0 text-gray-400 transition group-hover:translate-x-0.5 group-hover:text-gray-700" />
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                    <Badge tone={statusTone(project.status)}>{statusLabel(project.status)}</Badge>
+                    {project.max_budget ? (
+                      <Badge tone="blue">
+                        <Coins className="h-3 w-3" />
+                        HKD {project.max_budget.toLocaleString()}
+                      </Badge>
+                    ) : (
+                      <Badge tone="neutral">No budget cap</Badge>
+                    )}
+                  </div>
+                </Link>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setDeleteError("");
+                    setShowDelete(project);
+                  }}
+                  aria-label={`Delete ${project.title}`}
+                  className="absolute right-2 top-2 inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 opacity-0 transition hover:bg-red-50 hover:text-red-600 focus:opacity-100 group-hover:opacity-100"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </Card>
             ))}
           </div>
         )}
       </div>
+
+      {showCreate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-md rounded-xl border border-gray-200 bg-white shadow-xl">
+            <div className="flex items-center gap-2 border-b border-gray-100 px-5 py-4">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-50 text-violet-700">
+                <FolderPlus className="h-4 w-4" />
+              </div>
+              <h2 className="text-base font-semibold text-gray-900">Create project</h2>
+            </div>
+            <form onSubmit={handleCreate} className="space-y-4 px-5 py-5">
+              <div>
+                <label
+                  htmlFor="project-title"
+                  className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-600"
+                >
+                  Project title
+                </label>
+                <div className="relative">
+                  <Building2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                  <input
+                    id="project-title"
+                    type="text"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    required
+                    autoFocus
+                    className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+                    placeholder="Spring 2026 search"
+                  />
+                </div>
+              </div>
+              <div>
+                <label
+                  htmlFor="project-budget"
+                  className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-600"
+                >
+                  Budget cap in HKD (optional)
+                </label>
+                <div className="relative">
+                  <Coins className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                  <input
+                    id="project-budget"
+                    type="number"
+                    value={maxBudget}
+                    onChange={(e) => setMaxBudget(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+                    placeholder="22000"
+                  />
+                </div>
+              </div>
+              {formError && (
+                <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{formError}</span>
+                </div>
+              )}
+              <div className="flex justify-end gap-2 pt-1">
+                <Button type="button" variant="ghost" onClick={() => setShowCreate(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={creating}>
+                  {creating ? "Creating..." : "Create project"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-md rounded-xl border border-gray-200 bg-white shadow-xl">
+            <div className="flex items-center gap-2 border-b border-gray-100 px-5 py-4">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-50 text-red-600">
+                <AlertTriangle className="h-4 w-4" />
+              </div>
+              <h2 className="text-base font-semibold text-gray-900">Delete project</h2>
+            </div>
+            <div className="space-y-4 px-5 py-5">
+              <p className="text-sm text-gray-700">
+                Delete <span className="font-medium text-gray-900">{showDelete.title}</span> and
+                all of its candidates, assessments, and investigation items?
+              </p>
+              <p className="text-xs text-red-600">This action cannot be undone.</p>
+              {deleteError && (
+                <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{deleteError}</span>
+                </div>
+              )}
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setShowDelete(null)}
+                  disabled={deletingProjectId === showDelete.id}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="danger"
+                  onClick={() => void handleDelete()}
+                  disabled={deletingProjectId === showDelete.id}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {deletingProjectId === showDelete.id ? "Deleting..." : "Delete project"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "neutral" | "emerald" | "violet";
+}) {
+  const accent =
+    tone === "emerald"
+      ? "text-emerald-700"
+      : tone === "violet"
+        ? "text-violet-700"
+        : "text-gray-900";
+  return (
+    <Card className="px-4 py-3">
+      <p className="text-xs font-medium uppercase tracking-wide text-gray-500">{label}</p>
+      <p className={cn("mt-1 text-2xl font-semibold", accent)}>{value}</p>
+    </Card>
   );
 }

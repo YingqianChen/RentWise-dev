@@ -480,8 +480,12 @@ export default function ProjectDashboardPage() {
     : "Not set";
 
   return (
-    <main className="min-h-screen bg-gray-50">
-      <div className="mx-auto max-w-6xl px-4 py-6 lg:px-6 lg:py-8">
+    <main className="relative min-h-screen overflow-hidden bg-gray-50">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-[360px] bg-gradient-to-br from-violet-100 via-blue-50 to-emerald-50"
+      />
+      <div className="relative mx-auto max-w-6xl px-4 py-6 lg:px-6 lg:py-8">
         {deleteTarget && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
             <Card className="w-full max-w-md p-6">
@@ -522,17 +526,37 @@ export default function ProjectDashboardPage() {
               <ChevronLeft className="h-4 w-4" />
               Back to projects
             </Link>
-            <h1 className="mt-2 text-2xl font-semibold text-gray-900">{project.title}</h1>
-            <p className="mt-1 text-sm text-gray-600">
+            <div className="mt-2 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-900 text-white">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-700">
+                  RentWise · Project
+                </p>
+                <h1 className="truncate text-2xl font-semibold tracking-tight text-gray-900">
+                  {project.title}
+                </h1>
+              </div>
+            </div>
+            <p className="mt-2 text-sm text-gray-600">
               Decide what to verify, follow up on, or drop next.
             </p>
           </div>
-          <Link href={`/projects/${projectId}/import`}>
-            <Button className="gap-1.5">
-              <Plus className="h-4 w-4" />
-              Add candidate
-            </Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href={`/projects/${projectId}/compare`}>
+              <Button variant="outline" className="gap-1.5">
+                <ArrowLeftRight className="h-4 w-4" />
+                Compare
+              </Button>
+            </Link>
+            <Link href={`/projects/${projectId}/import`}>
+              <Button className="gap-1.5">
+                <Plus className="h-4 w-4" />
+                Add candidate
+              </Button>
+            </Link>
+          </div>
         </header>
 
         <section className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">

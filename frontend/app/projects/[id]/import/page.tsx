@@ -3,9 +3,24 @@
 import { useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  FileText,
+  ImageIcon,
+  Loader2,
+  MessageSquare,
+  Sparkles,
+  Upload,
+  X,
+} from "lucide-react";
 
 import { importCandidate } from "@/lib/api";
 import { getToken } from "@/lib/auth";
+
+function cn(...classes: Array<string | false | null | undefined>): string {
+  return classes.filter(Boolean).join(" ");
+}
 
 export default function ImportCandidatePage() {
   const router = useRouter();
@@ -74,65 +89,105 @@ export default function ImportCandidatePage() {
     }
   };
 
+  const removeImage = (name: string, size: number) => {
+    setUploadedImages((imgs) => imgs.filter((f) => !(f.name === name && f.size === size)));
+  };
+
+  const inputCls =
+    "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-500";
+
   return (
-    <main className="min-h-screen p-8">
-      <div className="max-w-2xl mx-auto">
+    <main className="relative min-h-screen overflow-hidden bg-gray-50">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-[360px] bg-gradient-to-br from-violet-100 via-blue-50 to-emerald-50"
+      />
+      <div className="relative mx-auto w-full max-w-3xl px-4 py-10 lg:px-6">
         <Link
           href={`/projects/${projectId}`}
-          className="text-sm text-gray-500 hover:text-gray-700 mb-4 inline-block"
+          className="mb-5 inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
         >
+          <ArrowLeft className="h-4 w-4" />
           Back to project
         </Link>
 
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Add a candidate</h1>
-        <p className="text-gray-600 mb-6">
-          Paste the listing text, agent chat, upload screenshots, or add your own notes. RentWise will extract
-          the key details and decide what to verify next.
+        <div className="mb-6 flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-900 text-white">
+            <Sparkles className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-700">RentWise</p>
+            <h1 className="text-xl font-semibold tracking-tight text-gray-900">Add a candidate</h1>
+          </div>
+        </div>
+        <p className="mb-6 text-sm text-gray-600">
+          Paste the listing text, agent chat, upload screenshots, or add your own notes. RentWise
+          will extract the key details and decide what to verify next.
         </p>
 
-        {error && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
+        {error && (
+          <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            <AlertTriangle className="h-4 w-4 flex-none text-red-600" />
+            <span>{error}</span>
+          </div>
+        )}
         {loadingMessage && (
-          <div className="mb-4 p-3 bg-blue-50 text-blue-700 rounded-lg text-sm">
-            {loadingMessage}
+          <div className="mb-4 flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+            <Loader2 className="h-4 w-4 flex-none animate-spin text-blue-600" />
+            <span>{loadingMessage}</span>
           </div>
         )}
 
-        <form onSubmit={handleImport} className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Listing text</label>
-            <textarea
-              value={listingText}
-              onChange={(e) => setListingText(e.target.value)}
-              rows={6}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-              placeholder="Paste the property ad or listing details here..."
-            />
-          </div>
+        <form onSubmit={handleImport} className="space-y-5">
+          <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-gray-900">
+              <FileText className="h-4 w-4 text-gray-500" />
+              Paste listing content
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-gray-700">Listing text</label>
+                <textarea
+                  value={listingText}
+                  onChange={(e) => setListingText(e.target.value)}
+                  rows={6}
+                  className={inputCls}
+                  placeholder="Paste the property ad or listing details here..."
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                  Agent or landlord chat <span className="text-gray-400">(optional)</span>
+                </label>
+                <textarea
+                  value={chatText}
+                  onChange={(e) => setChatText(e.target.value)}
+                  rows={4}
+                  className={inputCls}
+                  placeholder="Paste the conversation if it contains extra pricing or clause details..."
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                  Your notes <span className="text-gray-400">(optional)</span>
+                </label>
+                <textarea
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  rows={3}
+                  className={inputCls}
+                  placeholder="Add reminders, concerns, or context for this candidate..."
+                />
+              </div>
+            </div>
+          </section>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Agent or landlord chat (optional)</label>
-            <textarea
-              value={chatText}
-              onChange={(e) => setChatText(e.target.value)}
-              rows={4}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-              placeholder="Paste the conversation if it contains extra pricing or clause details..."
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Your notes (optional)</label>
-            <textarea
-              value={noteText}
-              onChange={(e) => setNoteText(e.target.value)}
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-              placeholder="Add reminders, concerns, or context for this candidate..."
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Listing screenshots or photos (optional)</label>
+          <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-gray-900">
+              <ImageIcon className="h-4 w-4 text-gray-500" />
+              Upload screenshots or photos
+              <span className="ml-1 text-xs font-normal text-gray-400">optional</span>
+            </div>
             <input
               ref={fileInputRef}
               type="file"
@@ -145,8 +200,9 @@ export default function ImportCandidatePage() {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3.5 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
               >
+                <Upload className="h-4 w-4" />
                 Choose images
               </button>
               <span className="text-sm text-gray-500">
@@ -156,43 +212,62 @@ export default function ImportCandidatePage() {
               </span>
             </div>
             {uploadedImages.length > 0 && (
-              <ul className="mt-3 space-y-1 text-sm text-gray-600">
+              <ul className="mt-3 space-y-1.5">
                 {uploadedImages.map((file) => (
-                  <li key={`${file.name}-${file.size}`}>{file.name}</li>
+                  <li
+                    key={`${file.name}-${file.size}`}
+                    className="flex items-center justify-between rounded-md bg-gray-50 px-2.5 py-1.5 text-sm text-gray-700"
+                  >
+                    <span className="truncate">{file.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeImage(file.name, file.size)}
+                      className="ml-2 flex-none rounded p-0.5 text-gray-400 hover:bg-gray-200 hover:text-gray-600"
+                      aria-label={`Remove ${file.name}`}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </li>
                 ))}
               </ul>
             )}
-            <p className="mt-2 text-xs text-gray-500">
-              OCR and assessment now continue in the background after upload, so you can move straight to the candidate detail view instead of waiting on this page.
+            <p className="mt-3 text-xs text-gray-500">
+              OCR and assessment continue in the background after upload, so you can move straight to the candidate detail view.
             </p>
-          </div>
+          </section>
 
-          <div className="flex gap-3">
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 transition"
-            >
-              {loading ? "Processing..." : "Import and assess"}
-            </button>
+          <div className="flex items-center justify-end gap-3">
             <Link
               href={`/projects/${projectId}`}
-              className="px-6 py-2 text-gray-600 hover:text-gray-900 transition"
+              className="text-sm text-gray-600 hover:text-gray-900"
             >
               Cancel
             </Link>
+            <button
+              type="submit"
+              disabled={loading}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
+              )}
+            >
+              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+              {loading ? "Processing..." : "Import and assess"}
+            </button>
           </div>
         </form>
 
-        <div className="mt-8 p-4 bg-gray-50 rounded-lg">
-          <h3 className="font-medium text-gray-900 mb-2">What helps the analysis most</h3>
-          <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
+        <section className="mt-8 rounded-xl border border-gray-200 bg-white/60 p-5 shadow-sm">
+          <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-900">
+            <MessageSquare className="h-4 w-4 text-gray-500" />
+            What helps the analysis most
+          </div>
+          <ul className="ml-5 list-disc space-y-1 text-sm text-gray-600">
             <li>The quoted rent, deposit, management fee, and any extra charges.</li>
             <li>Lease term, move-in timing, and repair responsibility details.</li>
             <li>Screenshots from listings, chats, or contracts can be uploaded for OCR.</li>
             <li>Any notes that explain what makes this candidate attractive or risky.</li>
           </ul>
-        </div>
+        </section>
       </div>
     </main>
   );

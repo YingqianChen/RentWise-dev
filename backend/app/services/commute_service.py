@@ -7,6 +7,7 @@ from typing import Optional
 
 from ..core.config import settings
 from ..db.models import CandidateListing, SearchProject
+from ..integrations.als.client import AlsClient
 from ..integrations.amap.client import AmapClient
 from ..schemas.commute import CommuteEvidence
 
@@ -20,6 +21,7 @@ class CommuteService:
         self._client: Optional[AmapClient] = None
         if settings.AMAP_API_KEY:
             self._client = AmapClient(settings.AMAP_API_KEY)
+        self._als = AlsClient()
 
     async def build_for_candidate(
         self,
@@ -67,14 +69,23 @@ class CommuteService:
                 confidence_note="Could not geocode destination.",
             )
 
-        # 5. Resolve candidate coordinates. Amap's /geocode is weak on English HK
-        #    place names (e.g. "Sha Tin MTR", "City One Shatin"); fall back to POI
-        #    text search (/place/text) which handles stations and buildings much
-        #    better. Try both for each query before moving on.
+        # 5. Resolve candidate coordinates. Priority:
+        #    (a) HK Gov ALS — authoritative HK geocoder, handles English place
+        #        names like "Sha Tin MTR station" and "City One Shatin" that
+        #        Amap's /geocode stumbles on;
+        #    (b) Amap /geocode — mainland-style address geocoding, good for
+        #        Chinese addresses;
+        #    (c) Amap /place/text POI search — last-ditch keyword match.
         candidate_coords = None
         resolved_via: Optional[str] = None
         tried: list[str] = []
         for query in location_queries:
+            coords = await self._als.geocode(query)
+            tried.append(f"als({query})")
+            if coords is not None:
+                candidate_coords = coords
+                resolved_via = f"ALS '{query}'"
+                break
             coords = await self._client.geocode(query)
             tried.append(f"geocode({query})")
             if coords is not None:
@@ -148,10 +159,20 @@ class CommuteService:
     async def _get_destination_coords(
         self, project: SearchProject
     ) -> Optional[tuple[float, float]]:
-        """Use cached lat/lng when available; otherwise geocode the destination query."""
+        """Use cached lat/lng when available; otherwise geocode the destination query.
+
+        Same ALS → Amap geocode → Amap POI ladder as the candidate side.
+        """
         if project.commute_destination_lat is not None and project.commute_destination_lng is not None:
             return (project.commute_destination_lng, project.commute_destination_lat)
-        return await self._client.geocode(project.commute_destination_query)
+        query = project.commute_destination_query
+        coords = await self._als.geocode(query)
+        if coords is not None:
+            return coords
+        coords = await self._client.geocode(query)
+        if coords is not None:
+            return coords
+        return await self._client.search_poi(query)
 
     async def _calculate_route(
         self,

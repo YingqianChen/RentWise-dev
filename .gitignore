@@ -63,6 +63,12 @@ backend/.pytest_cache/
 *.log
 rentwise-course.html
 
+# Brand source/draft files at repo root (deployed copies live in frontend/public/)
+/logo.png
+/logo_with_text.png
+/rentwise_logo_full.svg
+/rentwise_logo_icon.svg
+
 # Eval run artifacts (regenerated per run)
 backend/tests/evals/reports/
 

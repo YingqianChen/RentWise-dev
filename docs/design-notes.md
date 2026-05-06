@@ -212,6 +212,46 @@ back 键会在 `/login` 与 `/projects` 之间反弹）。Landing 始终渲染�
 
 ---
 
+## 9. Commute evidence 持久化：用 config-signature 替代 TTL
+
+**问题**：commute 之前是 derived-at-response —— 每次进 candidate detail /
+compare / dashboard 都重新跑 ALS+Amap 路径规划。Amap 配额有限、LLM
+resolver agent 也不便宜，体验上还有 1–2 秒延迟。但缓存有个老问题：
+**什么时候让缓存失效**？常见答案是 TTL（比如 24 小时），但 TTL 在两端
+都不对：(1) 用户改了项目通勤目的地、24 小时内还看到旧分钟数；(2) 配置
+没变但定时刷新浪费配额。
+
+**选了什么**：**config-signature 缓存**。每行 `candidate_commute_evidence`
+带一个 `config_signature`（sha256 前缀），它是项目通勤配置 + 候选位置
+信号的拼接 hash。读时重新计算预期 signature，匹配才命中。配置一旦变化，
+signature 跟着变，旧行自动失效。**叠加 eager delete**：项目 PUT
+endpoint 在 commute 字段变更时直接 `DELETE FROM candidate_commute_evidence
+WHERE candidate_id IN (...)`，下一次读甚至连 stale 行都不会加载。
+
+`peak_morning` / `peak_evening` 不把"具体哪一天"写进 signature —— HK
+工作日早高峰 08:30 的通勤模式是稳定的，让缓存跨日复用；用户真要刷新只
+需切一次窗口再切回来。
+
+**为什么不选 TTL**：
+- TTL 和"用户改配置"是正交事件。TTL 撑不到对配置变化的及时响应，又
+  在配置稳定时浪费 API。
+- signature 是数据源真实变化的代理，更精确。
+- 失效逻辑可形式化验证（"signature 一致 ⇒ 输入未变"），TTL 没有这个
+  性质。
+
+**为什么不选 trigger-based 失效（DB trigger 自动 cascade delete）**：
+- 失效来自 *project* 字段变化、*candidate.extracted_info* 字段变化、
+  甚至 ALS 重 geocode 后 lat/lng 抖动。trigger 写不全这些路径。
+- 应用层的 eager delete + signature mismatch 双闸门更清晰，故障域只
+  在 Python，不要把一致性绑到 Postgres trigger 上。
+
+**代价**：`now` 窗口也走 signature 缓存，意味着第一次算的"now"会一直
+返回 —— 实际上并不"now"。当前阶段可接受（用户决策周期是周/月，不是
+分钟）；未来若要"now 真的实时"，可以给 `now` 单独加短 TTL（比如 1 小
+时），保留其他窗口的 signature 缓存。
+
+---
+
 ## 附：决策之间的横向约束
 
 这些决策不是彼此独立的。几组关键耦合：
@@ -224,6 +264,10 @@ back 键会在 `/login` 与 `/projects` 之间反弹）。Landing 始终渲染�
 - **后台状态机在 DB**（§4）与 **candidate status vs user_decision 分
   离**（§6）是配套设计 —— DB 是 source of truth，AI 改 AI 的状态、
   用户改用户的状态，互不踩脚。
+- **HK bbox invariant**（§7）与 **commute 持久化**（§9）是配套设计
+  —— 缓存只在坐标过 bbox 后写入，cached 行永远 in-bbox；万一未来 bbox
+  调整，老的 cached 行会因为坐标不在新 bbox 内被 `_get_destination_coords`
+  / `_observation` 拒绝，缓存自然失效。
 
 ---
 

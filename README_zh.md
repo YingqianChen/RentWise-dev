@@ -44,6 +44,16 @@ RentWise 是一个面向香港租客的候选房源研究工作区。你把 list
   Hong Kong bounding box 闸门，越境坐标在路径规划前被拒。
   设置 `COMMUTE_AGENT_ENABLED=false` 即回退到旧的确定性解析器。
 - 降级友好：解析失败时只隐藏通勤卡片，不阻断其他功能
+- 每个 candidate 的通勤结果落库到 `candidate_commute_evidence`，缓存键
+  是项目配置 + 候选位置签名 hash；dashboard / compare 后续读取直接命
+  中缓存。项目通勤配置变化时主动删除受影响的行，stale 行不会被读到。
+- Transit 模式支持选择计算时段：`now` / `peak_morning`（下一个工作日
+  08:30）/ `peak_evening`（下一个工作日 18:30）/ `custom HH:MM`。
+  Driving 与 walking 不接受时段参数。
+- Dashboard 候选行直接显示通勤分钟数 badge，按项目阈值上色（绿/黄/红）。
+  Compare 的「best current option」展开完整路段：步行 / 港铁 / 巴士 /
+  铁路 chip 排成 route strip，让用户看到「为什么 22min 这条比 35min
+  那条更顺」而不只是总分钟数。
 
 **UI**
 - 所有面向用户的页面（落地页、登录、项目列表、dashboard、candidate detail、

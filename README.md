@@ -53,6 +53,19 @@ is kept in `README_zh.md`; update both together.
   resolver.
 - Degrades gracefully — commute evidence simply hides when the location
   or destination can't be resolved; never blocks the rest of the app
+- Per-candidate evidence is persisted in `candidate_commute_evidence`
+  keyed by a config-signature hash; subsequent dashboard / compare reads
+  hit the cache. Project commute config changes invalidate affected rows
+  eagerly so a stale row never even loads.
+- Transit routing supports a configurable departure window — `now`,
+  `peak_morning` (next weekday 08:30), `peak_evening` (next weekday
+  18:30), or a `custom HH:MM` time. Driving / walking ignore departure
+  by design.
+- Dashboard candidate rows surface a per-row commute badge (minutes
+  vs the project's max-commute threshold, color-coded). Compare's
+  best-current-option panel renders the full route as walk / MTR /
+  bus / rail chips so the user sees *why* one route beats another, not
+  just the total minutes.
 
 **UI**
 - Every user-facing page (landing, login, projects list, dashboard,

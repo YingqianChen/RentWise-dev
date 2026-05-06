@@ -23,7 +23,7 @@ import {
   X,
 } from "lucide-react";
 
-import type { CommuteSegment } from "@/lib/types";
+import type { CommuteEvidence, CommuteRoute, CommuteSegment } from "@/lib/types";
 
 import { compareCandidates, getProject } from "@/lib/api";
 import { getToken } from "@/lib/auth";
@@ -210,6 +210,93 @@ function RouteStrip({ segments }: { segments: CommuteSegment[] }) {
   );
 }
 
+type CommutePanelRoute = {
+  label: string;
+  minutes: number | null;
+  segments: CommuteSegment[] | null;
+  isPrimary: boolean;
+};
+
+function buildPanelRoutes(commute: CommuteEvidence): CommutePanelRoute[] {
+  const primary: CommutePanelRoute = {
+    label: "Fastest",
+    minutes: commute.estimated_minutes,
+    segments: commute.segments,
+    isPrimary: true,
+  };
+  const alternates: CommutePanelRoute[] = (commute.alternatives ?? []).map(
+    (alt: CommuteRoute) => ({
+      label: alt.label || "Alternative",
+      minutes: alt.estimated_minutes,
+      segments: alt.segments,
+      isPrimary: false,
+    })
+  );
+  return [primary, ...alternates];
+}
+
+function CommutePanel({ commute }: { commute: CommuteEvidence }) {
+  const routes = useMemo(() => buildPanelRoutes(commute), [commute]);
+  const [activeIdx, setActiveIdx] = useState(0);
+  // Reset to primary if the route count shrinks (e.g. cache invalidation).
+  const safeIdx = Math.min(activeIdx, routes.length - 1);
+  const active = routes[safeIdx];
+  const showTabs = routes.length > 1;
+
+  return (
+    <div className="rounded-lg bg-blue-50/60 p-3">
+      <p className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-blue-700">
+        <MapPin className="h-3 w-3" /> Commute
+      </p>
+      <p className="mt-1 text-sm text-gray-800">
+        {commute.estimated_minutes} min ({commute.mode})
+        {commute.destination_label && ` · ${commute.destination_label}`}
+      </p>
+      {showTabs && (
+        <div
+          role="tablist"
+          aria-label="Route alternatives"
+          className="mt-2 flex flex-wrap gap-1"
+        >
+          {routes.map((route, idx) => {
+            const isActive = idx === safeIdx;
+            return (
+              <button
+                key={`${route.label}-${idx}`}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => setActiveIdx(idx)}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition",
+                  isActive
+                    ? "bg-blue-600 text-white shadow-sm"
+                    : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-50"
+                )}
+              >
+                <span>{route.label}</span>
+                {route.minutes != null && (
+                  <span className={isActive ? "text-blue-100" : "text-gray-500"}>
+                    {route.minutes}min
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {active.segments && active.segments.length > 0 ? (
+        <RouteStrip segments={active.segments} />
+      ) : (
+        <p className="mt-2 text-xs text-gray-500">Route detail unavailable.</p>
+      )}
+      {commute.confidence_note && (
+        <p className="mt-1 text-xs text-amber-700">{commute.confidence_note}</p>
+      )}
+    </div>
+  );
+}
+
 function BestOptionHero({
   candidate,
   projectId,
@@ -263,26 +350,7 @@ function BestOptionHero({
             </div>
           )}
           {candidate.commute_evidence?.status === "ready" && (
-            <div className="rounded-lg bg-blue-50/60 p-3">
-              <p className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-blue-700">
-                <MapPin className="h-3 w-3" /> Commute
-              </p>
-              <p className="mt-1 text-sm text-gray-800">
-                {candidate.commute_evidence.estimated_minutes} min (
-                {candidate.commute_evidence.mode})
-                {candidate.commute_evidence.destination_label &&
-                  ` · ${candidate.commute_evidence.destination_label}`}
-              </p>
-              {candidate.commute_evidence.segments &&
-                candidate.commute_evidence.segments.length > 0 && (
-                  <RouteStrip segments={candidate.commute_evidence.segments} />
-                )}
-              {candidate.commute_evidence.confidence_note && (
-                <p className="mt-1 text-xs text-amber-700">
-                  {candidate.commute_evidence.confidence_note}
-                </p>
-              )}
-            </div>
+            <CommutePanel commute={candidate.commute_evidence} />
           )}
         </div>
 

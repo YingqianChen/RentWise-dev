@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.db.models import CandidateCommuteEvidence
-from app.schemas.commute import CommuteEvidence, CommuteSegment
+from app.schemas.commute import CommuteEvidence, CommuteRoute, CommuteSegment
 from app.services.commute_service import (
     CommuteService,
     _compute_config_signature,
@@ -198,6 +198,58 @@ class CacheRoundtripTests(unittest.IsolatedAsyncioTestCase):
 
         cached = await service._read_cache(db, candidate_id, "new-sig")
         self.assertIsNone(cached)
+
+    async def test_alternatives_roundtrip(self):
+        service = CommuteService()
+        candidate_id = uuid.uuid4()
+        evidence = CommuteEvidence(
+            status="ready",
+            estimated_minutes=22,
+            mode="transit",
+            route_summary="MTR",
+            origin_station="Tsuen Wan",
+            destination_station="Central",
+            segments=[CommuteSegment(mode="subway", line_name="MTR", duration_minutes=18)],
+            destination_label="Central",
+            confidence_note=None,
+            alternatives=[
+                CommuteRoute(
+                    label="Fewer transfers",
+                    estimated_minutes=28,
+                    route_summary="Direct bus",
+                    origin_station="Tsuen Wan",
+                    destination_station="Central",
+                    segments=[
+                        CommuteSegment(mode="walking", duration_minutes=2),
+                        CommuteSegment(
+                            mode="bus", line_name="Bus 102", duration_minutes=24
+                        ),
+                    ],
+                ),
+                CommuteRoute(
+                    label="Less walking",
+                    estimated_minutes=35,
+                    route_summary="Bus",
+                    origin_station=None,
+                    destination_station=None,
+                    segments=[CommuteSegment(mode="bus", duration_minutes=33)],
+                ),
+            ],
+        )
+        db = FakeAsyncSession(existing_row=None)
+        await service._write_cache(db, candidate_id, "sig-x", evidence)
+
+        row = db.added[0]
+        self.assertEqual(len(row.alternatives), 2)
+        self.assertEqual(row.alternatives[0]["label"], "Fewer transfers")
+
+        cached = await service._read_cache(db, candidate_id, "sig-x")
+        self.assertIsNotNone(cached)
+        self.assertIsNotNone(cached.alternatives)
+        self.assertEqual(len(cached.alternatives), 2)
+        self.assertEqual(cached.alternatives[0].label, "Fewer transfers")
+        self.assertEqual(cached.alternatives[0].estimated_minutes, 28)
+        self.assertEqual(cached.alternatives[1].segments[0].mode, "bus")
 
     async def test_write_skips_uncacheable_status(self):
         service = CommuteService()

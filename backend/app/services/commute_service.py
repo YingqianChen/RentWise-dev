@@ -26,7 +26,7 @@ from ..db.models import CandidateCommuteEvidence, CandidateListing, SearchProjec
 from ..integrations.als.client import AlsClient
 from ..integrations.amap.client import AmapClient
 from ..integrations.geocoding.hk_bbox import in_hk as _in_hk
-from ..schemas.commute import CommuteEvidence, CommuteSegment
+from ..schemas.commute import CommuteEvidence, CommuteRoute, CommuteSegment
 from .mtr_station_service import get_mtr_station_service
 
 logger = logging.getLogger(__name__)
@@ -201,6 +201,7 @@ class CommuteService:
         # 8. Success
         raw_segments = route.get("segments") or []
         segments = [CommuteSegment(**seg) for seg in raw_segments] or None
+        alternatives = _alternatives_from_route(route) or None
         evidence = CommuteEvidence(
             status="ready",
             estimated_minutes=route["duration_minutes"],
@@ -211,6 +212,7 @@ class CommuteService:
             segments=segments,
             destination_label=dest_label,
             confidence_note=self._confidence_note(candidate),
+            alternatives=alternatives,
         )
         await self._write_cache(db, candidate.id, signature, evidence)
         return evidence
@@ -239,6 +241,7 @@ class CommuteService:
             if row.segments
             else None
         )
+        alternatives = _alternatives_from_payload(row.alternatives)
         return CommuteEvidence(
             status=row.status,
             estimated_minutes=row.estimated_minutes,
@@ -249,6 +252,7 @@ class CommuteService:
             segments=segments,
             destination_label=row.destination_label,
             confidence_note=row.confidence_note,
+            alternatives=alternatives,
         )
 
     async def _write_cache(
@@ -273,6 +277,11 @@ class CommuteService:
             if evidence.segments
             else None
         )
+        alternatives_payload = (
+            [alt.model_dump() for alt in evidence.alternatives]
+            if evidence.alternatives
+            else None
+        )
         if row is None:
             row = CandidateCommuteEvidence(
                 candidate_id=candidate_id,
@@ -286,6 +295,7 @@ class CommuteService:
                 segments=segments_payload,
                 destination_label=evidence.destination_label,
                 confidence_note=evidence.confidence_note,
+                alternatives=alternatives_payload,
             )
             db.add(row)
         else:
@@ -299,6 +309,7 @@ class CommuteService:
             row.segments = segments_payload
             row.destination_label = evidence.destination_label
             row.confidence_note = evidence.confidence_note
+            row.alternatives = alternatives_payload
         await db.flush()
 
     # ------------------------------------------------------------------
@@ -503,3 +514,50 @@ def _next_weekday_at(hour: int, minute: int) -> datetime:
     while candidate.weekday() >= 5:  # 5 = Sat, 6 = Sun
         candidate = candidate + timedelta(days=1)
     return candidate
+
+
+def _alternatives_from_route(route: dict) -> list[CommuteRoute]:
+    """Convert the Amap-shaped ``alternatives`` list into Pydantic models.
+
+    Amap dicts use ``duration_minutes``; CommuteRoute uses ``estimated_minutes``
+    so the cached representation matches the wire schema.
+    """
+    raw = route.get("alternatives") or []
+    out: list[CommuteRoute] = []
+    for alt in raw:
+        seg_list = (
+            [CommuteSegment(**seg) for seg in alt.get("segments") or []] or None
+        )
+        out.append(
+            CommuteRoute(
+                label=alt.get("label"),
+                estimated_minutes=alt.get("duration_minutes"),
+                route_summary=alt.get("route_summary"),
+                origin_station=alt.get("origin_station"),
+                destination_station=alt.get("destination_station"),
+                segments=seg_list,
+            )
+        )
+    return out
+
+
+def _alternatives_from_payload(payload) -> Optional[list[CommuteRoute]]:
+    """Inverse of ``[alt.model_dump() for alt in evidence.alternatives]``."""
+    if not payload:
+        return None
+    out: list[CommuteRoute] = []
+    for alt in payload:
+        seg_list = (
+            [CommuteSegment(**seg) for seg in alt.get("segments") or []] or None
+        )
+        out.append(
+            CommuteRoute(
+                label=alt.get("label"),
+                estimated_minutes=alt.get("estimated_minutes"),
+                route_summary=alt.get("route_summary"),
+                origin_station=alt.get("origin_station"),
+                destination_station=alt.get("destination_station"),
+                segments=seg_list,
+            )
+        )
+    return out

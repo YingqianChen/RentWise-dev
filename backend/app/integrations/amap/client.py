@@ -126,6 +126,128 @@ def _summary_from_legs(legs: list[dict]) -> Optional[str]:
     return " · ".join(parts) if parts else None
 
 
+def _parse_one_transit(transit: dict) -> dict:
+    """Convert one Amap ``transits[]`` entry into the route dict shape."""
+    try:
+        duration_sec = int(transit.get("duration", 0))
+    except (TypeError, ValueError):
+        duration_sec = 0
+    legs = _parse_transit_segments(transit.get("segments") or [])
+    origin_station, destination_station = _endpoints(legs)
+    return {
+        "duration_minutes": max(1, round(duration_sec / 60)) if duration_sec else 1,
+        "origin_station": origin_station,
+        "destination_station": destination_station,
+        "segments": legs,
+        "route_summary": _summary_from_legs(legs),
+    }
+
+
+def _route_signature(route: dict) -> str:
+    """Stable identity for dedup — same primary modes + endpoints = same route.
+
+    We don't use ``route_summary`` directly because Amap often varies walking
+    minutes by 1 across near-duplicates while the actual ride is identical.
+    Comparing only the non-walking line names + endpoints catches that.
+    """
+    line_keys: list[str] = []
+    for leg in route.get("segments") or []:
+        if leg.get("mode") == "walking":
+            continue
+        line_keys.append(
+            f"{leg.get('mode','')}|{leg.get('line_name','')}|"
+            f"{leg.get('from_station','')}|{leg.get('to_station','')}"
+        )
+    return "::".join(line_keys) or (route.get("route_summary") or "")
+
+
+def _non_walking_count(route: dict) -> int:
+    return sum(
+        1 for leg in (route.get("segments") or []) if leg.get("mode") != "walking"
+    )
+
+
+def _walking_meters(route: dict) -> int:
+    return sum(
+        int(leg.get("distance_meters") or 0)
+        for leg in (route.get("segments") or [])
+        if leg.get("mode") == "walking"
+    )
+
+
+def _select_primary_and_alternatives(routes: list[dict]) -> tuple[dict, list[dict]]:
+    """Pick the fastest as primary; label up to 2 distinct alternates.
+
+    Alternative labels:
+        - "Fewer transfers" — non-primary route with fewest non-walking legs
+          (only shown if strictly fewer than primary's count)
+        - "Less walking" — non-primary route with smallest total walking
+          distance (only shown if strictly less than primary's walking)
+
+    If both labels point at the same route, only one is shown. If neither
+    label applies (all routes share primary's structure), alternatives is
+    empty.
+    """
+    if not routes:
+        raise ValueError("routes must be non-empty")
+
+    # Dedupe while preserving the first occurrence's order.
+    seen: set[str] = set()
+    distinct: list[dict] = []
+    for route in routes:
+        sig = _route_signature(route)
+        if sig in seen:
+            continue
+        seen.add(sig)
+        distinct.append(route)
+
+    by_duration = sorted(distinct, key=lambda r: r["duration_minutes"])
+    primary = by_duration[0]
+    pool = [r for r in distinct if r is not primary]
+    alternatives: list[dict] = []
+    used_sigs: set[str] = {_route_signature(primary)}
+
+    primary_transfers = _non_walking_count(primary)
+    fewer_transfer_pool = [r for r in pool if _non_walking_count(r) < primary_transfers]
+    if fewer_transfer_pool:
+        # Among routes with fewer transfers, pick the fastest.
+        choice = sorted(
+            fewer_transfer_pool,
+            key=lambda r: (_non_walking_count(r), r["duration_minutes"]),
+        )[0]
+        sig = _route_signature(choice)
+        if sig not in used_sigs:
+            alt = dict(choice)
+            alt["label"] = "Fewer transfers"
+            alternatives.append(alt)
+            used_sigs.add(sig)
+
+    primary_walk = _walking_meters(primary)
+    less_walking_pool = [r for r in pool if _walking_meters(r) < primary_walk]
+    if less_walking_pool:
+        choice = sorted(
+            less_walking_pool,
+            key=lambda r: (_walking_meters(r), r["duration_minutes"]),
+        )[0]
+        sig = _route_signature(choice)
+        if sig not in used_sigs:
+            alt = dict(choice)
+            alt["label"] = "Less walking"
+            alternatives.append(alt)
+            used_sigs.add(sig)
+
+    # If we still have room and there's a structurally-different second route,
+    # show it as a generic "Alternative" so the user always sees more than one
+    # option when one exists.
+    if not alternatives and len(distinct) >= 2:
+        choice = by_duration[1]
+        alt = dict(choice)
+        alt["label"] = "Alternative"
+        alternatives.append(alt)
+
+    return primary, alternatives
+
+
 class AmapClient:
     """Thin async wrapper around Amap Web Service API endpoints."""
 
@@ -233,13 +355,14 @@ class AmapClient:
         date: Optional[str] = None,
         time: Optional[str] = None,
     ) -> Optional[dict]:
-        """Transit routing → structured legs or *None*.
+        """Transit routing → primary route + labeled alternatives, or *None*.
 
         ``date`` (``YYYY-MM-DD``) and ``time`` (``HH:MM``) are forwarded to
         Amap as the planned departure. Both must be provided together — Amap
         ignores either alone. Without them the API plans for "now".
 
-        Return shape::
+        Return shape — primary route is at the top level (so callers ignoring
+        ``alternatives`` see only the best option as before)::
 
             {
                 "duration_minutes": int,
@@ -247,6 +370,17 @@ class AmapClient:
                 "destination_station": str | None,
                 "segments": [CommuteSegment-shaped dicts...],
                 "route_summary": str | None,
+                "alternatives": [  # 0..2 distinct alternates, labeled
+                    {
+                        "label": "Fewer transfers" | "Less walking" | "Alt",
+                        "duration_minutes": int,
+                        "origin_station": str | None,
+                        "destination_station": str | None,
+                        "segments": [...],
+                        "route_summary": str | None,
+                    },
+                    ...
+                ],
             }
         """
         params = {
@@ -267,20 +401,15 @@ class AmapClient:
         if not transits:
             logger.warning("Amap transit: no routes for %s → %s", origin, destination)
             return None
-        best = transits[0]
-        try:
-            duration_sec = int(best.get("duration", 0))
-        except (TypeError, ValueError):
-            duration_sec = 0
-        legs = _parse_transit_segments(best.get("segments") or [])
-        origin_station, destination_station = _endpoints(legs)
-        return {
-            "duration_minutes": max(1, round(duration_sec / 60)),
-            "origin_station": origin_station,
-            "destination_station": destination_station,
-            "segments": legs,
-            "route_summary": _summary_from_legs(legs),
-        }
+        parsed = [_parse_one_transit(transit) for transit in transits]
+        # Drop empty parses (Amap occasionally returns transits with zero useful legs).
+        parsed = [p for p in parsed if p["segments"]]
+        if not parsed:
+            logger.warning("Amap transit: all transits parsed empty for %s → %s", origin, destination)
+            return None
+        primary, alternatives = _select_primary_and_alternatives(parsed)
+        primary["alternatives"] = alternatives
+        return primary
 
     async def route_driving(self, origin: str, destination: str) -> Optional[dict]:
         """Driving routing → duration + empty legs (schema parity)."""

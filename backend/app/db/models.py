@@ -369,6 +369,7 @@ class CandidateCommuteEvidence(Base):
     segments: Mapped[Optional[List[Dict[str, Any]]]] = mapped_column(JSONB, nullable=True)
     destination_label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     confidence_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    alternatives: Mapped[Optional[List[Dict[str, Any]]]] = mapped_column(JSONB, nullable=True)
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )

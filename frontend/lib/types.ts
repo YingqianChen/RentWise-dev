@@ -210,6 +210,15 @@ export interface CommuteSegment {
   distance_meters: number | null;
 }
 
+export interface CommuteRoute {
+  label: string | null;
+  estimated_minutes: number | null;
+  route_summary: string | null;
+  origin_station: string | null;
+  destination_station: string | null;
+  segments: CommuteSegment[] | null;
+}
+
 export interface CommuteEvidence {
   status: "not_configured" | "insufficient_candidate_location" | "ready" | "failed";
   estimated_minutes: number | null;
@@ -220,6 +229,7 @@ export interface CommuteEvidence {
   segments: CommuteSegment[] | null;
   destination_label: string | null;
   confidence_note: string | null;
+  alternatives: CommuteRoute[] | null;
 }
 
 export interface Candidate {

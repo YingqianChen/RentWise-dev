@@ -178,6 +178,40 @@ RentWise 定位明确是 HK only，这个代价不存在。
 
 ---
 
+## 8. Landing 单 CTA + 反向 redirect：消除未登录态的选择困难
+
+**问题**：早期 landing (`frontend/app/page.tsx`) 同时暴露三个 CTA —— 顶部
+nav 的 `Sign in` 与 `Open workspace`、hero 的 `Get started` 与
+`Open existing workspace`、footer 又重复一遍 dual link。但
+`app/projects/page.tsx:143-151` 在没有 token 时直接 `router.push("/login")`，
+这意味着对一个未登录访客来说，"Open workspace" 和 "Sign in" **功能上完全
+等价**。视觉上却把最显眼的 dark primary 给了"无差异化价值"的入口，三选
+一变成 choice overload。
+
+**选了什么**：landing 收敛到每个视觉区域只有一个主要 CTA —— nav 仅留
+"Sign in →"、hero 仅留 "Get started →"、footer 删除 dual-link 条。**反向
+对称**：在 `/login` 加挂载期 `getToken()` 检查，已登录访客直接
+`router.replace("/projects")` 兜底（用 `replace` 而非 `push`，否则浏览器
+back 键会在 `/login` 与 `/projects` 之间反弹）。Landing 始终渲染未登录
+变体，保持 server component。
+
+**为什么不选 client-side 条件渲染**：
+- **Hydration mismatch**。`getToken()` 在 SSR 时拿不到 `localStorage`
+  返回 null，hydration 阶段如果按客户端 token 渲染不同 nav，React 会
+  报 "did not match" warning，要么得 `suppressHydrationWarning`、要么
+  得整页 `"use client"` 染色——成本不对称。
+- **复杂度对称**。"已登录访客点了 Sign in" 是一条几乎不会走的边缘路径，
+  代价是多一次 redirect；这跟现有 `app/projects/page.tsx` 的
+  redirect-on-missing-token 是同一条对称的兜底模式。
+- **redirect loop 安全**。stale token 由 `app/projects/page.tsx:160`
+  的 `clearToken()` 自愈，新 effect 在每次 mount 时重检，token 已清空
+  则什么都不做。
+
+**代价**：landing 永远以未登录形态呈现，已登录用户必须经过 login 跳一
+下。可接受 —— 收益是零 hydration 风险 + 单一可读的入口语义。
+
+---
+
 ## 附：决策之间的横向约束
 
 这些决策不是彼此独立的。几组关键耦合：
@@ -190,6 +224,31 @@ RentWise 定位明确是 HK only，这个代价不存在。
 - **后台状态机在 DB**（§4）与 **candidate status vs user_decision 分
   离**（§6）是配套设计 —— DB 是 source of truth，AI 改 AI 的状态、
   用户改用户的状态，互不踩脚。
+
+---
+
+## 附：定位演进路线图
+
+产品定位演进顺序（forward-looking，记录在此而非 README，因为 README 只
+描述已 shipped 状态）：
+
+1. **先做 Option B —— commute-first positioning**。Commute 证据已
+   shipped 且差异化最强：HK Gov ALS + Amap 整合、LangGraph resolver
+   agent、bbox 守门构成的端到端 evidence，是非 HK 本地团队不易复制的
+   工程护城河。下一步把 commute 抬升为 landing / dashboard 的头部叙
+   事，让 "Set destination, get real evidence" 成为 RentWise 的第一
+   印象。
+2. **再做 Option A —— tenancy-risk auditor positioning**。当前
+   tenancy RAG 仅依赖《租住物业指南》22 个 chunk，且只在 risk flag 触
+   发时被动展示原文引用；要变成头部叙事还需要：扩充语料（《条例》正
+   文、民政事务总署示范租约、常见 FAQ）、把输出从被动 quote 升级为
+   `{ what_to_change, suggested_clause_text }` 形式的可操作建议、引入
+   "Ask your lease" 主动问答入口、以及把 risk 触发器从 keyword regex
+   迁移到 extraction 阶段直接产 `clause_concerns`。工程量更大，但护
+   城河最深 —— 因为 ChatGPT 不会内置 HK 法规结构化知识。
+
+A 与 B 不是替代，是叙事优先级。结构上两者并存，先把 B 这条已经做完的
+路径变成头部讲法，A 的素材沉淀好了再上推。
 
 ---
 

@@ -49,6 +49,9 @@ RentWise 是一个面向香港租客的候选房源研究工作区。你把 list
 - 所有面向用户的页面（落地页、登录、项目列表、dashboard、candidate detail、
   compare）都共用同一套视觉系统：Sparkles 品牌头、渐变背景、内联
   Button / Badge / Card 原语，纯 Tailwind，无 shadcn runtime。
+- 落地页只暴露一个主要 CTA（"Sign in"），不再并列展示功能等价的入口；
+  `/login` 在挂载时检查本地 token，已登录的访客会被自动跳转到
+  `/projects`，不会再看到登录表单。
 
 ## 仓库结构
 

@@ -59,6 +59,10 @@ is kept in `README_zh.md`; update both together.
   candidate detail, compare) shares one visual system: Sparkles branded
   header, gradient backdrop, inline Button / Badge / Card primitives,
   Tailwind-only, no shadcn runtime.
+- Landing page presents a single primary CTA ("Sign in") instead of
+  competing entries; `/login` auto-skips to `/projects` for users who
+  already have a valid token, so an authenticated visitor never sees
+  the login form again.
 
 ## Repository layout
 

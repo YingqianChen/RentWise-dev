@@ -73,6 +73,12 @@ class SearchProject(Base):
     max_commute_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     commute_destination_lat: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     commute_destination_lng: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    commute_departure_window: Mapped[str] = mapped_column(
+        String(50), default="now", server_default="now", nullable=False
+    )  # now | peak_morning | peak_evening | custom
+    commute_departure_time: Mapped[Optional[str]] = mapped_column(
+        String(5), nullable=True
+    )  # "HH:MM" — used only when commute_departure_window == "custom"
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
@@ -138,6 +144,9 @@ class CandidateListing(Base):
     )
     candidate_assessment: Mapped["CandidateAssessment"] = relationship(
         "CandidateAssessment", back_populates="candidate", uselist=False, cascade="all, delete-orphan"
+    )
+    commute_evidence_cache: Mapped[Optional["CandidateCommuteEvidence"]] = relationship(
+        "CandidateCommuteEvidence", back_populates="candidate", uselist=False, cascade="all, delete-orphan"
     )
     source_assets: Mapped[List["CandidateSourceAsset"]] = relationship(
         "CandidateSourceAsset", back_populates="candidate", cascade="all, delete-orphan"
@@ -332,6 +341,42 @@ class CandidateAssessment(Base):
         if self.next_best_action == "schedule_viewing" and self.recommendation_confidence in {"high", "medium"}:
             return "shortlist_recommendation"
         return "not_ready"
+
+
+class CandidateCommuteEvidence(Base):
+    """Persisted commute evidence — mirrors the CommuteEvidence schema 1:1.
+
+    Cache key is ``config_signature``: a hash over project commute config +
+    candidate location signals. On read, the service recomputes the expected
+    signature and treats a mismatch as a miss. On project config update, rows
+    for the affected project's candidates are deleted eagerly so the next read
+    does not even attempt a stale row.
+    """
+    __tablename__ = "candidate_commute_evidence"
+
+    candidate_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("candidate_listings.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    config_signature: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    estimated_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    mode: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    route_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    origin_station: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    destination_station: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    segments: Mapped[Optional[List[Dict[str, Any]]]] = mapped_column(JSONB, nullable=True)
+    destination_label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    confidence_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    # Relationships
+    candidate: Mapped["CandidateListing"] = relationship(
+        "CandidateListing", back_populates="commute_evidence_cache"
+    )
 
 
 class InvestigationItem(Base):

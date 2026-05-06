@@ -226,9 +226,18 @@ class AmapClient:
     # ------------------------------------------------------------------
 
     async def route_transit(
-        self, origin: str, destination: str, city: str = "香港"
+        self,
+        origin: str,
+        destination: str,
+        city: str = "香港",
+        date: Optional[str] = None,
+        time: Optional[str] = None,
     ) -> Optional[dict]:
         """Transit routing → structured legs or *None*.
+
+        ``date`` (``YYYY-MM-DD``) and ``time`` (``HH:MM``) are forwarded to
+        Amap as the planned departure. Both must be provided together — Amap
+        ignores either alone. Without them the API plans for "now".
 
         Return shape::
 
@@ -247,6 +256,9 @@ class AmapClient:
             "city": city,
             "cityd": city,
         }
+        if date and time:
+            params["date"] = date
+            params["time"] = time
         data = await self._get("/v3/direction/transit/integrated", params)
         if data is None:
             return None

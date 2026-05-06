@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -78,13 +77,15 @@ async def compare_candidates(
 
     comparison = comparison_service.compare(project=project, candidates=candidates)
 
-    # Compute commute evidence for all candidates in parallel
+    # Compute commute evidence for all candidates. Run sequentially because
+    # each call may write to the cache table — concurrent writes against the
+    # same async session would conflict. With caching warm this is still fast.
     candidates_by_id = {c.id: c for c in candidates}
-    commute_tasks = {
-        cid: commute_service.build_for_candidate(project, candidate)
-        for cid, candidate in candidates_by_id.items()
-    }
-    commute_results = dict(zip(commute_tasks.keys(), await asyncio.gather(*commute_tasks.values())))
+    commute_results: dict = {}
+    for cid, candidate in candidates_by_id.items():
+        commute_results[cid] = await commute_service.build_for_candidate(
+            project, candidate, db=db
+        )
 
     # Attach commute evidence to all candidate cards in groups
     groups = comparison["groups"]

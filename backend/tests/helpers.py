@@ -40,6 +40,8 @@ def build_project(user: User) -> SearchProject:
         deal_breakers=["shared bathroom"],
         move_in_target=date(2026, 5, 1),
         notes=None,
+        commute_enabled=False,
+        commute_departure_window="now",
         created_at=utc_now(),
         updated_at=utc_now(),
     )
@@ -88,7 +90,10 @@ def build_candidate(
         bedrooms="1",
         suspected_sdu=None,
         sdu_detection_reason=None,
+        location_confidence="unknown",
+        location_source="unknown",
         decision_signals=[],
+        raw_facts=[],
         ocr_texts=[],
     )
     candidate.cost_assessment = CostAssessment(

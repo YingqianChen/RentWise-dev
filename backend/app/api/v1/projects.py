@@ -3,13 +3,13 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, func
+from sqlalchemy import delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ...core.config import settings
 from ...db.database import get_db
-from ...db.models import CandidateListing, User, SearchProject
+from ...db.models import CandidateCommuteEvidence, CandidateListing, User, SearchProject
 from ...integrations.amap.client import AmapClient
 from ...schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectResponse, ProjectListResponse
@@ -141,7 +141,20 @@ async def update_project(
         setattr(project, field, value)
 
     # Maintain commute_enabled and re-geocode destination if query changed
-    commute_fields = {"commute_destination_query", "commute_mode", "commute_destination_label", "max_commute_minutes"}
+    commute_fields = {
+        "commute_destination_query",
+        "commute_mode",
+        "commute_destination_label",
+        "max_commute_minutes",
+        "commute_departure_window",
+        "commute_departure_time",
+    }
+    cache_busting_fields = {
+        "commute_destination_query",
+        "commute_mode",
+        "commute_departure_window",
+        "commute_departure_time",
+    }
     if commute_fields & update_data.keys():
         query = project.commute_destination_query
         mode = project.commute_mode
@@ -154,6 +167,20 @@ async def update_project(
                 coords = await _amap_client.geocode(query)
                 if coords:
                     project.commute_destination_lng, project.commute_destination_lat = coords
+
+        # Invalidate per-candidate commute cache when any input that feeds the
+        # signature changes. Cheaper than waiting for a signature mismatch on
+        # every read, and the row count is small (one per candidate).
+        if cache_busting_fields & update_data.keys():
+            await db.execute(
+                delete(CandidateCommuteEvidence).where(
+                    CandidateCommuteEvidence.candidate_id.in_(
+                        select(CandidateListing.id).where(
+                            CandidateListing.project_id == project.id
+                        )
+                    )
+                )
+            )
 
     if "max_budget" in update_data and update_data["max_budget"] != previous_budget:
         candidate_result = await db.execute(

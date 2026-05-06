@@ -6,17 +6,24 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   ArrowLeftRight,
+  Bus,
+  Car,
   ChevronLeft,
+  ChevronRight,
   Clock,
   Compass,
   Crown,
   DollarSign,
   Eye,
+  Footprints,
   MapPin,
   MessageSquare,
+  TrainFront,
   TrendingUp,
   X,
 } from "lucide-react";
+
+import type { CommuteSegment } from "@/lib/types";
 
 import { compareCandidates, getProject } from "@/lib/api";
 import { getToken } from "@/lib/auth";
@@ -154,6 +161,55 @@ function differenceIcon(category: string) {
   return TrendingUp;
 }
 
+function segmentMeta(mode: string): {
+  Icon: typeof MapPin;
+  label: string;
+} {
+  switch (mode) {
+    case "walking":
+      return { Icon: Footprints, label: "Walk" };
+    case "subway":
+      return { Icon: TrainFront, label: "MTR" };
+    case "rail":
+      return { Icon: TrainFront, label: "Rail" };
+    case "airport_express":
+      return { Icon: TrainFront, label: "AEL" };
+    case "minibus":
+      return { Icon: Bus, label: "Minibus" };
+    case "bus":
+      return { Icon: Bus, label: "Bus" };
+    case "taxi":
+      return { Icon: Car, label: "Taxi" };
+    default:
+      return { Icon: MapPin, label: mode };
+  }
+}
+
+function RouteStrip({ segments }: { segments: CommuteSegment[] }) {
+  if (segments.length === 0) return null;
+  return (
+    <ol className="mt-2 flex flex-wrap items-center gap-1 text-xs">
+      {segments.map((seg, idx) => {
+        const { Icon, label } = segmentMeta(seg.mode);
+        return (
+          <li key={idx} className="flex items-center gap-1">
+            {idx > 0 && <ChevronRight className="h-3 w-3 shrink-0 text-gray-300" />}
+            <span className="inline-flex items-center gap-1 rounded-md bg-white px-1.5 py-0.5 text-gray-700 ring-1 ring-gray-200">
+              <Icon className="h-3 w-3 text-gray-500" />
+              <span className="font-medium">{label}</span>
+              {seg.line_name && <span className="text-gray-500">·</span>}
+              {seg.line_name && <span className="text-gray-600">{seg.line_name}</span>}
+              {seg.duration_minutes != null && (
+                <span className="text-gray-500">{seg.duration_minutes}min</span>
+              )}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 function BestOptionHero({
   candidate,
   projectId,
@@ -217,8 +273,12 @@ function BestOptionHero({
                 {candidate.commute_evidence.destination_label &&
                   ` · ${candidate.commute_evidence.destination_label}`}
               </p>
+              {candidate.commute_evidence.segments &&
+                candidate.commute_evidence.segments.length > 0 && (
+                  <RouteStrip segments={candidate.commute_evidence.segments} />
+                )}
               {candidate.commute_evidence.confidence_note && (
-                <p className="mt-0.5 text-xs text-amber-700">
+                <p className="mt-1 text-xs text-amber-700">
                   {candidate.commute_evidence.confidence_note}
                 </p>
               )}

@@ -7,6 +7,10 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 
+_DEPARTURE_WINDOW_PATTERN = "^(now|peak_morning|peak_evening|custom)$"
+_HHMM_PATTERN = "^([01]\\d|2[0-3]):[0-5]\\d$"
+
+
 class ProjectCreate(BaseModel):
     """Create project request"""
     title: str = Field(..., min_length=1, max_length=255)
@@ -21,6 +25,8 @@ class ProjectCreate(BaseModel):
     commute_destination_query: Optional[str] = None
     commute_mode: Optional[str] = Field(None, pattern="^(transit|driving|walking)$")
     max_commute_minutes: Optional[int] = Field(None, ge=1, le=180)
+    commute_departure_window: Optional[str] = Field(None, pattern=_DEPARTURE_WINDOW_PATTERN)
+    commute_departure_time: Optional[str] = Field(None, pattern=_HHMM_PATTERN)
 
 
 class ProjectUpdate(BaseModel):
@@ -38,6 +44,8 @@ class ProjectUpdate(BaseModel):
     commute_destination_query: Optional[str] = None
     commute_mode: Optional[str] = Field(None, pattern="^(transit|driving|walking)$")
     max_commute_minutes: Optional[int] = Field(None, ge=1, le=180)
+    commute_departure_window: Optional[str] = Field(None, pattern=_DEPARTURE_WINDOW_PATTERN)
+    commute_departure_time: Optional[str] = Field(None, pattern=_HHMM_PATTERN)
 
 
 class ProjectResponse(BaseModel):
@@ -61,6 +69,8 @@ class ProjectResponse(BaseModel):
     max_commute_minutes: Optional[int] = None
     commute_destination_lat: Optional[float] = None
     commute_destination_lng: Optional[float] = None
+    commute_departure_window: str = "now"
+    commute_departure_time: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

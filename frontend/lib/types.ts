@@ -45,9 +45,13 @@ export interface Project {
   max_commute_minutes: number | null;
   commute_destination_lat: number | null;
   commute_destination_lng: number | null;
+  commute_departure_window: CommuteDepartureWindow;
+  commute_departure_time: string | null;
   created_at: string;
   updated_at: string;
 }
+
+export type CommuteDepartureWindow = "now" | "peak_morning" | "peak_evening" | "custom";
 
 export interface CreateProjectRequest {
   title: string;
@@ -61,6 +65,8 @@ export interface CreateProjectRequest {
   commute_destination_query?: string;
   commute_mode?: "transit" | "driving" | "walking";
   max_commute_minutes?: number;
+  commute_departure_window?: CommuteDepartureWindow;
+  commute_departure_time?: string;
 }
 
 export interface UpdateProjectRequest {
@@ -76,6 +82,8 @@ export interface UpdateProjectRequest {
   commute_destination_query?: string;
   commute_mode?: "transit" | "driving" | "walking";
   max_commute_minutes?: number;
+  commute_departure_window?: CommuteDepartureWindow;
+  commute_departure_time?: string;
 }
 
 // ============== Candidate ==============

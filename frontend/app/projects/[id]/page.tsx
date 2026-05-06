@@ -28,7 +28,13 @@ import {
   updateProject,
 } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import type { Candidate, Dashboard, InvestigationItem, Project } from "@/lib/types";
+import type {
+  Candidate,
+  CommuteDepartureWindow,
+  Dashboard,
+  InvestigationItem,
+  Project,
+} from "@/lib/types";
 import { Logo } from "@/components/brand/logo";
 
 function cn(...classes: Array<string | false | null | undefined>): string {
@@ -195,6 +201,17 @@ function priorityTone(priority: InvestigationItem["priority"]) {
   }
 }
 
+function commuteRowTone(
+  minutes: number | null | undefined,
+  maxMinutes: number | null | undefined
+): "neutral" | "emerald" | "amber" | "red" {
+  if (minutes == null) return "neutral";
+  if (maxMinutes == null) return "neutral";
+  if (minutes > maxMinutes) return "red";
+  if (minutes >= maxMinutes - 5) return "amber";
+  return "emerald";
+}
+
 function processingStageLabel(stage?: Candidate["processing_stage"]) {
   switch (stage) {
     case "queued":
@@ -277,6 +294,9 @@ export default function ProjectDashboardPage() {
   const [commuteDestQuery, setCommuteDestQuery] = useState("");
   const [commuteMode, setCommuteMode] = useState<"transit" | "driving" | "walking">("transit");
   const [maxCommuteMinutes, setMaxCommuteMinutes] = useState("");
+  const [commuteDepartureWindow, setCommuteDepartureWindow] =
+    useState<CommuteDepartureWindow>("now");
+  const [commuteDepartureTime, setCommuteDepartureTime] = useState("");
   const [commuteSaving, setCommuteSaving] = useState(false);
   const [commuteError, setCommuteError] = useState("");
 
@@ -327,6 +347,8 @@ export default function ProjectDashboardPage() {
       setMaxCommuteMinutes(
         projectData.max_commute_minutes ? String(projectData.max_commute_minutes) : ""
       );
+      setCommuteDepartureWindow(projectData.commute_departure_window || "now");
+      setCommuteDepartureTime(projectData.commute_departure_time || "");
       setDashboard(dashboardData);
       setCandidates(candidatesData.candidates);
     } catch (err) {
@@ -426,9 +448,16 @@ export default function ProjectDashboardPage() {
         commute_destination_query: commuteDestQuery.trim() || undefined,
         commute_mode: commuteDestQuery.trim() ? commuteMode : undefined,
         max_commute_minutes: maxCommuteMinutes.trim() ? parseInt(maxCommuteMinutes, 10) : undefined,
+        commute_departure_window: commuteDestQuery.trim() ? commuteDepartureWindow : undefined,
+        commute_departure_time:
+          commuteDestQuery.trim() && commuteDepartureWindow === "custom"
+            ? commuteDepartureTime || undefined
+            : undefined,
       });
       setProject(updated);
       setEditingCommute(false);
+      // Refresh candidates so commute badges reflect the new departure setting.
+      await loadData(token);
     } catch (err) {
       setCommuteError(err instanceof Error ? err.message : "Failed to update commute settings.");
     } finally {
@@ -470,10 +499,29 @@ export default function ProjectDashboardPage() {
   );
   const totalBlockers = (dashboard?.open_investigation_items ?? []).length;
 
+  const departureLabel = (() => {
+    switch (project.commute_departure_window) {
+      case "peak_morning":
+        return "peak AM";
+      case "peak_evening":
+        return "peak PM";
+      case "custom":
+        return project.commute_departure_time
+          ? `@ ${project.commute_departure_time}`
+          : "custom time";
+      default:
+        return null;
+    }
+  })();
   const commuteSummary = project.commute_enabled
-    ? `${project.commute_destination_label || project.commute_destination_query} · ${project.commute_mode}${
-        project.max_commute_minutes ? ` · max ${project.max_commute_minutes} min` : ""
-      }`
+    ? [
+        project.commute_destination_label || project.commute_destination_query,
+        project.commute_mode,
+        departureLabel,
+        project.max_commute_minutes ? `max ${project.max_commute_minutes} min` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")
     : "Not configured";
   const budgetSummary = project.max_budget
     ? `HKD ${project.max_budget.toLocaleString()}`
@@ -661,7 +709,39 @@ export default function ProjectDashboardPage() {
                       max={180}
                     />
                   </label>
+                  <label className="flex flex-col gap-1 text-xs text-gray-500">
+                    Departure
+                    <select
+                      value={commuteDepartureWindow}
+                      onChange={(e) =>
+                        setCommuteDepartureWindow(e.target.value as CommuteDepartureWindow)
+                      }
+                      disabled={commuteMode !== "transit"}
+                      className="rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40 disabled:bg-gray-50 disabled:text-gray-400"
+                    >
+                      <option value="now">Now</option>
+                      <option value="peak_morning">Peak morning (~8:30)</option>
+                      <option value="peak_evening">Peak evening (~18:30)</option>
+                      <option value="custom">Custom time</option>
+                    </select>
+                  </label>
+                  {commuteDepartureWindow === "custom" && commuteMode === "transit" && (
+                    <label className="flex flex-col gap-1 text-xs text-gray-500">
+                      Time
+                      <input
+                        type="time"
+                        value={commuteDepartureTime}
+                        onChange={(e) => setCommuteDepartureTime(e.target.value)}
+                        className="rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                      />
+                    </label>
+                  )}
                 </div>
+                {commuteMode !== "transit" && (
+                  <p className="text-xs text-gray-400">
+                    Departure time only applies to transit routing.
+                  </p>
+                )}
                 <div className="flex items-center gap-2">
                   <Button type="submit" size="sm" disabled={commuteSaving}>
                     {commuteSaving ? "Saving..." : "Save commute"}
@@ -677,6 +757,8 @@ export default function ProjectDashboardPage() {
                       setMaxCommuteMinutes(
                         project.max_commute_minutes ? String(project.max_commute_minutes) : ""
                       );
+                      setCommuteDepartureWindow(project.commute_departure_window || "now");
+                      setCommuteDepartureTime(project.commute_departure_time || "");
                       setCommuteError("");
                       setEditingCommute(false);
                     }}
@@ -842,11 +924,44 @@ export default function ProjectDashboardPage() {
                                 >
                                   {candidate.name}
                                 </Link>
-                                <p className="mt-0.5 text-xs text-gray-500 truncate">
-                                  {isProcessing
-                                    ? processingStageDescription(candidate)
-                                    : `${rent || "Rent unknown"} · ${district || "District unknown"}`}
-                                </p>
+                                {isProcessing ? (
+                                  <p className="mt-0.5 text-xs text-gray-500 truncate">
+                                    {processingStageDescription(candidate)}
+                                  </p>
+                                ) : (
+                                  <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-gray-500">
+                                    <span>{rent || "Rent unknown"}</span>
+                                    <span aria-hidden>·</span>
+                                    <span>{district || "District unknown"}</span>
+                                    {candidate.commute_evidence &&
+                                      candidate.commute_evidence.status === "ready" &&
+                                      candidate.commute_evidence.estimated_minutes != null && (
+                                        <Badge
+                                          tone={commuteRowTone(
+                                            candidate.commute_evidence.estimated_minutes,
+                                            project.max_commute_minutes
+                                          )}
+                                        >
+                                          <MapPin className="h-3 w-3" />
+                                          {candidate.commute_evidence.estimated_minutes} min
+                                        </Badge>
+                                      )}
+                                    {candidate.commute_evidence &&
+                                      (candidate.commute_evidence.status ===
+                                        "insufficient_candidate_location" ||
+                                        candidate.commute_evidence.status === "failed") && (
+                                        <span
+                                          title={
+                                            candidate.commute_evidence.confidence_note ||
+                                            "Commute could not be calculated."
+                                          }
+                                          className="inline-flex items-center gap-1 text-gray-300"
+                                        >
+                                          <MapPin className="h-3 w-3" />—
+                                        </span>
+                                      )}
+                                  </div>
+                                )}
                               </div>
                               <div className="flex flex-wrap items-center gap-1.5 shrink-0">
                                 {isProcessing && (

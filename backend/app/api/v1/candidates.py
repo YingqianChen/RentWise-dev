@@ -68,11 +68,14 @@ async def _serialize_candidate(
     candidate: CandidateListing,
     project: SearchProject | None = None,
     compute_commute: bool = False,
+    db: AsyncSession | None = None,
 ) -> CandidateResponse:
     response = CandidateResponse.model_validate(candidate)
     updates: dict = {"benchmark": benchmark_service.build_for_candidate(candidate)}
     if compute_commute and project is not None:
-        updates["commute_evidence"] = await commute_service.build_for_candidate(project, candidate)
+        updates["commute_evidence"] = await commute_service.build_for_candidate(
+            project, candidate, db=db
+        )
     return response.model_copy(update=updates)
 
 
@@ -206,7 +209,10 @@ async def list_candidates(
     )
     candidates = result.scalars().all()
     return CandidateListResponse(
-        candidates=[await _serialize_candidate(candidate) for candidate in candidates],
+        candidates=[
+            await _serialize_candidate(candidate, project=project, compute_commute=True, db=db)
+            for candidate in candidates
+        ],
         total=total,
     )
 
@@ -220,7 +226,7 @@ async def get_candidate(
 ):
     """Get a candidate by ID."""
     project, candidate = await get_candidate_for_project_user(project_id, candidate_id, current_user, db)
-    return await _serialize_candidate(candidate, project=project, compute_commute=True)
+    return await _serialize_candidate(candidate, project=project, compute_commute=True, db=db)
 
 
 @router.put("/projects/{project_id}/candidates/{candidate_id}", response_model=CandidateResponse)
@@ -270,7 +276,7 @@ async def update_candidate(
 
     await db.flush()
     _, candidate = await get_candidate_for_project_user(project.id, candidate.id, current_user, db)
-    return await _serialize_candidate(candidate, project=project, compute_commute=True)
+    return await _serialize_candidate(candidate, project=project, compute_commute=True, db=db)
 
 
 @router.post("/projects/{project_id}/candidates/{candidate_id}/reassess", response_model=CandidateResponse)
@@ -285,7 +291,7 @@ async def reassess_candidate(
     await pipeline_service.assess_candidate(db=db, project=project, candidate=candidate)
     await db.flush()
     _, candidate = await get_candidate_for_project_user(project.id, candidate.id, current_user, db)
-    return await _serialize_candidate(candidate, project=project, compute_commute=True)
+    return await _serialize_candidate(candidate, project=project, compute_commute=True, db=db)
 
 
 @router.post(
@@ -318,7 +324,7 @@ async def shortlist_candidate(
         candidate.candidate_assessment.status = "shortlisted"
     await db.flush()
     _, candidate = await get_candidate_for_project_user(project.id, candidate.id, current_user, db)
-    return await _serialize_candidate(candidate, project=project, compute_commute=True)
+    return await _serialize_candidate(candidate, project=project, compute_commute=True, db=db)
 
 
 @router.post("/projects/{project_id}/candidates/{candidate_id}/reject", response_model=CandidateResponse)
@@ -336,7 +342,7 @@ async def reject_candidate(
         candidate.candidate_assessment.status = "recommended_reject"
     await db.flush()
     _, candidate = await get_candidate_for_project_user(project.id, candidate.id, current_user, db)
-    return await _serialize_candidate(candidate, project=project, compute_commute=True)
+    return await _serialize_candidate(candidate, project=project, compute_commute=True, db=db)
 
 
 @router.delete("/projects/{project_id}/candidates/{candidate_id}", status_code=status.HTTP_204_NO_CONTENT)

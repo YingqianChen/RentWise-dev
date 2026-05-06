@@ -10,13 +10,13 @@ import {
   ImageIcon,
   Loader2,
   MessageSquare,
-  Sparkles,
   Upload,
   X,
 } from "lucide-react";
 
 import { importCandidate } from "@/lib/api";
 import { getToken } from "@/lib/auth";
+import { Logo } from "@/components/brand/logo";
 
 function cn(...classes: Array<string | false | null | undefined>): string {
   return classes.filter(Boolean).join(" ");
@@ -97,12 +97,8 @@ export default function ImportCandidatePage() {
     "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-500";
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-gray-50">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-[360px] bg-gradient-to-br from-violet-100 via-blue-50 to-emerald-50"
-      />
-      <div className="relative mx-auto w-full max-w-3xl px-4 py-10 lg:px-6">
+    <main className="min-h-screen bg-gray-50">
+      <div className="mx-auto w-full max-w-3xl px-4 py-10 lg:px-6">
         <Link
           href={`/projects/${projectId}`}
           className="mb-5 inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
@@ -112,9 +108,7 @@ export default function ImportCandidatePage() {
         </Link>
 
         <div className="mb-6 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-900 text-white">
-            <Sparkles className="h-5 w-5" />
-          </div>
+          <Logo size={40} href="/" />
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-700">RentWise</p>
             <h1 className="text-xl font-semibold tracking-tight text-gray-900">Add a candidate</h1>

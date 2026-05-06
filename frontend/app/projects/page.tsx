@@ -11,13 +11,13 @@ import {
   FolderPlus,
   LogOut,
   Plus,
-  Sparkles,
   Trash2,
 } from "lucide-react";
 
 import { createProject, deleteProject, getCurrentUser, getProjects } from "@/lib/api";
 import { clearToken, getToken } from "@/lib/auth";
 import type { Project } from "@/lib/types";
+import { Logo } from "@/components/brand/logo";
 
 function cn(...classes: Array<string | false | null | undefined>): string {
   return classes.filter(Boolean).join(" ");
@@ -229,17 +229,11 @@ export default function ProjectsPage() {
   }
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-gray-50">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-[360px] bg-gradient-to-br from-violet-100 via-blue-50 to-emerald-50"
-      />
-      <div className="relative mx-auto w-full max-w-5xl px-4 py-10">
+    <main className="min-h-screen bg-gray-50">
+      <div className="mx-auto w-full max-w-5xl px-4 py-10">
         <header className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gray-900 text-white shadow-sm">
-              <Sparkles className="h-5 w-5" />
-            </div>
+            <Logo size={44} href="/" />
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-700">
                 RentWise
@@ -334,10 +328,7 @@ export default function ProjectsPage() {
       {showCreate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="w-full max-w-md rounded-xl border border-gray-200 bg-white shadow-xl">
-            <div className="flex items-center gap-2 border-b border-gray-100 px-5 py-4">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-50 text-violet-700">
-                <FolderPlus className="h-4 w-4" />
-              </div>
+            <div className="border-b border-gray-100 px-5 py-4">
               <h2 className="text-base font-semibold text-gray-900">Create project</h2>
             </div>
             <form onSubmit={handleCreate} className="space-y-4 px-5 py-5">
@@ -404,9 +395,7 @@ export default function ProjectsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="w-full max-w-md rounded-xl border border-gray-200 bg-white shadow-xl">
             <div className="flex items-center gap-2 border-b border-gray-100 px-5 py-4">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-50 text-red-600">
-                <AlertTriangle className="h-4 w-4" />
-              </div>
+              <AlertTriangle className="h-4 w-4 text-red-600" />
               <h2 className="text-base font-semibold text-gray-900">Delete project</h2>
             </div>
             <div className="space-y-4 px-5 py-5">

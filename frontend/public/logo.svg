@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1400" viewBox="0 0 1400 1400" role="img" aria-labelledby="title desc">
+  <title id="title">RentWise icon logo</title>
+  <desc id="desc">RentWise standalone icon: a fluid RW route monogram with a location pin and subtle skyline.</desc>
+  <defs>
+    <linearGradient id="purpleGrad" x1="195" y1="300" x2="1190" y2="990" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#B68BFF"/>
+      <stop offset="0.48" stop-color="#7C5CFF"/>
+      <stop offset="1" stop-color="#6F4BEF"/>
+    </linearGradient>
+    <linearGradient id="navyGrad" x1="380" y1="720" x2="940" y2="1040" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#122153"/>
+      <stop offset="1" stop-color="#061232"/>
+    </linearGradient>
+    <linearGradient id="skylineGrad" x1="520" y1="405" x2="720" y2="675" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#CAB9FF" stop-opacity="0.68"/>
+      <stop offset="1" stop-color="#EBE6FF" stop-opacity="0.2"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="22" stdDeviation="26" flood-color="#36247B" flood-opacity="0.14"/>
+    </filter>
+  </defs>
+  <g transform="translate(0 74) scale(1.08) translate(-52 -52)" filter="url(#softShadow)">
+    <path d="M430 330 H650 C773 330 858 411 858 522 C858 612 796 675 714 694 L714 623 C759 607 790 571 790 522 C790 453 735 403 657 403 H508 C489 403 477 415 477 434 V666 H430 Z" fill="url(#purpleGrad)"/>
+    <g fill="url(#skylineGrad)">
+      <path d="M532 571 L590 520 L610 538 V666 H532 Z"/>
+      <path d="M615 493 L655 458 L691 493 V666 H615 Z"/>
+      <path d="M675 450 H684 V493 H675 Z" opacity="0.75"/>
+      <path d="M705 548 L752 589 V666 H705 Z" opacity="0.75"/>
+    </g>
+    <path d="M270 642 C384 642 430 537 526 537 C607 537 634 635 702 708 C725 732 759 731 782 706 L885 596 L934 645 L817 771 C752 841 668 813 621 758 C572 700 548 612 497 612 C445 612 398 716 270 716" fill="none" stroke="url(#purpleGrad)" stroke-width="74" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M412 809 L500 717 C523 693 562 702 581 733 L696 918 C714 948 759 947 778 918 L900 725" fill="none" stroke="url(#navyGrad)" stroke-width="84" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M418 818 L498 735 C515 718 543 724 557 746 L672 930 C706 984 785 980 818 927 L936 738" fill="none" stroke="#FBFCFF" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" opacity="0.96"/>
+    <path d="M934 645 L1073 496" fill="none" stroke="url(#purpleGrad)" stroke-width="74" stroke-linecap="round"/>
+    <circle cx="270" cy="679" r="48" fill="url(#purpleGrad)"/>
+    <circle cx="934" cy="645" r="60" fill="#FBFCFF"/>
+    <circle cx="934" cy="645" r="36" fill="url(#purpleGrad)"/>
+    <circle cx="934" cy="645" r="19" fill="#FBFCFF"/>
+    <path d="M1114 349 C1058 349 1013 394 1013 449 C1013 524 1114 626 1114 626 C1114 626 1215 524 1215 449 C1215 394 1170 349 1114 349 Z" fill="url(#purpleGrad)"/>
+    <circle cx="1114" cy="449" r="33" fill="#FBFCFF"/>
+  </g>
+</svg>

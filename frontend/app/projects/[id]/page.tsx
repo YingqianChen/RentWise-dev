@@ -17,7 +17,6 @@ import {
   MapPin,
   Pencil,
   Plus,
-  Sparkles,
   Trash2,
 } from "lucide-react";
 
@@ -30,6 +29,7 @@ import {
 } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import type { Candidate, Dashboard, InvestigationItem, Project } from "@/lib/types";
+import { Logo } from "@/components/brand/logo";
 
 function cn(...classes: Array<string | false | null | undefined>): string {
   return classes.filter(Boolean).join(" ");
@@ -480,12 +480,8 @@ export default function ProjectDashboardPage() {
     : "Not set";
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-gray-50">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-[360px] bg-gradient-to-br from-violet-100 via-blue-50 to-emerald-50"
-      />
-      <div className="relative mx-auto max-w-6xl px-4 py-6 lg:px-6 lg:py-8">
+    <main className="min-h-screen bg-gray-50">
+      <div className="mx-auto max-w-6xl px-4 py-6 lg:px-6 lg:py-8">
         {deleteTarget && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
             <Card className="w-full max-w-md p-6">
@@ -527,9 +523,7 @@ export default function ProjectDashboardPage() {
               Back to projects
             </Link>
             <div className="mt-2 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-900 text-white">
-                <Sparkles className="h-5 w-5" />
-              </div>
+              <Logo size={40} href="/" />
               <div className="min-w-0">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-700">
                   RentWise · Project
@@ -729,14 +723,11 @@ export default function ProjectDashboardPage() {
         )}
 
         {dashboard?.current_advice && (
-          <div className="mt-4 flex items-start gap-3 rounded-lg border border-violet-200 bg-violet-50 p-4 text-sm text-violet-900">
-            <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">
-                Agent advice
-              </p>
-              <p className="mt-0.5 leading-6">{dashboard.current_advice}</p>
-            </div>
+          <div className="mt-4 rounded-lg border border-violet-200 bg-violet-50 p-4 text-sm text-violet-900">
+            <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">
+              Agent advice
+            </p>
+            <p className="mt-1 leading-6">{dashboard.current_advice}</p>
           </div>
         )}
 

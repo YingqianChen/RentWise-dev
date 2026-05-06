@@ -6,7 +6,6 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   ArrowLeftRight,
-  CheckCircle2,
   ChevronLeft,
   Clock,
   Compass,
@@ -15,7 +14,6 @@ import {
   Eye,
   MapPin,
   MessageSquare,
-  Sparkles,
   TrendingUp,
   X,
 } from "lucide-react";
@@ -510,14 +508,11 @@ export default function ComparePage() {
               )}
             </section>
 
-            <Card className="mt-4 border-violet-200 bg-gradient-to-br from-violet-50 via-white to-white p-5">
-              <div className="flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-violet-600" />
-                <p className="text-xs font-semibold uppercase tracking-wider text-violet-700">
-                  Agent briefing · {comparison.selected_count} candidate
-                  {comparison.selected_count > 1 ? "s" : ""}
-                </p>
-              </div>
+            <Card className="mt-4 border-violet-200 bg-white p-5">
+              <p className="text-xs font-semibold uppercase tracking-wider text-violet-700">
+                Agent briefing · {comparison.selected_count} candidate
+                {comparison.selected_count > 1 ? "s" : ""}
+              </p>
               <h2 className="mt-2 text-lg font-semibold text-gray-900">
                 {comparison.summary.headline}
               </h2>
@@ -744,12 +739,9 @@ export default function ComparePage() {
                         Questions to ask
                       </p>
                       {comparison.recommended_next_actions.questions_to_ask.length > 0 ? (
-                        <ul className="mt-1.5 space-y-1.5">
+                        <ul className="mt-1.5 list-disc space-y-1 pl-4 text-xs leading-5 text-gray-700 marker:text-gray-300">
                           {comparison.recommended_next_actions.questions_to_ask.map((question) => (
-                            <li key={question} className="flex gap-2 text-xs leading-5 text-gray-700">
-                              <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0 text-gray-400" />
-                              <span>{question}</span>
-                            </li>
+                            <li key={question}>{question}</li>
                           ))}
                         </ul>
                       ) : (

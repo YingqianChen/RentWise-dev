@@ -16,12 +16,12 @@ import {
   FileText,
   Footprints,
   Gauge,
+  Mail,
   MapPin,
   MessageSquare,
   Pencil,
   Plane,
   RefreshCw,
-  Sparkles,
   Train,
   TrainFront,
   Trash2,
@@ -49,6 +49,7 @@ import type {
   ComparisonResponse,
   DecisionSignal,
 } from "@/lib/types";
+import { Logo } from "@/components/brand/logo";
 
 function cn(...classes: Array<string | false | null | undefined>): string {
   return classes.filter(Boolean).join(" ");
@@ -932,12 +933,8 @@ export default function CandidateDetailPage() {
     : "Unknown";
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-gray-50">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-[360px] bg-gradient-to-br from-violet-100 via-blue-50 to-emerald-50"
-      />
-      <div className="relative mx-auto max-w-6xl px-4 py-6 lg:px-6 lg:py-8">
+    <main className="min-h-screen bg-gray-50">
+      <div className="mx-auto max-w-6xl px-4 py-6 lg:px-6 lg:py-8">
         {/* Header */}
         <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
@@ -949,9 +946,7 @@ export default function CandidateDetailPage() {
               Back to project
             </Link>
             <div className="mt-2 flex items-center gap-3">
-              <div className="flex h-10 w-10 flex-none items-center justify-center rounded-xl bg-gray-900 text-white">
-                <Sparkles className="h-5 w-5" />
-              </div>
+              <Logo size={40} href="/" className="flex-none" />
               <div className="min-w-0">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-700">
                   RentWise · Candidate
@@ -1053,7 +1048,6 @@ export default function CandidateDetailPage() {
                         {recommendationLabel(assessment.top_level_recommendation)}
                       </span>
                       <Badge variant="outline">
-                        <Sparkles className="h-3 w-3" />
                         Next: {actionLabel(assessment.next_best_action)}
                       </Badge>
                     </div>
@@ -1448,7 +1442,7 @@ export default function CandidateDetailPage() {
                         </>
                       ) : (
                         <>
-                          <Sparkles className="h-3.5 w-3.5" />
+                          <Mail className="h-3.5 w-3.5" />
                           {contactPlan ? "Refresh draft" : "Draft outreach"}
                         </>
                       )}
@@ -1683,10 +1677,7 @@ export default function CandidateDetailPage() {
                 {extracted && extracted.raw_facts && extracted.raw_facts.length > 0 && (
                   <details className="group rounded-lg border border-gray-200 bg-gray-50 p-4 open:bg-white">
                     <summary className="flex cursor-pointer items-center justify-between gap-2 text-sm font-medium text-gray-900">
-                      <span className="inline-flex items-center gap-2">
-                        <Sparkles className="h-3.5 w-3.5 text-gray-500" />
-                        Other observations
-                      </span>
+                      <span>Other observations</span>
                       <span className="text-xs text-gray-500 group-open:hidden">
                         {extracted.raw_facts.length} notes
                       </span>

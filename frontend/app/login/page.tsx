@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { AlertTriangle, ArrowLeft, Home, Lock, Mail, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Lock, Mail } from "lucide-react";
 
 import { login, register } from "@/lib/api";
-import { setToken } from "@/lib/auth";
+import { getToken, setToken } from "@/lib/auth";
 
 function cn(...classes: Array<string | false | null | undefined>): string {
   return classes.filter(Boolean).join(" ");
@@ -19,6 +19,10 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (getToken()) router.replace("/projects");
+  }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,18 +54,6 @@ export default function LoginPage() {
           <ArrowLeft className="h-4 w-4" />
           Back to home
         </Link>
-
-        <div className="mb-6 flex items-center gap-2">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-900 text-white">
-            <Sparkles className="h-5 w-5" />
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-700">
-              RentWise
-            </p>
-            <p className="text-xs text-gray-500">Hong Kong rental research agent</p>
-          </div>
-        </div>
 
         <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
           <h1 className="text-xl font-semibold text-gray-900">
@@ -151,7 +143,6 @@ export default function LoginPage() {
         </div>
 
         <p className="mt-6 text-center text-xs text-gray-400">
-          <Home className="mr-1 inline h-3 w-3" />
           Hong Kong rental research · powered by Claude
         </p>
       </div>

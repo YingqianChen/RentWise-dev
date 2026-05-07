@@ -57,19 +57,22 @@ is kept in `README_zh.md`; update both together.
   keyed by a config-signature hash; subsequent dashboard / compare reads
   hit the cache. Project commute config changes invalidate affected rows
   eagerly so a stale row never even loads.
-- Transit routing supports a configurable departure window — `now`,
-  `peak_morning` (next weekday 08:30), `peak_evening` (next weekday
-  18:30), or a `custom HH:MM` time. Driving / walking ignore departure
-  by design.
+- Transit routing supports a configurable departure window: the default
+  `peak_both` runs both 08:30 AM and 18:30 PM (the windows that actually
+  matter for a daily renter), with `peak_morning` / `peak_evening` /
+  `now` / `custom HH:MM` as alternatives. Driving / walking ignore
+  departure by design.
 - Dashboard candidate rows surface a per-row commute badge (minutes
-  vs the project's max-commute threshold, color-coded). Compare's
-  best-current-option panel renders the full route as walk / MTR /
-  bus / rail chips so the user sees *why* one route beats another, not
-  just the total minutes.
+  vs the project's max-commute threshold, color-coded). When a project
+  uses `peak_both`, the badge is driven by the *worse* of AM/PM minutes
+  — protecting users from the "fine in the morning, brutal at 6pm"
+  surprise — with the breakdown on hover. Compare's best-current-option
+  panel renders the full route as walk / MTR / bus / rail chips so the
+  user sees *why* one route beats another, not just the total minutes.
 - Transit results include up to two labeled alternatives (Fewer
   transfers / Less walking / Alternative) deduped by primary-line
-  signature. Compare exposes them as tab switches so the user can
-  weigh "fastest" against "less walking" without leaving the page.
+  signature. Compare exposes them as inner tab switches; an outer
+  AM/PM tab appears above when both peak windows are configured.
 
 **UI**
 - Every user-facing page (landing, login, projects list, dashboard,

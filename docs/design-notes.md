@@ -293,6 +293,54 @@ WHERE candidate_id IN (...)`，下一次读甚至连 stale 行都不会加载。
 
 ---
 
+## 11. Dual-window 默认：peak_both + worst-of-two 阈值
+
+**问题**：上一版的默认 `commute_departure_window = "now"` 在两个层面
+不对。(1) 用户的决策周期是周/月，不是分钟级 —— 周日晚 11 点浏览房源
+拿到的"now"分钟数，对周一早 8 点的真实通勤毫无指导意义。(2) §9 设
+计自承认 "now" 走 signature 缓存后会被永久冻结，于是默认值实际上是
+"用户首次打开 compare 那一刻的随机时刻"，更荒谬。(3) §10 的 N-prefix
+通宵巴士也是凌晨调用 "now" 引发 —— 默认值就是病灶之一。
+
+**选了什么**：默认 `peak_both`，同时计算 weekday 08:30 + 18:30，把两
+个估算合并到一个 `CommuteEvidence` —— 早高峰是 outer 估算，晚高峰挂
+在新增的 `paired_evidence` 字段上（一层嵌套，inner 永远 None）。
+存储侧给 `candidate_commute_evidence` 加一列 `paired_payload JSONB`，
+晚高峰那半的 dump 写在这里，向后兼容（旧行 `paired_payload = NULL`，
+读出来就是单窗口）。
+
+**Threshold 用 worst-of-two 判定**：dashboard candidate badge 颜色对
+比的是 `max(AM, PM)` 与 `max_commute_minutes`。如果 AM 22min、PM
+45min、阈值 30min，badge 红 —— 因为用户真正在乎的是"住进去之后每天
+通勤的那个数"，AM 看着 OK 但 PM 灾难就该被警告。tooltip 同时展示
+`AM 22min · PM 45min`，让用户能看到底层分解。
+
+**为什么不直接删 "now"**：保留作为 escape hatch。有些用户确实想看
+现在路况（"我要不要打车回家"），与日常租房决策无关但合法用例。
+默认不再是它，但选项还在。
+
+**为什么不强制把现有项目的 "now" 升级到 peak_both**：
+- 用户已显式选过 "now" 的尊重原值；migration 只改 `server_default`，
+  不动现有 row。"我上周明明设的是 now，今天打开变 peak_both 了" 是
+  最差的产品体验。
+- 大量缓存行不会因 default 改变而无效，避免一次性 invalidate 全表。
+
+**代价**：peak_both 在 cache miss 时翻倍 Amap 调用（早 + 晚两次）。
+正常浏览节奏下 cache hit 率高，摊销下来与单窗口几乎无差。早期 quota
+监控里观察到峰值后，再决定是否给 peak_both 上单独的限频。
+
+**实现要点**：
+- `_evidence_for_window(project, candidate, ..., date, time)` 抽出来，
+  可被 peak_both 调两次，单窗口路径调一次。
+- `_resolve_dual_departure(project)` 返回 `((am_date, am_time), (pm_date, pm_time))`，
+  共用 `_next_weekday_at` 工具。
+- `_build_evidence_from_fields(...)` 把 row 属性 / paired_payload 字典
+  统一成 CommuteEvidence 构造，读路径只写一份 hydration。
+- 前端 Compare panel 嵌套 tab：外层 AM/PM（仅当 paired 存在），内层
+  primary/alternatives（沿用 §10），互不冲突。
+
+---
+
 ## 附：决策之间的横向约束
 
 这些决策不是彼此独立的。几组关键耦合：

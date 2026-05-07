@@ -47,16 +47,20 @@ RentWise 是一个面向香港租客的候选房源研究工作区。你把 list
 - 每个 candidate 的通勤结果落库到 `candidate_commute_evidence`，缓存键
   是项目配置 + 候选位置签名 hash；dashboard / compare 后续读取直接命
   中缓存。项目通勤配置变化时主动删除受影响的行，stale 行不会被读到。
-- Transit 模式支持选择计算时段：`now` / `peak_morning`（下一个工作日
-  08:30）/ `peak_evening`（下一个工作日 18:30）/ `custom HH:MM`。
-  Driving 与 walking 不接受时段参数。
+- Transit 模式支持选择计算时段：默认 `peak_both` 同时算工作日 08:30 +
+  18:30（这两个才是真正影响日租客的时段），其余可选 `peak_morning` /
+  `peak_evening` / `now` / `custom HH:MM`。Driving 与 walking 不接受
+  时段参数。
 - Dashboard 候选行直接显示通勤分钟数 badge，按项目阈值上色（绿/黄/红）。
-  Compare 的「best current option」展开完整路段：步行 / 港铁 / 巴士 /
-  铁路 chip 排成 route strip，让用户看到「为什么 22min 这条比 35min
-  那条更顺」而不只是总分钟数。
+  当项目用 `peak_both` 时 badge 取 AM/PM **较差**的一边作为颜色判定 ——
+  避免"早上看着还行，下午回家变灾难"的惊吓 —— hover tooltip 给出
+  AM/PM 分解。Compare 的「best current option」展开完整路段：步行 /
+  港铁 / 巴士 / 铁路 chip 排成 route strip，让用户看到「为什么 22min
+  这条比 35min 那条更顺」而不只是总分钟数。
 - Transit 结果会附带最多两条 labeled 备选路线（Fewer transfers / Less
   walking / Alternative），按主乘段 signature 去重。Compare 把它们
-  渲染成 tab 切换，让用户在"最快"与"少步行"之间权衡而不必离开当前页。
+  渲染成内层 tab；当配置 `peak_both` 时上方多一条 AM/PM 外层 tab，可
+  在两个时段之间切换，仍保留各自的备选 tab。
 
 **UI**
 - 所有面向用户的页面（落地页、登录、项目列表、dashboard、candidate detail、

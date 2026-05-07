@@ -252,6 +252,47 @@ WHERE candidate_id IN (...)`，下一次读甚至连 stale 行都不会加载。
 
 ---
 
+## 10. Transit 多路线：primary + labeled alternatives
+
+**问题**：Amap transit API 单次请求会返回 3–5 条候选方案；早期实现
+只取 `transits[0]` 当 best route 直接渲染，剩下的整段丢弃。结果是用户
+偶尔会撞到看着不靠谱的路线（比如凌晨调用时跑出 N 字头通宵巴士），却没
+有"那其他几条呢"的入口——只能去地图软件自己查，产品的"已经为你算好
+多个候选"价值随之消失。
+
+**选了什么**：在 `route_transit` 里 parse 全部 `transits[]`，做两步处理：
+- **去重**：用 `(mode, line_name, from_station, to_station)` 序列做
+  signature；Amap 经常返回 walking 距离差 1m 但其余完全相同的"假备
+  选"，signature 把它们折成一条。
+- **打标签**：fastest 永远是 primary。从剩余 distinct 路线里挑最多两
+  条做 alternatives —— "Fewer transfers"（非步行段数 < primary）、
+  "Less walking"（步行总距离 < primary）。两者命中同一条则只展示一次；
+  都不命中但确实有第二条不同路线时，挂一个 generic "Alternative" 标
+  签兜底，避免用户永远只看到一个选项。
+
+前端 Compare 的 commute panel 把 routes 渲染成 horizontal tab，点击
+切换 RouteStrip 内容；只有 1 条时退化为现有的单条形态，UI 不增加。
+
+**为什么不选服务端硬过滤特定线路**（如 N-prefix 通宵巴士）：
+- "深夜巴士"在凌晨查询是合理结果，硬过滤会让真深夜用户拿不到任何路
+  线。
+- 给用户多条有标签的选项，由用户自己决定取哪条，比让产品当裁判更
+  稳健 —— 错杀的成本（用户怀疑数据完整性）大于看到一条不太相关方案
+  的成本（用户切到下一个 tab 即可）。
+
+**为什么 alternatives 写进 cache 表新加一列而不是塞进 segments JSONB**：
+- Segments 字段语义是"primary route 的腿"。把 alternatives 强行嵌进
+  去要么改 segments 的 shape（破坏 0009 的兼容性），要么造一个嵌套
+  里有嵌套的怪结构。
+- 单独一列 `alternatives JSONB` 让两个概念正交；migration 0010 加列
+  即可，0009 写过的旧行 alternatives 默认 NULL，读时回落为"只有
+  primary"，自然向下兼容。
+
+**代价**：cache 行体积变大（多一个 JSONB 字段）。每行预计加 1–3 KB，
+对 100 candidates 量级的项目完全可忽略。
+
+---
+
 ## 附：决策之间的横向约束
 
 这些决策不是彼此独立的。几组关键耦合：

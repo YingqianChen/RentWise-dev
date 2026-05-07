@@ -66,6 +66,10 @@ is kept in `README_zh.md`; update both together.
   best-current-option panel renders the full route as walk / MTR /
   bus / rail chips so the user sees *why* one route beats another, not
   just the total minutes.
+- Transit results include up to two labeled alternatives (Fewer
+  transfers / Less walking / Alternative) deduped by primary-line
+  signature. Compare exposes them as tab switches so the user can
+  weigh "fastest" against "less walking" without leaving the page.
 
 **UI**
 - Every user-facing page (landing, login, projects list, dashboard,

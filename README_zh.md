@@ -54,6 +54,9 @@ RentWise 是一个面向香港租客的候选房源研究工作区。你把 list
   Compare 的「best current option」展开完整路段：步行 / 港铁 / 巴士 /
   铁路 chip 排成 route strip，让用户看到「为什么 22min 这条比 35min
   那条更顺」而不只是总分钟数。
+- Transit 结果会附带最多两条 labeled 备选路线（Fewer transfers / Less
+  walking / Alternative），按主乘段 signature 去重。Compare 把它们
+  渲染成 tab 切换，让用户在"最快"与"少步行"之间权衡而不必离开当前页。
 
 **UI**
 - 所有面向用户的页面（落地页、登录、项目列表、dashboard、candidate detail、

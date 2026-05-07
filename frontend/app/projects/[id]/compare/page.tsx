@@ -235,7 +235,11 @@ function buildPanelRoutes(commute: CommuteEvidence): CommutePanelRoute[] {
   return [primary, ...alternates];
 }
 
-function CommutePanel({ commute }: { commute: CommuteEvidence }) {
+function SingleWindowCommutePanelBody({
+  commute,
+}: {
+  commute: CommuteEvidence;
+}) {
   const routes = useMemo(() => buildPanelRoutes(commute), [commute]);
   const [activeIdx, setActiveIdx] = useState(0);
   // Reset to primary if the route count shrinks (e.g. cache invalidation).
@@ -244,10 +248,7 @@ function CommutePanel({ commute }: { commute: CommuteEvidence }) {
   const showTabs = routes.length > 1;
 
   return (
-    <div className="rounded-lg bg-blue-50/60 p-3">
-      <p className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-blue-700">
-        <MapPin className="h-3 w-3" /> Commute
-      </p>
+    <>
       <p className="mt-1 text-sm text-gray-800">
         {commute.estimated_minutes} min ({commute.mode})
         {commute.destination_label && ` · ${commute.destination_label}`}
@@ -293,6 +294,61 @@ function CommutePanel({ commute }: { commute: CommuteEvidence }) {
       {commute.confidence_note && (
         <p className="mt-1 text-xs text-amber-700">{commute.confidence_note}</p>
       )}
+    </>
+  );
+}
+
+function CommutePanel({ commute }: { commute: CommuteEvidence }) {
+  const paired = commute.paired_evidence;
+  const hasPaired =
+    paired != null &&
+    paired.status === "ready" &&
+    paired.estimated_minutes != null;
+  const [activeWindow, setActiveWindow] = useState<"am" | "pm">("am");
+  const active = hasPaired && activeWindow === "pm" ? paired! : commute;
+
+  return (
+    <div className="rounded-lg bg-blue-50/60 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-blue-700">
+          <MapPin className="h-3 w-3" /> Commute
+        </p>
+        {hasPaired && (
+          <div
+            role="tablist"
+            aria-label="Departure window"
+            className="inline-flex overflow-hidden rounded-md ring-1 ring-blue-200"
+          >
+            {(
+              [
+                { key: "am", label: "AM 8:30", mins: commute.estimated_minutes },
+                { key: "pm", label: "PM 18:30", mins: paired!.estimated_minutes },
+              ] as const
+            ).map(({ key, label, mins }) => {
+              const isActive = activeWindow === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => setActiveWindow(key)}
+                  className={cn(
+                    "px-2 py-1 text-xs font-medium transition",
+                    isActive
+                      ? "bg-blue-600 text-white"
+                      : "bg-white text-blue-700 hover:bg-blue-50"
+                  )}
+                >
+                  {label}
+                  {mins != null && <span className="ml-1 opacity-80">{mins}min</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      <SingleWindowCommutePanelBody commute={active} />
     </div>
   );
 }

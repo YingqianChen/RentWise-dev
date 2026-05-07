@@ -51,7 +51,12 @@ export interface Project {
   updated_at: string;
 }
 
-export type CommuteDepartureWindow = "now" | "peak_morning" | "peak_evening" | "custom";
+export type CommuteDepartureWindow =
+  | "now"
+  | "peak_morning"
+  | "peak_evening"
+  | "peak_both"
+  | "custom";
 
 export interface CreateProjectRequest {
   title: string;
@@ -230,6 +235,9 @@ export interface CommuteEvidence {
   destination_label: string | null;
   confidence_note: string | null;
   alternatives: CommuteRoute[] | null;
+  // Evening half when project window == "peak_both". Outer evidence is the
+  // morning estimate; this nested record never carries its own paired_evidence.
+  paired_evidence?: CommuteEvidence | null;
 }
 
 export interface Candidate {

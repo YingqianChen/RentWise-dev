@@ -41,7 +41,7 @@ def build_project(user: User) -> SearchProject:
         move_in_target=date(2026, 5, 1),
         notes=None,
         commute_enabled=False,
-        commute_departure_window="now",
+        commute_departure_window="peak_both",
         created_at=utc_now(),
         updated_at=utc_now(),
     )

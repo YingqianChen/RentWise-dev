@@ -74,11 +74,12 @@ class SearchProject(Base):
     commute_destination_lat: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     commute_destination_lng: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     commute_departure_window: Mapped[str] = mapped_column(
-        String(50), default="now", server_default="now", nullable=False
-    )  # now | peak_morning | peak_evening | custom
+        String(50), default="peak_both", server_default="peak_both", nullable=False
+    )  # now | peak_morning | peak_evening | peak_both | custom
     commute_departure_time: Mapped[Optional[str]] = mapped_column(
         String(5), nullable=True
     )  # "HH:MM" — used only when commute_departure_window == "custom"
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
@@ -370,6 +371,11 @@ class CandidateCommuteEvidence(Base):
     destination_label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     confidence_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     alternatives: Mapped[Optional[List[Dict[str, Any]]]] = mapped_column(JSONB, nullable=True)
+    # Holds the EVENING half of the evidence when the project's window is
+    # ``peak_both``. Shape: a CommuteEvidence dump (excluding paired_evidence
+    # itself) — status / estimated_minutes / segments / alternatives / etc.
+    # NULL when the project uses a single window.
+    paired_payload: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )

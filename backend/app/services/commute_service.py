@@ -179,8 +179,48 @@ class CommuteService:
             )
         logger.info("Commute: resolved candidate %s via %s", candidate.id, resolved_via)
 
-        # 7. Calculate route — apply departure window for transit only
+        # 7. Calculate route(s). For peak_both, we run two transit queries —
+        #    one at AM peak, one at PM peak — and attach the evening result as
+        #    paired_evidence on the (morning) primary. Other windows produce a
+        #    single evidence with paired_evidence = None.
+        if (project.commute_departure_window or "now") == "peak_both":
+            (am_date, am_time), (pm_date, pm_time) = _resolve_dual_departure(project)
+            morning = await self._evidence_for_window(
+                project, candidate, candidate_coords, dest_coords, dest_label,
+                am_date, am_time,
+            )
+            evening = await self._evidence_for_window(
+                project, candidate, candidate_coords, dest_coords, dest_label,
+                pm_date, pm_time,
+            )
+            morning.paired_evidence = evening
+            await self._write_cache(db, candidate.id, signature, morning)
+            return morning
+
         departure_date, departure_time = _resolve_departure(project)
+        evidence = await self._evidence_for_window(
+            project, candidate, candidate_coords, dest_coords, dest_label,
+            departure_date, departure_time,
+        )
+        await self._write_cache(db, candidate.id, signature, evidence)
+        return evidence
+
+    async def _evidence_for_window(
+        self,
+        project: SearchProject,
+        candidate: CandidateListing,
+        candidate_coords: tuple[float, float],
+        dest_coords: tuple[float, float],
+        dest_label: str,
+        departure_date: Optional[str],
+        departure_time: Optional[str],
+    ) -> CommuteEvidence:
+        """Compute one window's evidence (no caching, no pairing).
+
+        Used both for single-window paths and for each half of peak_both. Always
+        returns ``ready`` or ``failed`` — upstream gates (not_configured /
+        insufficient_candidate_location) are handled before we get here.
+        """
         route = await self._calculate_route(
             project.commute_mode,
             candidate_coords,
@@ -189,20 +229,16 @@ class CommuteService:
             departure_time,
         )
         if route is None:
-            evidence = CommuteEvidence(
+            return CommuteEvidence(
                 status="failed",
                 destination_label=dest_label,
                 mode=project.commute_mode,
                 confidence_note="Route calculation failed.",
             )
-            await self._write_cache(db, candidate.id, signature, evidence)
-            return evidence
-
-        # 8. Success
         raw_segments = route.get("segments") or []
         segments = [CommuteSegment(**seg) for seg in raw_segments] or None
         alternatives = _alternatives_from_route(route) or None
-        evidence = CommuteEvidence(
+        return CommuteEvidence(
             status="ready",
             estimated_minutes=route["duration_minutes"],
             mode=project.commute_mode,
@@ -214,8 +250,6 @@ class CommuteService:
             confidence_note=self._confidence_note(candidate),
             alternatives=alternatives,
         )
-        await self._write_cache(db, candidate.id, signature, evidence)
-        return evidence
 
     # ------------------------------------------------------------------
     # Cache helpers
@@ -236,23 +270,23 @@ class CommuteService:
         row = result.scalar_one_or_none()
         if row is None or row.config_signature != expected_signature:
             return None
-        segments = (
-            [CommuteSegment(**seg) for seg in row.segments]
-            if row.segments
+        paired_evidence = (
+            _build_evidence_from_fields(**row.paired_payload, paired_evidence=None)
+            if row.paired_payload
             else None
         )
-        alternatives = _alternatives_from_payload(row.alternatives)
-        return CommuteEvidence(
+        return _build_evidence_from_fields(
             status=row.status,
             estimated_minutes=row.estimated_minutes,
             mode=row.mode,
             route_summary=row.route_summary,
             origin_station=row.origin_station,
             destination_station=row.destination_station,
-            segments=segments,
+            segments=row.segments,
             destination_label=row.destination_label,
             confidence_note=row.confidence_note,
-            alternatives=alternatives,
+            alternatives=row.alternatives,
+            paired_evidence=paired_evidence,
         )
 
     async def _write_cache(
@@ -282,6 +316,13 @@ class CommuteService:
             if evidence.alternatives
             else None
         )
+        # Evening half (peak_both). Excluding paired_evidence guarantees the
+        # nested dump never recurses; nesting is one level by construction.
+        paired_payload = (
+            evidence.paired_evidence.model_dump(exclude={"paired_evidence"})
+            if evidence.paired_evidence is not None
+            else None
+        )
         if row is None:
             row = CandidateCommuteEvidence(
                 candidate_id=candidate_id,
@@ -296,6 +337,7 @@ class CommuteService:
                 destination_label=evidence.destination_label,
                 confidence_note=evidence.confidence_note,
                 alternatives=alternatives_payload,
+                paired_payload=paired_payload,
             )
             db.add(row)
         else:
@@ -310,6 +352,7 @@ class CommuteService:
             row.destination_label = evidence.destination_label
             row.confidence_note = evidence.confidence_note
             row.alternatives = alternatives_payload
+            row.paired_payload = paired_payload
         await db.flush()
 
     # ------------------------------------------------------------------
@@ -503,6 +546,66 @@ def _resolve_departure(project: SearchProject) -> tuple[Optional[str], Optional[
         return None, None
 
     return target.strftime("%Y-%m-%d"), target.strftime("%H:%M")
+
+
+def _resolve_dual_departure(
+    project: SearchProject,
+) -> tuple[tuple[Optional[str], Optional[str]], tuple[Optional[str], Optional[str]]]:
+    """Return ``((am_date, am_time), (pm_date, pm_time))`` for ``peak_both``.
+
+    Each pair uses the same next-weekday-at-HH:MM logic as ``_resolve_departure``.
+    The two timestamps may fall on different weekdays — e.g. if called at
+    Friday 19:00, AM lands on Monday 08:30 while PM lands on Monday 18:30 too,
+    so they stay aligned. Caller does not assume they share a date.
+    """
+    morning = _next_weekday_at(8, 30)
+    evening = _next_weekday_at(18, 30)
+    return (
+        (morning.strftime("%Y-%m-%d"), morning.strftime("%H:%M")),
+        (evening.strftime("%Y-%m-%d"), evening.strftime("%H:%M")),
+    )
+
+
+def _build_evidence_from_fields(
+    *,
+    status,
+    estimated_minutes=None,
+    mode=None,
+    route_summary=None,
+    origin_station=None,
+    destination_station=None,
+    segments=None,
+    destination_label=None,
+    confidence_note=None,
+    alternatives=None,
+    paired_evidence: Optional[CommuteEvidence] = None,
+    **_ignored,
+) -> CommuteEvidence:
+    """Hydrate a ``CommuteEvidence`` from flat fields (row attrs or dict).
+
+    ``segments`` and ``alternatives`` accept the JSONB-shaped raw dicts; this
+    helper rebuilds the Pydantic models. ``**_ignored`` swallows extra keys
+    that may appear in a paired_payload dict (notably ``paired_evidence``
+    itself, which we explicitly nullify on read).
+    """
+    seg_list = (
+        [CommuteSegment(**seg) for seg in segments]
+        if segments
+        else None
+    )
+    return CommuteEvidence(
+        status=status,
+        estimated_minutes=estimated_minutes,
+        mode=mode,
+        route_summary=route_summary,
+        origin_station=origin_station,
+        destination_station=destination_station,
+        segments=seg_list,
+        destination_label=destination_label,
+        confidence_note=confidence_note,
+        alternatives=_alternatives_from_payload(alternatives),
+        paired_evidence=paired_evidence,
+    )
 
 
 def _next_weekday_at(hour: int, minute: int) -> datetime:

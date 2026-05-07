@@ -1,5 +1,7 @@
 """Commute evidence schema — derived at response time, not persisted."""
 
+from __future__ import annotations
+
 from typing import Optional
 
 from pydantic import BaseModel
@@ -43,3 +45,10 @@ class CommuteEvidence(BaseModel):
     destination_label: Optional[str] = None
     confidence_note: Optional[str] = None
     alternatives: Optional[list[CommuteRoute]] = None
+    # When project window == "peak_both", the morning estimate lives on the
+    # outer CommuteEvidence and the evening estimate is attached here. The
+    # nested instance never carries its own paired_evidence (one level deep).
+    paired_evidence: Optional["CommuteEvidence"] = None
+
+
+CommuteEvidence.model_rebuild()

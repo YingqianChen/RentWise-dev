@@ -85,6 +85,21 @@ class ConfigSignatureTests(unittest.TestCase):
 
         self.assertNotEqual(sig_now, sig_peak)
 
+    def test_signature_changes_when_window_switches_to_both(self):
+        user = build_user()
+        project = build_project(user)
+        candidate = build_candidate(project)
+        project.commute_destination_query = "Admiralty Station"
+        project.commute_mode = "transit"
+
+        project.commute_departure_window = "peak_morning"
+        sig_morning = _compute_config_signature(project, candidate)
+
+        project.commute_departure_window = "peak_both"
+        sig_both = _compute_config_signature(project, candidate)
+
+        self.assertNotEqual(sig_morning, sig_both)
+
     def test_signature_changes_when_candidate_address_changes(self):
         user = build_user()
         project = build_project(user)
@@ -250,6 +265,53 @@ class CacheRoundtripTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cached.alternatives[0].label, "Fewer transfers")
         self.assertEqual(cached.alternatives[0].estimated_minutes, 28)
         self.assertEqual(cached.alternatives[1].segments[0].mode, "bus")
+
+    async def test_paired_roundtrip(self):
+        """peak_both: morning is the outer evidence, evening attaches as paired_evidence."""
+        service = CommuteService()
+        candidate_id = uuid.uuid4()
+        evidence = CommuteEvidence(
+            status="ready",
+            estimated_minutes=22,
+            mode="transit",
+            route_summary="MTR · AM",
+            origin_station="Tsuen Wan",
+            destination_station="Central",
+            segments=[CommuteSegment(mode="subway", line_name="MTR", duration_minutes=20)],
+            destination_label="Central",
+            confidence_note=None,
+            paired_evidence=CommuteEvidence(
+                status="ready",
+                estimated_minutes=38,
+                mode="transit",
+                route_summary="MTR · PM",
+                origin_station="Tsuen Wan",
+                destination_station="Central",
+                segments=[
+                    CommuteSegment(mode="walking", duration_minutes=2),
+                    CommuteSegment(mode="subway", line_name="MTR", duration_minutes=34),
+                ],
+                destination_label="Central",
+                confidence_note=None,
+            ),
+        )
+        db = FakeAsyncSession(existing_row=None)
+        await service._write_cache(db, candidate_id, "sig-pair", evidence)
+
+        row = db.added[0]
+        self.assertIsNotNone(row.paired_payload)
+        self.assertEqual(row.paired_payload["estimated_minutes"], 38)
+        # The dump must NOT contain a nested paired_evidence (excluded on write).
+        self.assertNotIn("paired_evidence", row.paired_payload)
+
+        cached = await service._read_cache(db, candidate_id, "sig-pair")
+        self.assertIsNotNone(cached)
+        self.assertEqual(cached.estimated_minutes, 22)  # morning
+        self.assertIsNotNone(cached.paired_evidence)
+        self.assertEqual(cached.paired_evidence.estimated_minutes, 38)  # evening
+        self.assertEqual(len(cached.paired_evidence.segments), 2)
+        # Inner paired_evidence is always None (one-level nesting invariant).
+        self.assertIsNone(cached.paired_evidence.paired_evidence)
 
     async def test_write_skips_uncacheable_status(self):
         service = CommuteService()

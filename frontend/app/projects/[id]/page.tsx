@@ -295,7 +295,7 @@ export default function ProjectDashboardPage() {
   const [commuteMode, setCommuteMode] = useState<"transit" | "driving" | "walking">("transit");
   const [maxCommuteMinutes, setMaxCommuteMinutes] = useState("");
   const [commuteDepartureWindow, setCommuteDepartureWindow] =
-    useState<CommuteDepartureWindow>("now");
+    useState<CommuteDepartureWindow>("peak_both");
   const [commuteDepartureTime, setCommuteDepartureTime] = useState("");
   const [commuteSaving, setCommuteSaving] = useState(false);
   const [commuteError, setCommuteError] = useState("");
@@ -347,7 +347,7 @@ export default function ProjectDashboardPage() {
       setMaxCommuteMinutes(
         projectData.max_commute_minutes ? String(projectData.max_commute_minutes) : ""
       );
-      setCommuteDepartureWindow(projectData.commute_departure_window || "now");
+      setCommuteDepartureWindow(projectData.commute_departure_window || "peak_both");
       setCommuteDepartureTime(projectData.commute_departure_time || "");
       setDashboard(dashboardData);
       setCandidates(candidatesData.candidates);
@@ -505,6 +505,8 @@ export default function ProjectDashboardPage() {
         return "peak AM";
       case "peak_evening":
         return "peak PM";
+      case "peak_both":
+        return "AM + PM peak";
       case "custom":
         return project.commute_departure_time
           ? `@ ${project.commute_departure_time}`
@@ -719,9 +721,10 @@ export default function ProjectDashboardPage() {
                       disabled={commuteMode !== "transit"}
                       className="rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40 disabled:bg-gray-50 disabled:text-gray-400"
                     >
-                      <option value="now">Now</option>
+                      <option value="peak_both">Peak AM + PM (recommended)</option>
                       <option value="peak_morning">Peak morning (~8:30)</option>
                       <option value="peak_evening">Peak evening (~18:30)</option>
+                      <option value="now">Now (live traffic)</option>
                       <option value="custom">Custom time</option>
                     </select>
                   </label>
@@ -757,7 +760,7 @@ export default function ProjectDashboardPage() {
                       setMaxCommuteMinutes(
                         project.max_commute_minutes ? String(project.max_commute_minutes) : ""
                       );
-                      setCommuteDepartureWindow(project.commute_departure_window || "now");
+                      setCommuteDepartureWindow(project.commute_departure_window || "peak_both");
                       setCommuteDepartureTime(project.commute_departure_time || "");
                       setCommuteError("");
                       setEditingCommute(false);
@@ -933,19 +936,40 @@ export default function ProjectDashboardPage() {
                                     <span>{rent || "Rent unknown"}</span>
                                     <span aria-hidden>·</span>
                                     <span>{district || "District unknown"}</span>
-                                    {candidate.commute_evidence &&
-                                      candidate.commute_evidence.status === "ready" &&
-                                      candidate.commute_evidence.estimated_minutes != null && (
+                                    {(() => {
+                                      const evidence = candidate.commute_evidence;
+                                      if (
+                                        !evidence ||
+                                        evidence.status !== "ready" ||
+                                        evidence.estimated_minutes == null
+                                      ) {
+                                        return null;
+                                      }
+                                      const am = evidence.estimated_minutes;
+                                      const paired = evidence.paired_evidence;
+                                      const pm =
+                                        paired?.status === "ready"
+                                          ? paired.estimated_minutes
+                                          : null;
+                                      // Worst-of-two when both peaks present —
+                                      // protects users from surprises ("looks
+                                      // fine in the morning, brutal at 6pm").
+                                      const display = pm != null ? Math.max(am, pm) : am;
+                                      const tooltip =
+                                        pm != null ? `AM ${am}min · PM ${pm}min` : undefined;
+                                      return (
                                         <Badge
                                           tone={commuteRowTone(
-                                            candidate.commute_evidence.estimated_minutes,
+                                            display,
                                             project.max_commute_minutes
                                           )}
+                                          title={tooltip}
                                         >
                                           <MapPin className="h-3 w-3" />
-                                          {candidate.commute_evidence.estimated_minutes} min
+                                          {display} min
                                         </Badge>
-                                      )}
+                                      );
+                                    })()}
                                     {candidate.commute_evidence &&
                                       (candidate.commute_evidence.status ===
                                         "insufficient_candidate_location" ||

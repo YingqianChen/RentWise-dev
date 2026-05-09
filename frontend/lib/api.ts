@@ -36,6 +36,34 @@ function normalizeApiBase(value: string | undefined): string {
 
 const API_BASE = normalizeApiBase(process.env.NEXT_PUBLIC_API_URL);
 
+function formatApiError(detail: unknown, fallback: string): string {
+  if (typeof detail === "string" && detail.trim()) {
+    return detail;
+  }
+  if (Array.isArray(detail) && detail.length > 0) {
+    // FastAPI 422 shape: [{ loc: ["body", "field"], msg, type, ... }, ...].
+    // Render each entry as "field: msg" so users see the real reason instead
+    // of "[object Object]".
+    return detail
+      .map((entry) => {
+        if (entry && typeof entry === "object") {
+          const e = entry as { loc?: unknown; msg?: unknown };
+          const loc = Array.isArray(e.loc)
+            ? e.loc
+                .slice(1)
+                .map((part) => String(part))
+                .join(".")
+            : "";
+          const msg = typeof e.msg === "string" ? e.msg : "invalid";
+          return loc ? `${loc}: ${msg}` : msg;
+        }
+        return String(entry);
+      })
+      .join("; ");
+  }
+  return fallback;
+}
+
 async function parseJsonSafely(res: Response) {
   const text = await res.text();
   if (!text) {
@@ -43,7 +71,9 @@ async function parseJsonSafely(res: Response) {
   }
 
   try {
-    return JSON.parse(text) as { detail?: string };
+    // FastAPI's `detail` can be a string (HTTPException) or an array of
+    // {loc, msg, type, ...} entries (422 validation). Caller normalizes.
+    return JSON.parse(text) as { detail?: unknown };
   } catch {
     return null;
   }
@@ -66,7 +96,7 @@ async function handleApiResponse<T>(
 
   if (!res.ok) {
     const error = await parseJsonSafely(res);
-    throw new Error(error?.detail || fallbackMessage);
+    throw new Error(formatApiError(error?.detail, fallbackMessage));
   }
 
   return (await res.json()) as T;

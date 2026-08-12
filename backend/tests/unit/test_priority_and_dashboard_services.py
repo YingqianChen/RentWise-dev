@@ -143,6 +143,33 @@ class PriorityAndDashboardServiceTests(TestCase):
             "likely_reject",
         )
 
+    def test_stats_keep_system_recommendations_separate_from_user_decisions(self):
+        project = build_project(build_user())
+        system_reject_user_shortlisted = build_candidate(
+            project,
+            status="recommended_reject",
+            user_decision="shortlisted",
+            next_best_action="reject",
+        )
+        system_reject_user_shortlisted.candidate_assessment.status = "recommended_reject"
+
+        system_follow_up_user_rejected = build_candidate(
+            project,
+            status="follow_up",
+            user_decision="rejected",
+            next_best_action="schedule_viewing",
+        )
+        system_follow_up_user_rejected.candidate_assessment.status = "follow_up"
+
+        stats = DashboardService().build_stats(
+            [system_reject_user_shortlisted, system_follow_up_user_rejected]
+        )
+
+        self.assertEqual(stats.recommended_reject, 1)
+        self.assertEqual(stats.follow_up, 1)
+        self.assertEqual(stats.shortlisted, 1)
+        self.assertEqual(stats.rejected, 1)
+
 
 if __name__ == "__main__":
     import unittest

@@ -305,11 +305,11 @@ function actionLabel(action?: string | null) {
 function recommendationLabel(value?: string | null) {
   switch (value) {
     case "shortlist_recommendation":
-      return "Shortlist recommendation";
+      return "System: shortlist recommendation";
     case "likely_reject":
-      return "Likely reject";
+      return "System: likely reject";
     default:
-      return "Not ready";
+      return "System: not ready";
   }
 }
 
@@ -1793,7 +1793,7 @@ export default function CandidateDetailPage() {
                         : "bg-red-50 text-red-700 ring-red-200"
                     )}
                   >
-                    {candidate.user_decision === "shortlisted" ? "Shortlisted" : "Rejected"}
+                    Your decision: {candidate.user_decision === "shortlisted" ? "Shortlisted" : "Rejected"}
                   </div>
                 )}
                 <Link

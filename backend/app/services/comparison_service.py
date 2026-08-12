@@ -237,6 +237,7 @@ class ComparisonService:
             monthly_rent=extracted.monthly_rent if extracted else None,
             district=extracted.district if extracted else None,
             status=candidate.status,
+            user_decision=candidate.user_decision,
             benchmark=None,
         )
 
@@ -249,6 +250,19 @@ class ComparisonService:
         assessment = candidate.candidate_assessment
         cost = candidate.cost_assessment
         clause = candidate.clause_assessment
+
+        if candidate.user_decision == "rejected":
+            system_view = self._system_recommendation_copy(candidate)
+            return (
+                f"Rejected by you. The system view remains '{system_view}', so this placement reflects "
+                "your decision rather than a system rejection."
+            )
+
+        if candidate.user_decision == "shortlisted" and group == "likely_drop":
+            return (
+                "Shortlisted by you, but the system still recommends dropping this candidate based on "
+                "the current evidence. Your choice and the system view are being kept separate."
+            )
 
         if group == "best_current_option":
             strongest = self._primary_strength(candidate)
@@ -280,7 +294,7 @@ class ComparisonService:
         if group == "not_ready":
             if cost and cost.cost_risk_flag in {"incomplete", "possible_additional_cost"}:
                 return (
-                    "This candidate cannot be compared fairly yet because hidden or unclear costs could still "
+                    "This candidate cannot be compared fairly yet because unconfirmed or separate costs could still "
                     "change the whole decision."
                 )
             return (
@@ -292,6 +306,16 @@ class ComparisonService:
             "This candidate currently asks for more compromise than the rest of the selected shortlist, "
             "so it should not take much of your attention right now."
         )
+
+    def _system_recommendation_copy(self, candidate: CandidateListing) -> str:
+        assessment = candidate.candidate_assessment
+        if assessment is None:
+            return "not ready"
+        return {
+            "shortlist_recommendation": "shortlist recommendation",
+            "not_ready": "not ready",
+            "likely_reject": "likely reject",
+        }.get(assessment.top_level_recommendation, "not ready")
 
     def _main_tradeoff(
         self,
@@ -306,7 +330,7 @@ class ComparisonService:
             return "It still needs a first-pass assessment before any real tradeoff can be stated."
 
         if assessment.next_best_action == "verify_cost":
-            return "The upside is still real, but the hidden-cost question is doing most of the damage."
+            return "The upside may still be real, but the incomplete cost picture needs confirmation first."
         if assessment.next_best_action == "verify_clause":
             return "The listing may still work, but lease clarity matters more than any cosmetic upside right now."
         if assessment.next_best_action == "schedule_viewing":

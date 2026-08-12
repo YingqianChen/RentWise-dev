@@ -338,6 +338,71 @@ class CandidateRouteTests(IsolatedAsyncioTestCase):
         self.assertEqual(exc_info.exception.status_code, 404)
         self.assertEqual(exc_info.exception.detail, "Candidate not found")
 
+    async def test_shortlist_only_changes_user_decision(self):
+        user = build_user()
+        project = build_project(user)
+        candidate = build_candidate(
+            project,
+            status="needs_info",
+            next_best_action="verify_cost",
+        )
+        original_assessment_status = candidate.candidate_assessment.status
+        db = FakeAsyncSession()
+
+        async def fake_get_candidate_for_project_user(*_args, **_kwargs):
+            return project, candidate
+
+        with patch.object(
+            candidates_api,
+            "get_candidate_for_project_user",
+            fake_get_candidate_for_project_user,
+        ):
+            response = await candidates_api.shortlist_candidate(
+                project_id=project.id,
+                candidate_id=candidate.id,
+                current_user=user,
+                db=db,
+            )
+
+        self.assertEqual(response.user_decision, "shortlisted")
+        self.assertEqual(response.status, "needs_info")
+        self.assertEqual(candidate.candidate_assessment.status, original_assessment_status)
+
+    async def test_reject_only_changes_user_decision(self):
+        user = build_user()
+        project = build_project(user)
+        candidate = build_candidate(
+            project,
+            status="follow_up",
+            next_best_action="schedule_viewing",
+        )
+        candidate.candidate_assessment.status = "follow_up"
+        candidate.candidate_assessment.recommendation_confidence = "high"
+        db = FakeAsyncSession()
+
+        async def fake_get_candidate_for_project_user(*_args, **_kwargs):
+            return project, candidate
+
+        with patch.object(
+            candidates_api,
+            "get_candidate_for_project_user",
+            fake_get_candidate_for_project_user,
+        ):
+            response = await candidates_api.reject_candidate(
+                project_id=project.id,
+                candidate_id=candidate.id,
+                current_user=user,
+                db=db,
+            )
+
+        self.assertEqual(response.user_decision, "rejected")
+        self.assertEqual(response.status, "follow_up")
+        self.assertEqual(response.candidate_assessment.status, "follow_up")
+        self.assertEqual(
+            response.candidate_assessment.top_level_recommendation,
+            "shortlist_recommendation",
+        )
+
     async def test_delete_candidate_deletes_owned_candidate(self):
         user = build_user()
         project = build_project(user)

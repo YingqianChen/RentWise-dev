@@ -138,11 +138,11 @@ function actionLabel(action: string) {
 function decisionLabel(decision: Candidate["user_decision"]) {
   switch (decision) {
     case "shortlisted":
-      return "Shortlisted";
+      return "You: shortlisted";
     case "rejected":
-      return "Rejected";
+      return "You: rejected";
     default:
-      return "Undecided";
+      return "You: undecided";
   }
 }
 
@@ -160,11 +160,11 @@ function decisionTone(decision: Candidate["user_decision"]) {
 function recommendationLabel(value?: string | null) {
   switch (value) {
     case "shortlist_recommendation":
-      return "Shortlist";
+      return "System: shortlist";
     case "likely_reject":
-      return "Likely reject";
+      return "System: reject";
     default:
-      return "Not ready";
+      return "System: not ready";
   }
 }
 
@@ -606,12 +606,28 @@ export default function ProjectDashboardPage() {
           </div>
         </header>
 
-        <section className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          <KpiCard label="Total" value={stats.total} tone="neutral" />
-          <KpiCard label="Needs info" value={stats.needs_info} tone="amber" />
-          <KpiCard label="Follow up" value={stats.follow_up} tone="blue" />
-          <KpiCard label="High risk" value={stats.high_risk_pending} tone="red" />
-          <KpiCard label="Shortlisted" value={stats.shortlisted} tone="emerald" />
+        <section className="mt-6 grid gap-3 lg:grid-cols-[2fr_1fr]">
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+              System view
+            </p>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+              <KpiCard label="Total" value={stats.total} tone="neutral" />
+              <KpiCard label="Needs info" value={stats.needs_info} tone="amber" />
+              <KpiCard label="Follow up" value={stats.follow_up} tone="blue" />
+              <KpiCard label="High risk" value={stats.high_risk_pending} tone="red" />
+              <KpiCard label="Recommend reject" value={stats.recommended_reject} tone="red" />
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Your decisions
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <KpiCard label="Shortlisted" value={stats.shortlisted} tone="emerald" />
+              <KpiCard label="Rejected" value={stats.rejected} tone="red" />
+            </div>
+          </div>
         </section>
 
         <section className="mt-4 grid gap-3 md:grid-cols-2">

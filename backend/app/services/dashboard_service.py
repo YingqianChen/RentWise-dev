@@ -33,7 +33,12 @@ class DashboardService:
         """Summarize candidate and user-decision counts."""
         candidates = list(candidates)
         usable_candidates = [candidate for candidate in candidates if has_usable_analysis(candidate)]
-        status_counts = Counter(candidate.status for candidate in usable_candidates)
+        status_counts = Counter(
+            candidate.candidate_assessment.status
+            for candidate in usable_candidates
+            if candidate.candidate_assessment is not None
+        )
+        shortlisted = sum(1 for candidate in candidates if candidate.user_decision == "shortlisted")
         rejected = sum(1 for candidate in candidates if candidate.user_decision == "rejected")
         return CandidateStats(
             total=len(candidates),
@@ -42,7 +47,7 @@ class DashboardService:
             follow_up=status_counts.get("follow_up", 0),
             high_risk_pending=status_counts.get("high_risk_pending", 0),
             recommended_reject=status_counts.get("recommended_reject", 0),
-            shortlisted=status_counts.get("shortlisted", 0),
+            shortlisted=shortlisted,
             rejected=rejected,
             processing=sum(1 for candidate in candidates if candidate.processing_stage in PROCESSING_STAGES),
             analysis_failed=sum(1 for candidate in candidates if candidate.processing_stage == "failed"),

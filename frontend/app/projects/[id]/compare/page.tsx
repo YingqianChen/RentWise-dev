@@ -132,12 +132,22 @@ function actionLabel(action: string) {
 function recommendationLabel(value: string) {
   switch (value) {
     case "shortlist_recommendation":
-      return "Shortlist";
+      return "System: shortlist";
     case "likely_reject":
-      return "Likely reject";
+      return "System: reject";
     default:
-      return "Not ready";
+      return "System: not ready";
   }
+}
+
+function userDecisionLabel(value: CompareCandidateCard["user_decision"]) {
+  if (value === "shortlisted") return "You: shortlisted";
+  if (value === "rejected") return "You: rejected";
+  return null;
+}
+
+function userDecisionTone(value: CompareCandidateCard["user_decision"]) {
+  return value === "shortlisted" ? ("emerald" as const) : ("red" as const);
 }
 
 function recommendationTone(value: string) {
@@ -384,6 +394,11 @@ function BestOptionHero({
             <Badge tone={recommendationTone(candidate.top_recommendation)}>
               {recommendationLabel(candidate.top_recommendation)}
             </Badge>
+            {userDecisionLabel(candidate.user_decision) && (
+              <Badge tone={userDecisionTone(candidate.user_decision)}>
+                {userDecisionLabel(candidate.user_decision)}
+              </Badge>
+            )}
             <Badge tone="blue">{actionLabel(candidate.next_action)}</Badge>
           </div>
         </div>
@@ -443,9 +458,16 @@ function AlternativeCard({
             {candidate.district || "District unknown"}
           </p>
         </div>
-        <Badge tone={recommendationTone(candidate.top_recommendation)}>
-          {recommendationLabel(candidate.top_recommendation)}
-        </Badge>
+        <div className="flex flex-wrap justify-end gap-1.5">
+          <Badge tone={recommendationTone(candidate.top_recommendation)}>
+            {recommendationLabel(candidate.top_recommendation)}
+          </Badge>
+          {userDecisionLabel(candidate.user_decision) && (
+            <Badge tone={userDecisionTone(candidate.user_decision)}>
+              {userDecisionLabel(candidate.user_decision)}
+            </Badge>
+          )}
+        </div>
       </div>
 
       <p className="mt-2 text-xs leading-5 text-gray-600 line-clamp-3">
@@ -497,9 +519,16 @@ function TertiaryCard({
               {candidate.monthly_rent || "Rent unknown"} · {candidate.district || "—"}
             </p>
           </div>
-          <Badge tone={recommendationTone(candidate.top_recommendation)}>
-            {recommendationLabel(candidate.top_recommendation)}
-          </Badge>
+          <div className="flex flex-wrap justify-end gap-1.5">
+            <Badge tone={recommendationTone(candidate.top_recommendation)}>
+              {recommendationLabel(candidate.top_recommendation)}
+            </Badge>
+            {userDecisionLabel(candidate.user_decision) && (
+              <Badge tone={userDecisionTone(candidate.user_decision)}>
+                {userDecisionLabel(candidate.user_decision)}
+              </Badge>
+            )}
+          </div>
         </div>
         <p className="mt-1 line-clamp-2 text-xs text-gray-600">{candidate.decision_explanation}</p>
         {candidate.open_blocker && (

@@ -181,7 +181,7 @@ export interface CandidateAssessment {
   information_gain_level: "high" | "medium" | "low";
   recommendation_confidence: "high" | "medium" | "low";
   next_best_action: "verify_cost" | "verify_clause" | "schedule_viewing" | "keep_warm" | "reject";
-  status: "new" | "needs_info" | "follow_up" | "high_risk_pending" | "recommended_reject" | "shortlisted";
+  status: "new" | "needs_info" | "follow_up" | "high_risk_pending" | "recommended_reject";
   labels: string[];
   summary: string;
 }
@@ -381,6 +381,7 @@ export interface CompareCandidateCard {
   monthly_rent: string | null;
   district: string | null;
   status: string;
+  user_decision: "undecided" | "shortlisted" | "rejected";
   benchmark: BenchmarkEvidence | null;
   commute_evidence: CommuteEvidence | null;
 }

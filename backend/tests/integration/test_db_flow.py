@@ -181,6 +181,47 @@ class DatabaseFlowTests(TestCase):
         self.assertTrue(dashboard_payload["current_advice"])
         self.assertGreaterEqual(len(dashboard_payload["priority_candidates"]), 1)
 
+        original_system_status = candidate_detail["status"]
+        original_assessment_status = candidate_detail["candidate_assessment"]["status"]
+
+        shortlist_response = self.client.post(
+            f"/api/v1/projects/{project_id}/candidates/{candidate_id}/shortlist",
+            headers=headers,
+        )
+        self.assertEqual(shortlist_response.status_code, 200, shortlist_response.text)
+        shortlisted = shortlist_response.json()
+        self.assertEqual(shortlisted["user_decision"], "shortlisted")
+        self.assertEqual(shortlisted["status"], original_system_status)
+        self.assertEqual(
+            shortlisted["candidate_assessment"]["status"],
+            original_assessment_status,
+        )
+
+        shortlisted_dashboard = self.client.get(
+            f"/api/v1/projects/{project_id}/dashboard",
+            headers=headers,
+        ).json()
+        self.assertEqual(shortlisted_dashboard["stats"]["shortlisted"], 1)
+        self.assertEqual(shortlisted_dashboard["stats"]["recommended_reject"], 0)
+
+        reject_response = self.client.post(
+            f"/api/v1/projects/{project_id}/candidates/{candidate_id}/reject",
+            headers=headers,
+        )
+        self.assertEqual(reject_response.status_code, 200, reject_response.text)
+        rejected = reject_response.json()
+        self.assertEqual(rejected["user_decision"], "rejected")
+        self.assertEqual(rejected["status"], original_system_status)
+        self.assertEqual(rejected["candidate_assessment"]["status"], original_assessment_status)
+
+        rejected_dashboard = self.client.get(
+            f"/api/v1/projects/{project_id}/dashboard",
+            headers=headers,
+        ).json()
+        self.assertEqual(rejected_dashboard["stats"]["shortlisted"], 0)
+        self.assertEqual(rejected_dashboard["stats"]["rejected"], 1)
+        self.assertEqual(rejected_dashboard["stats"]["recommended_reject"], 0)
+
         with patch(
             "app.services.extraction_service.chat_completion_json",
             AsyncMock(side_effect=TimeoutError("provider timed out")),
@@ -213,6 +254,8 @@ class DatabaseFlowTests(TestCase):
         self.assertEqual(retried["processing_stage"], "completed")
         self.assertIsNone(retried["processing_error_code"])
         self.assertIsNotNone(retried["candidate_assessment"])
+        self.assertEqual(retried["user_decision"], "rejected")
+        self.assertEqual(retried["status"], retried["candidate_assessment"]["status"])
 
     def test_missing_llm_configuration_persists_safe_failed_state(self) -> None:
         register_response = self.client.post(

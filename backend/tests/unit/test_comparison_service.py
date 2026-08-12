@@ -118,6 +118,47 @@ class ComparisonServiceTests(TestCase):
 
         self.assertEqual(suggested, [completed.id])
 
+    def test_user_rejection_is_explicit_and_does_not_change_system_recommendation(self):
+        project = build_project(build_user())
+        user_rejected = build_candidate(
+            project,
+            name="User Rejected",
+            status="follow_up",
+            user_decision="rejected",
+            next_best_action="schedule_viewing",
+        )
+        user_rejected.candidate_assessment.status = "follow_up"
+        user_rejected.candidate_assessment.recommendation_confidence = "high"
+        comparison_peer = build_candidate(project, name="Peer")
+
+        result = ComparisonService().compare(project, [user_rejected, comparison_peer])
+        card = result["groups"].likely_drop[0]
+
+        self.assertEqual(card.user_decision, "rejected")
+        self.assertEqual(card.top_recommendation, "shortlist_recommendation")
+        self.assertIn("rejected by you", card.decision_explanation.lower())
+        self.assertIn("system", card.decision_explanation.lower())
+
+    def test_system_reject_remains_explicit_when_user_shortlists_candidate(self):
+        project = build_project(build_user())
+        user_shortlisted = build_candidate(
+            project,
+            name="Contradictory Choice",
+            status="recommended_reject",
+            user_decision="shortlisted",
+            next_best_action="reject",
+        )
+        user_shortlisted.candidate_assessment.status = "recommended_reject"
+        comparison_peer = build_candidate(project, name="Peer")
+
+        result = ComparisonService().compare(project, [user_shortlisted, comparison_peer])
+        card = result["groups"].likely_drop[0]
+
+        self.assertEqual(card.user_decision, "shortlisted")
+        self.assertEqual(card.top_recommendation, "likely_reject")
+        self.assertIn("shortlisted by you", card.decision_explanation.lower())
+        self.assertIn("system", card.decision_explanation.lower())
+
 
 if __name__ == "__main__":
     import unittest

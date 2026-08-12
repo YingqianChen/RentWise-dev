@@ -157,7 +157,7 @@ Return JSON only:
     "information_gain_level": "high/medium/low",
     "recommendation_confidence": "high/medium/low",
     "next_best_action": "verify_cost/verify_clause/schedule_viewing/keep_warm/reject",
-    "status": "new/needs_info/follow_up/high_risk_pending/recommended_reject/shortlisted",
+    "status": "new/needs_info/follow_up/high_risk_pending/recommended_reject",
     "labels": ["label_1", "label_2"],
     "summary": "Short English summary under 100 words"
 }}

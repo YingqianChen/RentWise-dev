@@ -117,7 +117,7 @@ class CandidateListing(Base):
     combined_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(
         String(50), default="new", nullable=False
-    )  # new | needs_info | follow_up | high_risk_pending | recommended_reject | shortlisted
+    )  # new | needs_info | follow_up | high_risk_pending | recommended_reject
     processing_stage: Mapped[Optional[str]] = mapped_column(
         String(50), nullable=True
     )  # queued | running_ocr | extracting | assessing | completed | failed
@@ -326,7 +326,7 @@ class CandidateAssessment(Base):
     )  # verify_cost | verify_clause | schedule_viewing | keep_warm | reject
     status: Mapped[str] = mapped_column(
         String(50), default="new", nullable=False
-    )  # new | needs_info | follow_up | high_risk_pending | recommended_reject | shortlisted
+    )  # new | needs_info | follow_up | high_risk_pending | recommended_reject
     labels: Mapped[List[str]] = mapped_column(
         ARRAY(String), default=list, nullable=False
     )

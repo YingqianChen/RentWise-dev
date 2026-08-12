@@ -126,12 +126,4 @@ class CandidatePipelineService:
         candidate.cost_assessment = cost_assessment
         candidate.clause_assessment = clause_assessment
         candidate.candidate_assessment = candidate_assessment
-
-        if candidate.user_decision == "shortlisted":
-            candidate.status = "shortlisted"
-            candidate_assessment.status = "shortlisted"
-        elif candidate.user_decision == "rejected":
-            candidate.status = "recommended_reject"
-            candidate_assessment.status = "recommended_reject"
-        else:
-            candidate.status = candidate_assessment.status
+        candidate.status = candidate_assessment.status

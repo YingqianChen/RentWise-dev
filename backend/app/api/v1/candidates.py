@@ -347,9 +347,6 @@ async def shortlist_candidate(
     """Shortlist a candidate."""
     project, candidate = await get_candidate_for_project_user(project_id, candidate_id, current_user, db)
     candidate.user_decision = "shortlisted"
-    candidate.status = "shortlisted"
-    if candidate.candidate_assessment is not None:
-        candidate.candidate_assessment.status = "shortlisted"
     await db.flush()
     _, candidate = await get_candidate_for_project_user(project.id, candidate.id, current_user, db)
     return await _serialize_candidate(candidate, project=project, compute_commute=True, db=db)
@@ -365,9 +362,6 @@ async def reject_candidate(
     """Reject a candidate."""
     project, candidate = await get_candidate_for_project_user(project_id, candidate_id, current_user, db)
     candidate.user_decision = "rejected"
-    candidate.status = "recommended_reject"
-    if candidate.candidate_assessment is not None:
-        candidate.candidate_assessment.status = "recommended_reject"
     await db.flush()
     _, candidate = await get_candidate_for_project_user(project.id, candidate.id, current_user, db)
     return await _serialize_candidate(candidate, project=project, compute_commute=True, db=db)

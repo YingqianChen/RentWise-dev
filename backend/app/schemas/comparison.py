@@ -49,6 +49,7 @@ class CompareCandidateCard(BaseModel):
     monthly_rent: Optional[str]
     district: Optional[str]
     status: str
+    user_decision: str
     benchmark: Optional[BenchmarkEvidence] = None
     commute_evidence: Optional[CommuteEvidence] = None
 

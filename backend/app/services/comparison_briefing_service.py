@@ -88,7 +88,7 @@ class ComparisonBriefingService:
                 )
             else:
                 why_now = (
-                    f"It is ahead because the rest of the selected set is either too uncertain or too weak to challenge it right now."
+                    "It is ahead because the rest of the selected set is either too uncertain or too weak to challenge it right now."
                 )
             if not_ready:
                 what_could_change = (

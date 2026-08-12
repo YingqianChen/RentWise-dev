@@ -8,7 +8,6 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...core.config import settings
 from ...core.security import (
     verify_password, get_password_hash, create_access_token, decode_access_token
 )

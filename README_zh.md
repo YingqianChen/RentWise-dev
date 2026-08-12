@@ -8,11 +8,11 @@ RentWise 是一个面向香港租客的候选房源研究工作区。你把 list
 同步更新。
 
 - `backend/` — FastAPI + SQLAlchemy + Alembic
-- `frontend/` — Next.js 14 + React + TypeScript + Tailwind
+- `frontend/` — Next.js 16 + React + TypeScript + Tailwind
 - `legacy/` — 已归档的 Streamlit 原型，仅供参考
 - `docs/design-notes.md` — 关键设计决策与权衡
 - `docs/resume-highlights.md` — 4 项技术亮点（面向汇报 / 面试）
-- `document/` — benchmark 使用的原始 PDF
+- `document/` — 为保留来源而归档的原始 PDF
 
 ## RentWise 做什么
 
@@ -81,7 +81,7 @@ RentWise/
       db/                  # models, session
       services/            # extraction、assessment、compare、OCR、commute …
       integrations/        # als、amap、llm
-      data/                # 版本化 benchmark 数据
+      data/                # 版本化本地参考数据
     alembic/               # migration
     tests/
   frontend/
@@ -113,7 +113,7 @@ RentWise/
   `investigation_service.py` — dashboard 组装
 - `app/services/comparison_service.py` + `comparison_briefing_service.py` —
   compare grouping 与 LLM briefing
-- `app/services/benchmark_service.py` — SDU 中位租金 benchmark 查找
+- `app/services/benchmark_service.py` — 保留作参考的旧 SDU 查询；产品输出已停用
 - `app/services/commute_service.py` — 先解析 candidate 与目的地，再做路径规划
 - `app/services/candidate_contact_plan_service.py` — 外联草稿
 - `app/services/tenancy_rag_service.py` — 对香港租务指南的 BM25 + jieba
@@ -141,13 +141,17 @@ RentWise/
 
 ```bash
 cd backend
-python -m venv venv
-.\venv\Scripts\activate
-pip install -r requirements.txt
-copy .env.example .env
+uv python install 3.11.15
+uv venv --python 3.11.15
+uv pip sync requirements-dev.txt
+cp .env.example .env
 alembic upgrade head
 uvicorn app.main:app --reload --port 8000
 ```
+
+精确的运行与开发依赖分别记录在 `requirements.txt` 和
+`requirements-dev.txt`。依赖变更应先修改对应的 `.in` 文件，再用
+`uv pip compile` 重新生成锁定文件，不要手改生成结果。
 
 API：`http://localhost:8000`，Swagger：`/docs`。
 
@@ -164,8 +168,10 @@ OCR 默认使用 `rapidocr_onnxruntime`（轻量、Windows 友好）。内存受
 
 ```bash
 cd frontend
-npm install
-copy .env.local.example .env.local
+nvm install
+nvm use
+npm ci
+cp .env.local.example .env.local
 npm run dev
 ```
 
@@ -208,8 +214,8 @@ Frontend：`http://localhost:3000`。
 
 1. **Frontend** — Vercel，项目根目录 `frontend/`
 2. **Backend** — Render Python web service，根目录 `backend/`，Python runtime
-   固定到 3.11（仓库根目录已提供 `.python-version = 3.11.11`；若 Render 未识别，
-   在环境变量里补上 `PYTHON_VERSION=3.11.11` 强制覆盖）
+   固定到 3.11（仓库根目录已提供 `.python-version = 3.11.15`；若 Render 未识别，
+   在环境变量里补上 `PYTHON_VERSION=3.11.15` 强制覆盖）
 3. **Database** — Neon，asyncpg 连接串
 4. Vercel 的 `NEXT_PUBLIC_API_URL` 指向 Render 后端域名
 5. Render 的 `BACKEND_CORS_ORIGINS` 包含你的 Vercel 正式（与 preview）域名
@@ -239,20 +245,28 @@ Render 关键环境变量：
 
 ```bash
 cd backend
-python -m unittest discover -s tests -p "test_*.py"
+.venv/bin/ruff check app tests scripts
+.venv/bin/python -m pytest -q
 ```
 
-真实 Postgres 集成流：
+真实 Postgres 集成流（数据库名必须以 `_test` 结尾）：
 
 ```bash
-cd backend
-set RUN_DB_INTEGRATION=1
-.\venv\Scripts\python.exe -m unittest tests.integration.test_db_flow
+createdb rentwise_test
+DATABASE_URL=postgresql+asyncpg://localhost:5432/rentwise_test \
+  RUN_DB_INTEGRATION=1 \
+  .venv/bin/python -m pytest tests/integration/test_db_flow.py -q
+```
+
+Frontend 检查：
+
+```bash
+cd frontend
+npm run check
 ```
 
 测试覆盖 priority ranking、investigation checklist、candidate recommendation、
-compare grouping + explanation + briefing fallback、OCR parsing、benchmark
-lookup。
+compare grouping + explanation + briefing fallback、OCR parsing、旧参考数据解析。
 
 另有独立的 eval suite 位于 `backend/tests/evals/`，用于守护 LLM 流水线
 的质量回归：extraction 黄金样本、commute agent 黄金场景、tenancy RAG
@@ -280,17 +294,16 @@ commit 间 diff 质量漂移。fixture 与 floor 细节见
 
 ## Evidence 层
 
-RentWise 使用三条独立的 evidence 层。三者都不直接进入主 candidate score，
+RentWise 使用两条启用中的 evidence 层。它们都不直接进入主 candidate score，
 只作为帮助用户判断的支撑证据。
 
-**1. SDU benchmark**（已上线）
+**已归档：SDU benchmark**（已停用）
 - 来源：`document/SDU_median_rents.pdf`，抽取到
   `backend/app/data/benchmark_sdu_rents.json`
-- 只有当 candidate 被判定为 likely SDU、并且有 district 时才展示。
-  卡片始终带明显的 "仅针对 subdivided units、仅作 general reference"
-  免责说明。
+- Candidate 和 Compare 不再返回或展示该数据，它也不参与推荐、排序、风险
+  或“贵不贵”的判断。RentWise 只把房源已知成本与租客自己的预算比较。
 
-**2. 通勤**（已上线）
+**1. 通勤**（已上线）
 - 项目级配置：enabled flag、destination label、destination query、
   mode（transit/driving/walking）、max minutes
 - Candidate 级位置：address、building name、nearest station、district、
@@ -300,7 +313,7 @@ RentWise 使用三条独立的 evidence 层。三者都不直接进入主 candid
 - 所有 geocoder 都失败时会显示 "Location not precise enough" 并附带
   具体 confidence_note，而不是掩盖失败原因。
 
-**3. Tenancy guide RAG**（已上线）
+**2. Tenancy guide RAG**（已上线）
 - 源文档：`document/AGuideToTenancy_ch.pdf`（CID 编码扫描件）通过
   PyMuPDF 按页栅格化后用 `rapidocr_onnxruntime` 做 OCR，切成 ~400
   字的 chunk，jieba 分词，BM25Okapi 建索引。索引产物

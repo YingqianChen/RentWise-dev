@@ -15,6 +15,7 @@ from ...schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectResponse, ProjectListResponse
 )
 from ...services.candidate_pipeline_service import CandidatePipelineService
+from ...services.candidate_analysis_state import has_usable_analysis
 from .auth import get_current_user
 
 router = APIRouter()
@@ -199,9 +200,9 @@ async def update_project(
         )
         candidates = candidate_result.scalars().all()
         for candidate in candidates:
-            if candidate.processing_stage in {"queued", "running_ocr", "extracting"}:
+            if not has_usable_analysis(candidate):
                 continue
-            await pipeline_service.assess_candidate(db=db, project=project, candidate=candidate)
+            await pipeline_service.reassess_for_budget(db=db, project=project, candidate=candidate)
 
     await db.flush()
     await db.refresh(project)

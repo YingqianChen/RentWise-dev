@@ -9,11 +9,11 @@ This README is the canonical project document. A synchronized Chinese copy
 is kept in `README_zh.md`; update both together.
 
 - `backend/` — FastAPI + SQLAlchemy + Alembic
-- `frontend/` — Next.js 14 + React + TypeScript + Tailwind
+- `frontend/` — Next.js 16 + React + TypeScript + Tailwind
 - `legacy/` — archived Streamlit prototype, reference only
 - `docs/design-notes.md` — key design decisions and tradeoffs
 - `docs/resume-highlights.md` — 4 technical highlights for demos / interviews
-- `document/` — source PDFs used by benchmarks
+- `document/` — archived source PDFs retained for provenance
 
 ## What RentWise does
 
@@ -95,7 +95,7 @@ RentWise/
       db/                  # models, session
       services/            # extraction, assessment, compare, OCR, commute, ...
       integrations/        # als, amap, llm
-      data/                # versioned benchmark data
+      data/                # versioned local reference data
     alembic/               # migrations
     tests/
   frontend/
@@ -124,7 +124,7 @@ RentWise/
 - `app/services/file_storage_service.py` — upload storage abstraction
 - `app/services/dashboard_service.py` + `priority_service.py` + `investigation_service.py` — dashboard assembly
 - `app/services/comparison_service.py` + `comparison_briefing_service.py` — compare grouping + LLM briefing
-- `app/services/benchmark_service.py` — SDU median-rent benchmark lookup
+- `app/services/benchmark_service.py` — legacy SDU lookup retained for reference; disabled in product output
 - `app/services/commute_service.py` — geocode candidate + destination, then route
 - `app/services/candidate_contact_plan_service.py` — outreach draft
 - `app/services/tenancy_rag_service.py` — BM25 + jieba retriever over the HK
@@ -152,13 +152,17 @@ RentWise/
 
 ```bash
 cd backend
-python -m venv venv
-.\venv\Scripts\activate
-pip install -r requirements.txt
-copy .env.example .env
+uv python install 3.11.15
+uv venv --python 3.11.15
+uv pip sync requirements-dev.txt
+cp .env.example .env
 alembic upgrade head
 uvicorn app.main:app --reload --port 8000
 ```
+
+The exact runtime and development dependencies live in `requirements.txt`
+and `requirements-dev.txt`. Edit the corresponding `.in` file and recompile
+the lock file with `uv pip compile` rather than editing a generated file.
 
 API at `http://localhost:8000`, Swagger at `/docs`.
 
@@ -176,8 +180,10 @@ head` flow.
 
 ```bash
 cd frontend
-npm install
-copy .env.local.example .env.local
+nvm install
+nvm use
+npm ci
+cp .env.local.example .env.local
 npm run dev
 ```
 
@@ -220,8 +226,8 @@ Recommended hosted setup:
 
 1. **Frontend** — Vercel, project root `frontend/`
 2. **Backend** — Render Python web service, root `backend/`, pin Python
-   runtime to 3.11 (the repo ships `.python-version` = `3.11.11`; if Render
-   ignores it, add `PYTHON_VERSION=3.11.11` as env var)
+   runtime to 3.11 (the repo ships `.python-version` = `3.11.15`; if Render
+   ignores it, add `PYTHON_VERSION=3.11.15` as env var)
 3. **Database** — Neon, asyncpg connection string
 4. `NEXT_PUBLIC_API_URL` in Vercel → Render backend URL
 5. `BACKEND_CORS_ORIGINS` on Render → your Vercel production (and preview)
@@ -253,20 +259,29 @@ storage before treating a deployment as production-ready.
 
 ```bash
 cd backend
-python -m unittest discover -s tests -p "test_*.py"
+.venv/bin/ruff check app tests scripts
+.venv/bin/python -m pytest -q
 ```
 
-Real Postgres integration flow:
+Real Postgres integration flow (the database name must end in `_test`):
 
 ```bash
-cd backend
-set RUN_DB_INTEGRATION=1
-.\venv\Scripts\python.exe -m unittest tests.integration.test_db_flow
+createdb rentwise_test
+DATABASE_URL=postgresql+asyncpg://localhost:5432/rentwise_test \
+  RUN_DB_INTEGRATION=1 \
+  .venv/bin/python -m pytest tests/integration/test_db_flow.py -q
+```
+
+Frontend checks:
+
+```bash
+cd frontend
+npm run check
 ```
 
 The suite covers priority ranking, investigation checklist, candidate
 recommendation, compare grouping + explanation + briefing fallback, OCR
-parsing, and benchmark lookup.
+parsing, and legacy reference-data parsing.
 
 A separate pytest-marked eval suite under `backend/tests/evals/` guards
 against regressions in the LLM pipeline: golden listings for extraction,
@@ -296,17 +311,17 @@ Before pushing to GitHub:
 
 ## Evidence layers
 
-RentWise uses three independent evidence layers. None of them feed the
-main candidate score directly — they exist to support user judgment.
+RentWise uses two active evidence layers. Neither feeds the main candidate
+score directly — they exist to support user judgment.
 
-**1. SDU benchmark** (active)
+**Archived: SDU benchmark** (disabled)
 - Source: `document/SDU_median_rents.pdf`, extracted into
   `backend/app/data/benchmark_sdu_rents.json`
-- Shown on candidate detail and compare only when the candidate is
-  likely an SDU and has a district. Always carries an explicit
-  "subdivided units, general reference only" disclaimer.
+- Not returned by candidate or comparison output and not used for
+  recommendations, ranking, risk, or price judgments. RentWise only compares
+  known listing costs with the renter's own budget.
 
-**2. Commute** (active)
+**1. Commute** (active)
 - Project-level configuration: enabled flag, destination label,
   destination query, mode (transit/driving/walking), max minutes
 - Candidate-level location: address, building name, nearest station,
@@ -316,7 +331,7 @@ main candidate score directly — they exist to support user judgment.
 - Surfaces "Location not precise enough" with the actual confidence
   note when all geocoders fail, instead of hiding the reason.
 
-**3. Tenancy guide RAG** (active)
+**2. Tenancy guide RAG** (active)
 - Source: `document/AGuideToTenancy_ch.pdf` (CID-encoded scan) rendered
   page-by-page via PyMuPDF and OCR'd with `rapidocr_onnxruntime`,
   chunked at ~400 characters, tokenized with jieba, indexed with

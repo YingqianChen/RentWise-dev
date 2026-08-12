@@ -169,6 +169,7 @@ class CandidateResponse(BaseModel):
     status: str
     processing_stage: Optional[str]
     processing_error: Optional[str]
+    processing_error_code: Optional[str]
     user_decision: str
     created_at: datetime
     updated_at: datetime

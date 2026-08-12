@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -41,7 +41,6 @@ import {
 } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import type {
-  BenchmarkEvidence,
   Candidate,
   CandidateContactPlan,
   CommuteSegment,
@@ -344,8 +343,8 @@ function riskLabel(flag?: string | null) {
       return "High";
     case "over_budget":
       return "Over budget";
-    case "hidden_cost_risk":
-      return "Hidden cost risk";
+    case "incomplete":
+      return "Information incomplete";
     case "possible_additional_cost":
       return "Possible extra cost";
     case "needs_confirmation":
@@ -361,8 +360,8 @@ function riskTone(flag?: string | null) {
       return "text-emerald-700 bg-emerald-50 ring-emerald-200";
     case "high_risk":
     case "over_budget":
-    case "hidden_cost_risk":
-      return "text-red-700 bg-red-50 ring-red-200";
+    case "incomplete":
+      return "text-gray-700 bg-gray-100 ring-gray-200";
     case "possible_additional_cost":
     case "needs_confirmation":
       return "text-amber-700 bg-amber-50 ring-amber-200";
@@ -486,17 +485,6 @@ function processingStageDescription(stage?: string | null) {
   }
 }
 
-function benchmarkStatusCopy(benchmark: BenchmarkEvidence) {
-  switch (benchmark.status) {
-    case "no_benchmark_record":
-      return "No district benchmark record is available for this candidate yet.";
-    case "no_district":
-      return "District is still missing, so benchmark context is unavailable.";
-    default:
-      return "This listing does not look like an SDU, so the SDU benchmark is not shown.";
-  }
-}
-
 function buildCompareSetIds(comparison: ComparisonResponse): string[] {
   return [
     ...(comparison.groups.best_current_option ? [comparison.groups.best_current_option.candidate_id] : []),
@@ -521,7 +509,7 @@ function buildDecisionBlockers(candidate: Candidate): string[] {
   const clause = candidate.clause_assessment;
   const signals = candidate.extracted_info?.decision_signals ?? [];
 
-  if (cost?.cost_risk_flag === "hidden_cost_risk") {
+  if (cost?.cost_risk_flag === "incomplete") {
     blockers.push("The real monthly cost is still incomplete.");
   }
   if (clause?.repair_responsibility_level === "supported_but_unconfirmed") {
@@ -674,6 +662,46 @@ export default function CandidateDetailPage() {
     candidate?.processing_stage !== undefined &&
     !["completed", "failed"].includes(candidate.processing_stage);
 
+  const loadCandidate = useCallback(
+    async (token: string) => {
+      try {
+        const [data, candidatesData] = await Promise.all([
+          getCandidate(token, projectId, candidateId),
+          getCandidates(token, projectId),
+        ]);
+        setCandidate(data);
+        setFormState({
+          name: data.name,
+          raw_listing_text: data.raw_listing_text ?? "",
+          raw_chat_text: data.raw_chat_text ?? "",
+          raw_note_text: data.raw_note_text ?? "",
+        });
+        setContactPlan(null);
+        setContactPlanError("");
+        setContactPlanCopied(false);
+        const compareIds = buildSuggestedCompareIds(candidatesData.candidates, data.id);
+        try {
+          if (compareIds.length >= 2) {
+            const comparison = await compareCandidates(token, projectId, compareIds);
+            const card = findCompareCardForCandidate(comparison, data.id);
+            setCompareContext(card ? { comparison, card } : null);
+          } else {
+            setCompareContext(null);
+          }
+        } catch (compareError) {
+          console.error("Failed to load compare context:", compareError);
+          setCompareContext(null);
+        }
+      } catch (err) {
+        console.error("Failed to load candidate:", err);
+        router.push(`/projects/${projectId}`);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [candidateId, projectId, router]
+  );
+
   useEffect(() => {
     const token = getToken();
     if (!token) {
@@ -682,7 +710,7 @@ export default function CandidateDetailPage() {
     }
 
     void loadCandidate(token);
-  }, [candidateId, router]);
+  }, [loadCandidate, router]);
 
   useEffect(() => {
     const token = getToken();
@@ -695,44 +723,7 @@ export default function CandidateDetailPage() {
     }, 3000);
 
     return () => window.clearInterval(interval);
-  }, [isProcessing, candidateId, projectId]);
-
-  const loadCandidate = async (token: string) => {
-    try {
-      const [data, candidatesData] = await Promise.all([
-        getCandidate(token, projectId, candidateId),
-        getCandidates(token, projectId),
-      ]);
-      setCandidate(data);
-      setFormState({
-        name: data.name,
-        raw_listing_text: data.raw_listing_text ?? "",
-        raw_chat_text: data.raw_chat_text ?? "",
-        raw_note_text: data.raw_note_text ?? "",
-      });
-      setContactPlan(null);
-      setContactPlanError("");
-      setContactPlanCopied(false);
-      const compareIds = buildSuggestedCompareIds(candidatesData.candidates, data.id);
-      try {
-        if (compareIds.length >= 2) {
-          const comparison = await compareCandidates(token, projectId, compareIds);
-          const card = findCompareCardForCandidate(comparison, data.id);
-          setCompareContext(card ? { comparison, card } : null);
-        } else {
-          setCompareContext(null);
-        }
-      } catch (compareError) {
-        console.error("Failed to load compare context:", compareError);
-        setCompareContext(null);
-      }
-    } catch (err) {
-      console.error("Failed to load candidate:", err);
-      router.push(`/projects/${projectId}`);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [isProcessing, loadCandidate]);
 
   const handleAction = async (action: "shortlist" | "reject") => {
     const token = getToken();
@@ -926,7 +917,6 @@ export default function CandidateDetailPage() {
   const cost = candidate.cost_assessment;
   const clause = candidate.clause_assessment;
   const assessment = candidate.candidate_assessment;
-  const benchmark = candidate.benchmark;
   const decisionBlockers = buildDecisionBlockers(candidate);
   const monthlyCostDisplay = cost?.known_monthly_cost
     ? `HKD ${cost.known_monthly_cost.toLocaleString()}`
@@ -1329,45 +1319,10 @@ export default function CandidateDetailPage() {
               <TabsContent value="fit">
                 <Card>
                   <CardHeader>
-                    <CardTitle>Market and fit context</CardTitle>
-                    <CardDescription>District benchmark and situational fit signals.</CardDescription>
+                    <CardTitle>Fit context</CardTitle>
+                    <CardDescription>How the known facts relate to your own requirements.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    {benchmark && benchmark.status === "available" ? (
-                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-                        <div className="flex flex-wrap items-baseline justify-between gap-2">
-                          <p className="text-sm font-medium text-gray-900">
-                            Median rent in {benchmark.district}
-                          </p>
-                          <p className="text-lg font-semibold text-gray-900">
-                            HKD {benchmark.median_monthly_rent?.toLocaleString()}
-                          </p>
-                        </div>
-                        <p className="mt-1 text-xs text-gray-500">
-                          {benchmark.source_period} · HKD{" "}
-                          {benchmark.median_monthly_rent_per_sqm?.toLocaleString()} per sq m / mo
-                        </p>
-                        {benchmark.fit_note && (
-                          <p className="mt-3 text-sm text-gray-700">{benchmark.fit_note}</p>
-                        )}
-                        {benchmark.record_note === "fewer_than_10_records" && (
-                          <p className="mt-2 text-xs text-amber-700">
-                            Based on fewer than 10 rental records.
-                          </p>
-                        )}
-                        {benchmark.disclaimer && (
-                          <p className="mt-2 text-xs text-gray-500">{benchmark.disclaimer}</p>
-                        )}
-                      </div>
-                    ) : benchmark ? (
-                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-                        <p className="text-sm text-gray-700">{benchmarkStatusCopy(benchmark)}</p>
-                        <p className="mt-2 text-xs text-gray-500">
-                          For subdivided units only. General reference, not property-specific.
-                        </p>
-                      </div>
-                    ) : null}
-
                     {assessment && (
                       <div className="grid grid-cols-2 gap-3">
                         <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">

@@ -61,7 +61,7 @@ async def _probe_station(client, station: dict) -> tuple[str, float, tuple[float
     for q in queries:
         try:
             coords = await client.search_poi(q)
-        except Exception as exc:  # pragma: no cover
+        except Exception:  # pragma: no cover
             return "error", 0.0, None
         if coords is None:
             continue

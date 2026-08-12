@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -300,6 +300,37 @@ export default function ProjectDashboardPage() {
   const [commuteSaving, setCommuteSaving] = useState(false);
   const [commuteError, setCommuteError] = useState("");
 
+  const loadData = useCallback(
+    async (token: string) => {
+      try {
+        const [projectData, dashboardData, candidatesData] = await Promise.all([
+          getProject(token, projectId),
+          getDashboard(token, projectId),
+          getCandidates(token, projectId),
+        ]);
+
+        setProject(projectData);
+        setBudgetInput(projectData.max_budget ? String(projectData.max_budget) : "");
+        setCommuteDestLabel(projectData.commute_destination_label || "");
+        setCommuteDestQuery(projectData.commute_destination_query || "");
+        setCommuteMode(projectData.commute_mode || "transit");
+        setMaxCommuteMinutes(
+          projectData.max_commute_minutes ? String(projectData.max_commute_minutes) : ""
+        );
+        setCommuteDepartureWindow(projectData.commute_departure_window || "peak_both");
+        setCommuteDepartureTime(projectData.commute_departure_time || "");
+        setDashboard(dashboardData);
+        setCandidates(candidatesData.candidates);
+      } catch (err) {
+        console.error("Failed to load project:", err);
+        router.push("/projects");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [projectId, router]
+  );
+
   useEffect(() => {
     const token = getToken();
     if (!token) {
@@ -308,7 +339,7 @@ export default function ProjectDashboardPage() {
     }
 
     void loadData(token);
-  }, [projectId, router]);
+  }, [loadData, router]);
 
   useEffect(() => {
     const token = getToken();
@@ -329,35 +360,7 @@ export default function ProjectDashboardPage() {
     }, 3000);
 
     return () => window.clearInterval(interval);
-  }, [candidates, projectId]);
-
-  const loadData = async (token: string) => {
-    try {
-      const [projectData, dashboardData, candidatesData] = await Promise.all([
-        getProject(token, projectId),
-        getDashboard(token, projectId),
-        getCandidates(token, projectId),
-      ]);
-
-      setProject(projectData);
-      setBudgetInput(projectData.max_budget ? String(projectData.max_budget) : "");
-      setCommuteDestLabel(projectData.commute_destination_label || "");
-      setCommuteDestQuery(projectData.commute_destination_query || "");
-      setCommuteMode(projectData.commute_mode || "transit");
-      setMaxCommuteMinutes(
-        projectData.max_commute_minutes ? String(projectData.max_commute_minutes) : ""
-      );
-      setCommuteDepartureWindow(projectData.commute_departure_window || "peak_both");
-      setCommuteDepartureTime(projectData.commute_departure_time || "");
-      setDashboard(dashboardData);
-      setCandidates(candidatesData.candidates);
-    } catch (err) {
-      console.error("Failed to load project:", err);
-      router.push("/projects");
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [candidates, loadData]);
 
   const groupedItems = useMemo(() => {
     const items = dashboard?.open_investigation_items ?? [];

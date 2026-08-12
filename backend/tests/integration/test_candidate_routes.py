@@ -37,6 +37,7 @@ class FakeAsyncSession:
         self.delete = AsyncMock()
         self.flush = AsyncMock()
         self.commit = AsyncMock()
+        self.rollback = AsyncMock()
 
     async def execute(self, *_args, **_kwargs):
         if not self.execute_results:
@@ -195,8 +196,10 @@ class CandidateRouteTests(IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(response.id, candidate.id)
+        self.assertEqual(response.processing_stage, "completed")
+        self.assertIsNone(response.processing_error_code)
         assess_mock.assert_awaited_once_with(db=db, project=project, candidate=candidate)
-        db.flush.assert_awaited_once()
+        self.assertGreaterEqual(db.commit.await_count, 2)
 
     async def test_update_candidate_with_text_changes_reruns_pipeline(self):
         user = build_user()
@@ -231,8 +234,55 @@ class CandidateRouteTests(IsolatedAsyncioTestCase):
         self.assertEqual(candidate.raw_listing_text, "Updated listing text")
         self.assertEqual(candidate.raw_chat_text, "Updated chat text")
         self.assertIn("Updated listing text", candidate.combined_text)
+        self.assertEqual(response.processing_stage, "completed")
         assess_mock.assert_awaited_once_with(db=db, project=project, candidate=candidate)
-        db.flush.assert_awaited_once()
+        self.assertGreaterEqual(db.commit.await_count, 2)
+
+    async def test_serialize_failed_candidate_hides_stale_analysis(self):
+        project = build_project(build_user())
+        candidate = build_candidate(project)
+        candidate.processing_stage = "failed"
+        candidate.processing_error_code = "llm_unavailable"
+
+        response = await candidates_api._serialize_candidate(candidate)
+
+        self.assertIsNone(response.extracted_info)
+        self.assertIsNone(response.cost_assessment)
+        self.assertIsNone(response.clause_assessment)
+        self.assertIsNone(response.candidate_assessment)
+        self.assertIsNone(response.benchmark)
+
+    async def test_serialize_completed_candidate_does_not_expose_market_benchmark(self):
+        candidate = build_candidate(build_project(build_user()))
+
+        response = await candidates_api._serialize_candidate(candidate)
+
+        self.assertIsNone(response.benchmark)
+
+    async def test_contact_plan_rejects_candidate_without_usable_analysis(self):
+        user = build_user()
+        project = build_project(user)
+        candidate = build_candidate(project)
+        candidate.processing_stage = "failed"
+        db = FakeAsyncSession()
+
+        async def fake_get_candidate_for_project_user(*_args, **_kwargs):
+            return project, candidate
+
+        with patch.object(
+            candidates_api,
+            "get_candidate_for_project_user",
+            fake_get_candidate_for_project_user,
+        ):
+            with self.assertRaises(HTTPException) as exc_info:
+                await candidates_api.generate_candidate_contact_plan(
+                    project_id=project.id,
+                    candidate_id=candidate.id,
+                    current_user=user,
+                    db=db,
+                )
+
+        self.assertEqual(exc_info.exception.status_code, 409)
 
     async def test_update_candidate_rejects_empty_text_payload(self):
         user = build_user()

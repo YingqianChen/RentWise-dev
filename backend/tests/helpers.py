@@ -66,8 +66,9 @@ def build_candidate(
         raw_note_text=None,
         combined_text="Rent 18000, management fee unknown",
         status=status,
-        processing_stage=None,
+        processing_stage="completed",
         processing_error=None,
+        processing_error_code=None,
         user_decision=user_decision,
         created_at=utc_now(),
         updated_at=utc_now(),
@@ -103,7 +104,7 @@ def build_candidate(
         monthly_cost_missing_items=["management_fee_amount", "rates_amount"],
         move_in_cost_known_part=54000.0,
         move_in_cost_confidence="medium",
-        cost_risk_flag="hidden_cost_risk",
+        cost_risk_flag="incomplete",
         summary="Need to confirm additional fees.",
     )
     candidate.clause_assessment = ClauseAssessment(

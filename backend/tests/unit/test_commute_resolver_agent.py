@@ -6,7 +6,6 @@ Amap clients so we can assert on the exact observation trajectory.
 
 from __future__ import annotations
 
-import json
 from typing import Optional
 
 import pytest

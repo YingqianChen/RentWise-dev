@@ -47,6 +47,7 @@ class ComparisonServiceTests(TestCase):
         self.assertEqual(result["groups"].not_ready_for_fair_comparison[0].name, "Needs Cost Check")
         self.assertEqual(len(result["groups"].likely_drop), 1)
         self.assertEqual(result["groups"].likely_drop[0].name, "Weak Option")
+        self.assertIsNone(result["groups"].best_current_option.benchmark)
         self.assertIn("strongest current option", result["summary"].headline.lower())
         self.assertTrue(result["recommended_next_actions"].questions_to_ask)
         self.assertIsNotNone(result["recommended_next_actions"].contact_first)
@@ -106,6 +107,16 @@ class ComparisonServiceTests(TestCase):
         self.assertIsNotNone(preview)
         self.assertEqual(len(preview.candidate_ids), 2)
         self.assertIn("strongest current option", preview.headline.lower())
+
+    def test_compare_suggestions_exclude_non_completed_candidates_with_stale_results(self):
+        project = build_project(build_user())
+        completed = build_candidate(project, name="Usable")
+        failed = build_candidate(project, name="Stale")
+        failed.processing_stage = "failed"
+
+        suggested = ComparisonService().suggest_compare_ids([completed, failed])
+
+        self.assertEqual(suggested, [completed.id])
 
 
 if __name__ == "__main__":

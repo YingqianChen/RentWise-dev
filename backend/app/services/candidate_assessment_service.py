@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+import re
 from typing import List, Optional
 
 from ..db.models import CandidateAssessment, CandidateExtractedInfo, ClauseAssessment, CostAssessment
@@ -21,6 +22,7 @@ class CandidateAssessmentService:
         must_have: Optional[List[str]] = None,
         deal_breakers: Optional[List[str]] = None,
         move_in_target: Optional[date] = None,
+        source_text: str = "",
     ) -> CandidateAssessment:
         decision_signals = extracted_info.decision_signals or []
         preferred_districts = preferred_districts or []
@@ -34,6 +36,7 @@ class CandidateAssessmentService:
             must_have=must_have,
             deal_breakers=deal_breakers,
             max_budget=max_budget,
+            source_text=source_text,
         )
         potential_value = self._assess_potential_value(
             extracted_info=extracted_info,
@@ -41,6 +44,7 @@ class CandidateAssessmentService:
             decision_signals=decision_signals,
             preferred_districts=preferred_districts,
             must_have=must_have,
+            hard_conflict=hard_conflict,
         )
         completeness = self._assess_completeness(
             extracted_info=extracted_info,
@@ -121,23 +125,34 @@ class CandidateAssessmentService:
         must_have: List[str],
         deal_breakers: List[str],
         max_budget: Optional[int],
+        source_text: str,
     ) -> bool:
-        if max_budget and cost_assessment.known_monthly_cost and cost_assessment.known_monthly_cost > max_budget:
+        if (
+            max_budget
+            and cost_assessment.known_monthly_cost
+            and cost_assessment.known_monthly_cost > max_budget
+            and self._monthly_cost_is_source_backed(extracted_info, source_text)
+        ):
             return True
 
         normalized_must_have = {item.strip().lower() for item in must_have}
         normalized_deal_breakers = {item.strip().lower() for item in deal_breakers}
         furnished = (extracted_info.furnished or "").lower()
 
-        if "furnished" in normalized_must_have and furnished and "furnished" not in furnished:
+        if (
+            "furnished" in normalized_must_have
+            and self._is_explicitly_unfurnished(furnished)
+            and self._text_is_source_backed(furnished, source_text)
+        ):
             return True
         if "shared bathroom" in normalized_deal_breakers and extracted_info.bedrooms:
             bedrooms = extracted_info.bedrooms.lower()
-            if "shared bathroom" in bedrooms:
+            if "shared bathroom" in bedrooms and self._text_is_source_backed("shared bathroom", source_text):
                 return True
-        if "shared bathroom" in normalized_deal_breakers and self._has_signal(
+        if "shared bathroom" in normalized_deal_breakers and self._has_source_backed_signal(
             decision_signals,
             {"bathroom_sharing"},
+            source_text,
         ):
             return True
         return False
@@ -149,17 +164,20 @@ class CandidateAssessmentService:
         decision_signals: list[dict[str, str]],
         preferred_districts: List[str],
         must_have: List[str],
+        hard_conflict: bool,
     ) -> str:
+        if hard_conflict:
+            return "low"
+
         score = 0
 
-        if cost_assessment.cost_risk_flag == "none":
-            score += 2
-        elif cost_assessment.cost_risk_flag in {"possible_additional_cost", "hidden_cost_risk"}:
+        if cost_assessment.cost_risk_flag == "none" and cost_assessment.known_monthly_cost is not None:
             score += 1
 
         district = extracted_info.district
-        if not self._is_unknown(district):
-            score += 2 if preferred_districts and district in preferred_districts else 1
+        normalized_preferred = {item.strip().lower() for item in preferred_districts}
+        if not self._is_unknown(district) and district.strip().lower() in normalized_preferred:
+            score += 1
 
         furnished = (extracted_info.furnished or "").lower()
         if "furnished" in {item.strip().lower() for item in must_have} and "furnished" in furnished:
@@ -167,11 +185,11 @@ class CandidateAssessmentService:
         if self._has_signal(decision_signals, {"commute_advantage", "building_amenity", "condition_positive"}):
             score += 1
 
-        if score >= 4:
+        if score >= 3:
             return "high"
-        if score >= 2:
+        if score >= 1:
             return "medium"
-        return "low"
+        return "unknown"
 
     def _assess_completeness(
         self,
@@ -225,14 +243,16 @@ class CandidateAssessmentService:
             return "high"
         if self._has_signal(decision_signals, {"source_conflict", "listing_ambiguity", "agent_pressure"}):
             return "medium"
-        if cost_assessment.cost_risk_flag in {"over_budget", "hidden_cost_risk"}:
-            return "high"
         if clause_assessment.clause_risk_flag == "high_risk":
             return "high"
         if cost_assessment.cost_risk_flag == "possible_additional_cost":
             return "medium"
-        if clause_assessment.clause_risk_flag == "needs_confirmation":
+        if self._has_explicit_clause_concern(clause_assessment):
             return "medium"
+        if cost_assessment.cost_risk_flag in {"incomplete", "over_budget"}:
+            return "unknown"
+        if self._clause_is_all_unknown(clause_assessment):
+            return "unknown"
         return "low"
 
     def _assess_information_gain(self, completeness: str, critical_uncertainty: str, potential_value: str) -> str:
@@ -278,11 +298,18 @@ class CandidateAssessmentService:
         potential_value: str,
         hard_conflict: bool,
     ) -> str:
-        if hard_conflict or (decision_risk == "high" and potential_value == "low"):
+        if hard_conflict:
             return "reject"
-        if cost_assessment.known_monthly_cost is None or cost_assessment.monthly_cost_confidence == "low":
+        if (
+            cost_assessment.known_monthly_cost is None
+            or cost_assessment.monthly_cost_confidence == "low"
+            or cost_assessment.cost_risk_flag in {"incomplete", "possible_additional_cost", "over_budget"}
+        ):
             return "verify_cost"
-        if self._has_signal(decision_signals, {"holding_fee_risk", "source_conflict", "listing_ambiguity", "agent_pressure"}):
+        if self._has_signal(
+            decision_signals,
+            {"holding_fee_risk", "trust_concern", "source_conflict", "listing_ambiguity", "agent_pressure"},
+        ):
             return "verify_clause"
         if clause_assessment.clause_confidence == "low" or clause_assessment.clause_risk_flag in {"needs_confirmation", "high_risk"}:
             return "verify_clause"
@@ -314,10 +341,8 @@ class CandidateAssessmentService:
             labels.append("Hard conflict")
         if cost_assessment.cost_risk_flag == "over_budget":
             labels.append("Over budget")
-        elif cost_assessment.cost_risk_flag == "hidden_cost_risk":
-            labels.append("Cost unclear")
-        elif cost_assessment.known_monthly_cost and cost_assessment.known_monthly_cost < 10000:
-            labels.append("Low price")
+        elif cost_assessment.cost_risk_flag == "incomplete":
+            labels.append("Cost incomplete")
 
         if clause_assessment.repair_responsibility_level == "tenant_heavy":
             labels.append("Tenant-heavy repairs")
@@ -351,6 +376,7 @@ class CandidateAssessmentService:
             "high": "This candidate has strong upside if the remaining blockers are clarified.",
             "medium": "This candidate is still viable, but it needs more confirmation before you can trust it.",
             "low": "This candidate currently looks weak compared with the rest of the pool.",
+            "unknown": "There is not enough evidence yet to judge this candidate's potential.",
         }
         action_map = {
             "verify_cost": "Verify the real monthly cost before making any shortlist decision.",
@@ -374,6 +400,90 @@ class CandidateAssessmentService:
 
     def _has_signal(self, signals: list[dict[str, str]], keys: set[str]) -> bool:
         return any(signal.get("key") in keys for signal in signals)
+
+    def _has_source_backed_signal(
+        self,
+        signals: list[dict[str, str]],
+        keys: set[str],
+        source_text: str,
+    ) -> bool:
+        return any(
+            signal.get("key") in keys
+            and self._text_is_source_backed(signal.get("evidence", ""), source_text)
+            for signal in signals
+        )
+
+    def _monthly_cost_is_source_backed(
+        self,
+        extracted_info: CandidateExtractedInfo,
+        source_text: str,
+    ) -> bool:
+        if not self._amount_is_source_backed(extracted_info.monthly_rent, source_text):
+            return False
+
+        for amount, included in (
+            (extracted_info.management_fee_amount, extracted_info.management_fee_included),
+            (extracted_info.rates_amount, extracted_info.rates_included),
+        ):
+            if included is False and not self._is_unknown(amount):
+                if not self._amount_is_source_backed(amount, source_text):
+                    return False
+        return True
+
+    def _amount_is_source_backed(self, value: Optional[str], source_text: str) -> bool:
+        amount = self._parse_amount(value)
+        if amount is None:
+            return False
+        return any(
+            parsed == amount
+            for parsed in (
+                self._parse_amount(match)
+                for match in re.findall(r"(?:HKD\s*|\$\s*)?\d[\d,]*(?:\.\d+)?", source_text, re.IGNORECASE)
+            )
+        )
+
+    def _parse_amount(self, value: Optional[str]) -> Optional[float]:
+        if self._is_unknown(value):
+            return None
+        match = re.search(r"\d[\d,]*(?:\.\d+)?", str(value))
+        if not match:
+            return None
+        try:
+            return float(match.group().replace(",", ""))
+        except ValueError:
+            return None
+
+    def _text_is_source_backed(self, value: str, source_text: str) -> bool:
+        normalized_value = self._normalize_evidence(value)
+        normalized_source = self._normalize_evidence(source_text)
+        return bool(normalized_value and normalized_value in normalized_source)
+
+    def _normalize_evidence(self, value: str) -> str:
+        return re.sub(r"[^\w]+", "", str(value).lower(), flags=re.UNICODE)
+
+    def _is_explicitly_unfurnished(self, value: str) -> bool:
+        normalized = value.strip().lower()
+        return any(
+            marker in normalized
+            for marker in ("unfurnished", "not furnished", "no furniture", "without furniture", "bare unit")
+        )
+
+    def _clause_is_all_unknown(self, clause_assessment: ClauseAssessment) -> bool:
+        return all(
+            level == "unknown"
+            for level in (
+                clause_assessment.repair_responsibility_level,
+                clause_assessment.lease_term_level,
+                clause_assessment.move_in_date_level,
+            )
+        )
+
+    def _has_explicit_clause_concern(self, clause_assessment: ClauseAssessment) -> bool:
+        return (
+            clause_assessment.repair_responsibility_level in {"unclear", "supported_but_unconfirmed"}
+            or clause_assessment.lease_term_level == "rigid"
+            or clause_assessment.move_in_date_level in {"mismatch", "uncertain"}
+        )
 
     def _is_unknown(self, value: Optional[str]) -> bool:
         if value is None:

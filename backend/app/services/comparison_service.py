@@ -16,7 +16,7 @@ from ..schemas.comparison import (
     SuggestedComparePreview,
 )
 from .dashboard_service import DashboardService
-from .benchmark_service import BenchmarkService
+from .candidate_analysis_state import has_usable_analysis
 
 
 @dataclass
@@ -30,10 +30,11 @@ class ComparisonService:
 
     def __init__(self) -> None:
         self.dashboard_service = DashboardService()
-        self.benchmark_service = BenchmarkService()
 
     def compare(self, project: SearchProject, candidates: Iterable[CandidateListing]) -> dict:
         selected = list(candidates)
+        if any(not has_usable_analysis(candidate) for candidate in selected):
+            raise ValueError("All compared candidates must have usable completed analysis.")
         best_group: Optional[CompareCandidateCard] = None
         viable_cards: list[CompareCandidateCard] = []
         not_ready_cards: list[CompareCandidateCard] = []
@@ -87,7 +88,7 @@ class ComparisonService:
         selected = [
             candidate
             for candidate in candidates
-            if candidate.candidate_assessment is not None and candidate.user_decision != "rejected"
+            if has_usable_analysis(candidate) and candidate.user_decision != "rejected"
         ]
         if anchor_candidate_id is not None:
             anchor = next((candidate for candidate in selected if candidate.id == anchor_candidate_id), None)
@@ -158,7 +159,6 @@ class ComparisonService:
         assessment = candidate.candidate_assessment
         cost = candidate.cost_assessment
         clause = candidate.clause_assessment
-        extracted = candidate.extracted_info
         if assessment is None:
             return -999.0
 
@@ -237,7 +237,7 @@ class ComparisonService:
             monthly_rent=extracted.monthly_rent if extracted else None,
             district=extracted.district if extracted else None,
             status=candidate.status,
-            benchmark=self.benchmark_service.build_for_candidate(candidate),
+            benchmark=None,
         )
 
     def _decision_explanation(
@@ -278,7 +278,7 @@ class ComparisonService:
             )
 
         if group == "not_ready":
-            if cost and cost.cost_risk_flag in {"hidden_cost_risk", "possible_additional_cost"}:
+            if cost and cost.cost_risk_flag in {"incomplete", "possible_additional_cost"}:
                 return (
                     "This candidate cannot be compared fairly yet because hidden or unclear costs could still "
                     "change the whole decision."
@@ -353,7 +353,6 @@ class ComparisonService:
 
     def _build_summary(self, groups: CompareDecisionGroups) -> CompareSummary:
         best = groups.best_current_option
-        viable = len(groups.viable_alternatives)
         not_ready = len(groups.not_ready_for_fair_comparison)
         likely_drop = len(groups.likely_drop)
 
@@ -423,7 +422,7 @@ class ComparisonService:
                 candidate.name
                 for candidate in cost_sorted
                 if candidate.id != leader_id
-                and candidate.cost_assessment.cost_risk_flag in {"hidden_cost_risk", "possible_additional_cost"}
+                and candidate.cost_assessment.cost_risk_flag in {"incomplete", "possible_additional_cost"}
             ]
             differences.append(
                 CompareDifference(

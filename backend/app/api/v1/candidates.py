@@ -20,17 +20,17 @@ from ...schemas.candidate import (
     CandidateResponse,
     CandidateUpdate,
 )
-from ...services.benchmark_service import BenchmarkService
 from ...services.candidate_contact_plan_service import CandidateContactPlanService
+from ...services.candidate_analysis_state import has_usable_analysis
 from ...services.candidate_import_background_service import CandidateImportBackgroundService
 from ...services.candidate_import_service import CandidateImportService, build_combined_text, infer_source_type
+from ...services.candidate_analysis_runner import run_candidate_analysis
 from ...services.candidate_pipeline_service import CandidatePipelineService
 from ...services.commute_service import CommuteService
 from .auth import get_current_user
 
 router = APIRouter()
 pipeline_service = CandidatePipelineService()
-benchmark_service = BenchmarkService()
 commute_service = CommuteService()
 candidate_contact_plan_service = CandidateContactPlanService()
 candidate_import_service = CandidateImportService()
@@ -71,7 +71,19 @@ async def _serialize_candidate(
     db: AsyncSession | None = None,
 ) -> CandidateResponse:
     response = CandidateResponse.model_validate(candidate)
-    updates: dict = {"benchmark": benchmark_service.build_for_candidate(candidate)}
+    if not has_usable_analysis(candidate):
+        return response.model_copy(
+            update={
+                "extracted_info": None,
+                "cost_assessment": None,
+                "clause_assessment": None,
+                "candidate_assessment": None,
+                "benchmark": None,
+                "commute_evidence": None,
+            }
+        )
+
+    updates: dict = {"benchmark": None}
     if compute_commute and project is not None:
         updates["commute_evidence"] = await commute_service.build_for_candidate(
             project, candidate, db=db
@@ -159,6 +171,7 @@ async def import_candidate(
         combined_text=build_combined_text(raw_listing_text, raw_chat_text, raw_note_text),
         processing_stage="queued",
         processing_error=None,
+        processing_error_code=None,
     )
     db.add(candidate)
     await db.flush()
@@ -272,9 +285,15 @@ async def update_candidate(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="At least one text field is required",
             )
-        await pipeline_service.assess_candidate(db=db, project=project, candidate=candidate)
+        await run_candidate_analysis(
+            db=db,
+            project=project,
+            candidate=candidate,
+            pipeline=pipeline_service,
+        )
 
-    await db.flush()
+    if not should_reassess:
+        await db.flush()
     _, candidate = await get_candidate_for_project_user(project.id, candidate.id, current_user, db)
     return await _serialize_candidate(candidate, project=project, compute_commute=True, db=db)
 
@@ -288,8 +307,12 @@ async def reassess_candidate(
 ):
     """Rerun assessments for a candidate."""
     project, candidate = await get_candidate_for_project_user(project_id, candidate_id, current_user, db)
-    await pipeline_service.assess_candidate(db=db, project=project, candidate=candidate)
-    await db.flush()
+    await run_candidate_analysis(
+        db=db,
+        project=project,
+        candidate=candidate,
+        pipeline=pipeline_service,
+    )
     _, candidate = await get_candidate_for_project_user(project.id, candidate.id, current_user, db)
     return await _serialize_candidate(candidate, project=project, compute_commute=True, db=db)
 
@@ -306,6 +329,11 @@ async def generate_candidate_contact_plan(
 ):
     """Generate a short outreach plan for the next landlord/agent message."""
     project, candidate = await get_candidate_for_project_user(project_id, candidate_id, current_user, db)
+    if not has_usable_analysis(candidate):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Candidate analysis must complete successfully before generating a contact plan.",
+        )
     return await candidate_contact_plan_service.build(project=project, candidate=candidate)
 
 

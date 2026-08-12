@@ -92,6 +92,33 @@ class PriorityAndDashboardServiceTests(TestCase):
         self.assertEqual(len(cards), 1)
         self.assertIn("confirm", cards[0].reason.lower())
 
+    def test_failed_candidate_with_old_assessments_is_excluded_from_dashboard_work(self):
+        project = build_project(build_user())
+        failed = build_candidate(project, name="Stale result")
+        failed.processing_stage = "failed"
+
+        service = DashboardService()
+        stats = service.build_stats([failed])
+
+        self.assertEqual(service.build_priority_candidates([failed]), [])
+        self.assertEqual(service.build_investigation_items([failed]), [])
+        self.assertEqual(stats.analysis_failed, 1)
+        self.assertIn(
+            "retry",
+            service.build_current_advice(project, stats, [], []).lower(),
+        )
+
+    def test_processing_candidate_is_counted_but_not_ranked(self):
+        project = build_project(build_user())
+        processing = build_candidate(project)
+        processing.processing_stage = "assessing"
+
+        service = DashboardService()
+        stats = service.build_stats([processing])
+
+        self.assertEqual(stats.processing, 1)
+        self.assertEqual(service.build_priority_candidates([processing]), [])
+
     def test_top_level_recommendation_is_derived_from_assessment_state(self):
         user = build_user()
         project = build_project(user)

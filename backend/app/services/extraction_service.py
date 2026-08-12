@@ -9,8 +9,34 @@ from typing import Optional
 from ..db.models import CandidateExtractedInfo, CandidateListing
 from ..integrations.llm.prompts import EXTRACTION_PROMPT, LISTING_NAME_PROMPT
 from ..integrations.llm.utils import chat_completion_json
+from .analysis_errors import AnalysisError, analysis_error, classify_extraction_exception
 
 logger = logging.getLogger(__name__)
+
+REQUIRED_EXTRACTION_KEYS = {
+    "address_text",
+    "building_name",
+    "nearest_station",
+    "district",
+    "location_confidence",
+    "monthly_rent",
+    "management_fee_amount",
+    "management_fee_included",
+    "rates_amount",
+    "rates_included",
+    "deposit",
+    "agent_fee",
+    "lease_term",
+    "move_in_date",
+    "repair_responsibility",
+    "furnished",
+    "size_sqft",
+    "bedrooms",
+    "suspected_sdu",
+    "sdu_detection_reason",
+    "decision_signals",
+    "raw_facts",
+}
 
 
 def _coerce_to_str(value: object) -> str:
@@ -128,6 +154,25 @@ def normalize_decision_signals(value: object) -> list[dict[str, str]]:
     return normalized
 
 
+def validate_extraction_payload(value: object) -> dict[str, object]:
+    """Reject incomplete or structurally invalid model output."""
+    if not isinstance(value, dict):
+        raise analysis_error("invalid_model_output", retryable=True)
+
+    missing_keys = REQUIRED_EXTRACTION_KEYS.difference(value)
+    if missing_keys:
+        raise analysis_error("invalid_model_output", retryable=True)
+
+    if not isinstance(value["decision_signals"], list) or not isinstance(value["raw_facts"], list):
+        raise analysis_error("invalid_model_output", retryable=True)
+
+    for key in REQUIRED_EXTRACTION_KEYS.difference({"decision_signals", "raw_facts"}):
+        if isinstance(value[key], (dict, list)):
+            raise analysis_error("invalid_model_output", retryable=True)
+
+    return value
+
+
 class ExtractionService:
     """Service for extracting structured information from listing text."""
 
@@ -165,27 +210,21 @@ class ExtractionService:
     async def extract(self, candidate: CandidateListing) -> CandidateExtractedInfo:
         """Extract structured information from a candidate's combined text."""
         ocr_texts = self._collect_ocr_texts(candidate)
-        if not candidate.combined_text:
-            return CandidateExtractedInfo(
-                candidate_id=candidate.id,
-                decision_signals=[],
-                raw_facts=[],
-                ocr_texts=ocr_texts,
-            )
+        context = self._build_extraction_context(candidate, ocr_texts)
+        if not context:
+            raise analysis_error("no_usable_text", retryable=True)
 
-        prompt = EXTRACTION_PROMPT.format(
-            text=self._build_extraction_context(candidate, ocr_texts)
-        )
+        prompt = EXTRACTION_PROMPT.format(text=context)
         try:
             data = await chat_completion_json(prompt=prompt, temperature=0.0)
+        except AnalysisError:
+            raise
         except Exception as exc:
-            logger.error("Extraction failed: %s", exc)
-            return CandidateExtractedInfo(
-                candidate_id=candidate.id,
-                decision_signals=[],
-                raw_facts=[],
-                ocr_texts=ocr_texts,
-            )
+            failure = classify_extraction_exception(exc)
+            logger.exception("Extraction failed with code %s", failure.code)
+            raise failure from exc
+
+        data = validate_extraction_payload(data)
 
         return CandidateExtractedInfo(
             candidate_id=candidate.id,

@@ -150,7 +150,7 @@ export interface CostAssessment {
   monthly_cost_missing_items: string[];
   move_in_cost_known_part: number | null;
   move_in_cost_confidence: "high" | "medium" | "low";
-  cost_risk_flag: "none" | "possible_additional_cost" | "hidden_cost_risk" | "over_budget";
+  cost_risk_flag: "none" | "incomplete" | "possible_additional_cost" | "over_budget";
   summary: string;
 }
 
@@ -174,10 +174,10 @@ export interface ClauseAssessment {
 export interface CandidateAssessment {
   candidate_id: string;
   top_level_recommendation: "shortlist_recommendation" | "not_ready" | "likely_reject";
-  potential_value_level: "high" | "medium" | "low";
+  potential_value_level: "high" | "medium" | "low" | "unknown";
   completeness_level: "high" | "medium" | "low";
   critical_uncertainty_level: "high" | "medium" | "low";
-  decision_risk_level: "high" | "medium" | "low";
+  decision_risk_level: "high" | "medium" | "low" | "unknown";
   information_gain_level: "high" | "medium" | "low";
   recommendation_confidence: "high" | "medium" | "low";
   next_best_action: "verify_cost" | "verify_clause" | "schedule_viewing" | "keep_warm" | "reject";
@@ -250,7 +250,7 @@ export interface Candidate {
   raw_note_text: string | null;
   combined_text: string | null;
   status: string;
-  processing_stage: "queued" | "running_ocr" | "extracting" | "completed" | "failed" | null;
+  processing_stage: "queued" | "running_ocr" | "extracting" | "assessing" | "completed" | "failed" | null;
   processing_error: string | null;
   user_decision: "undecided" | "shortlisted" | "rejected";
   created_at: string;

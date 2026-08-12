@@ -28,12 +28,59 @@ class CandidatePipelineService:
     ) -> CandidateListing:
         """Create or refresh all assessment records for a candidate."""
         extracted_info = await self.extraction_service.extract(candidate)
-        cost_assessment = self.cost_service.assess(extracted_info, max_budget=project.max_budget)
-        clause_assessment = self.clause_service.assess(
-            extracted_info,
-            move_in_target=project.move_in_target,
+        candidate.processing_stage = "assessing"
+        candidate.processing_error = None
+        candidate.processing_error_code = None
+        await db.commit()
+
+        await self._assess_from_extracted(
+            db=db,
+            project=project,
+            candidate=candidate,
+            extracted_info=extracted_info,
+            clause_assessment=None,
         )
-        await self.clause_service.attach_legal_references(clause_assessment)
+        return candidate
+
+    async def reassess_for_budget(
+        self,
+        db: AsyncSession,
+        project: SearchProject,
+        candidate: CandidateListing,
+    ) -> CandidateListing:
+        """Recalculate budget-sensitive rules without calling extraction or legal enrichment."""
+        if candidate.extracted_info is None or candidate.clause_assessment is None:
+            raise ValueError("Budget reassessment requires completed extracted and clause records.")
+
+        await self._assess_from_extracted(
+            db=db,
+            project=project,
+            candidate=candidate,
+            extracted_info=candidate.extracted_info,
+            clause_assessment=candidate.clause_assessment,
+        )
+        return candidate
+
+    async def _assess_from_extracted(
+        self,
+        *,
+        db: AsyncSession,
+        project: SearchProject,
+        candidate: CandidateListing,
+        extracted_info: CandidateExtractedInfo,
+        clause_assessment: ClauseAssessment | None,
+    ) -> None:
+        cost_assessment = self.cost_service.assess(
+            extracted_info,
+            max_budget=project.max_budget,
+            source_text=candidate.combined_text or "",
+        )
+        if clause_assessment is None:
+            clause_assessment = self.clause_service.assess(
+                extracted_info,
+                move_in_target=project.move_in_target,
+            )
+            await self.clause_service.attach_legal_references(clause_assessment)
         candidate_assessment = self.candidate_service.assess(
             extracted_info=extracted_info,
             cost_assessment=cost_assessment,
@@ -43,6 +90,7 @@ class CandidatePipelineService:
             must_have=project.must_have,
             deal_breakers=project.deal_breakers,
             move_in_target=project.move_in_target,
+            source_text=candidate.combined_text or "",
         )
 
         self._apply_assessment_records(
@@ -54,7 +102,6 @@ class CandidatePipelineService:
         )
 
         await db.flush()
-        return candidate
 
     async def generate_candidate_name(self, candidate: CandidateListing) -> str:
         """Generate a user-facing candidate name from extracted info and source text."""

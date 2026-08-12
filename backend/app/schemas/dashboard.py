@@ -19,6 +19,8 @@ class CandidateStats(BaseModel):
     recommended_reject: int
     shortlisted: int
     rejected: int
+    processing: int = 0
+    analysis_failed: int = 0
 
 
 class PriorityCandidate(BaseModel):

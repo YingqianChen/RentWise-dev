@@ -1,0 +1,9 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+extend-exclude = ["storage"]
+
+[tool.ruff.lint]
+# Start with correctness-oriented checks. Broader style and modernization rules
+# should be enabled incrementally as their existing violations are paid down.
+select = ["E4", "E7", "E9", "F"]

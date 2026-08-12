@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import Counter
 from dataclasses import dataclass
 from typing import Iterable, List, Tuple
 from uuid import UUID, uuid5, NAMESPACE_URL
 
 from ..db.models import CandidateListing, SearchProject
 from ..schemas.dashboard import CandidateStats, InvestigationItemSummary, PriorityCandidate
+from .candidate_analysis_state import PROCESSING_STAGES, has_usable_analysis
 from .priority_service import PriorityService
 
 
@@ -31,7 +32,8 @@ class DashboardService:
     def build_stats(self, candidates: Iterable[CandidateListing]) -> CandidateStats:
         """Summarize candidate and user-decision counts."""
         candidates = list(candidates)
-        status_counts = Counter(candidate.status for candidate in candidates)
+        usable_candidates = [candidate for candidate in candidates if has_usable_analysis(candidate)]
+        status_counts = Counter(candidate.status for candidate in usable_candidates)
         rejected = sum(1 for candidate in candidates if candidate.user_decision == "rejected")
         return CandidateStats(
             total=len(candidates),
@@ -42,6 +44,8 @@ class DashboardService:
             recommended_reject=status_counts.get("recommended_reject", 0),
             shortlisted=status_counts.get("shortlisted", 0),
             rejected=rejected,
+            processing=sum(1 for candidate in candidates if candidate.processing_stage in PROCESSING_STAGES),
+            analysis_failed=sum(1 for candidate in candidates if candidate.processing_stage == "failed"),
         )
 
     def build_priority_candidates(self, candidates: Iterable[CandidateListing]) -> list[PriorityCandidate]:
@@ -49,7 +53,7 @@ class DashboardService:
         candidates = [
             candidate
             for candidate in candidates
-            if candidate.user_decision == "undecided" and candidate.candidate_assessment is not None
+            if candidate.user_decision == "undecided" and has_usable_analysis(candidate)
         ]
         if not candidates:
             return []
@@ -132,6 +136,18 @@ class DashboardService:
                 "The system will organize the candidate pool and surface the next best actions."
             )
 
+        if stats.analysis_failed and not priority_candidates and not open_items:
+            return (
+                f"{stats.analysis_failed} candidate analysis failed. "
+                "Retry the analysis or edit the source information before relying on a recommendation."
+            )
+
+        if stats.processing and not priority_candidates and not open_items:
+            return (
+                f"{stats.processing} candidate analysis is still processing. "
+                "Wait for it to finish before comparing options or acting on a recommendation."
+            )
+
         if priority_candidates:
             top = priority_candidates[0]
             if top.next_best_action == "verify_cost":
@@ -174,7 +190,7 @@ class DashboardService:
         active_candidates = [
             candidate
             for candidate in candidates
-            if candidate.user_decision == "undecided" and candidate.candidate_assessment is not None
+            if candidate.user_decision == "undecided" and has_usable_analysis(candidate)
         ]
         if not active_candidates:
             return []
@@ -210,22 +226,22 @@ class DashboardService:
                 )
             )
         if "rates_amount" in missing or "rates_included" in missing:
-            is_hidden_cost_risk = cost.cost_risk_flag == "hidden_cost_risk"
+            is_cost_incomplete = cost.cost_risk_flag == "incomplete"
             tasks.append(
                 _GroupedInvestigationTask(
                     category="cost",
                     slug="rates",
                     title_prefix=(
                         "Clarify whether rates or government charges are included"
-                        if is_hidden_cost_risk
+                        if is_cost_incomplete
                         else "Confirm the expected amount of separate rates or government charges"
                     ),
                     question=(
                         "Ask whether rates are included at all. Until that is clear, the true monthly cost could still shift."
-                        if is_hidden_cost_risk
+                        if is_cost_incomplete
                         else "Ask what the expected monthly amount is for rates or government charges so you can tighten the cost estimate."
                     ),
-                    priority="high" if is_hidden_cost_risk else "medium",
+                    priority="high" if is_cost_incomplete else "medium",
                     candidates=[candidate],
                 )
             )

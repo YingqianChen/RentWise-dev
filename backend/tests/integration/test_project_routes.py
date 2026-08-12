@@ -53,7 +53,18 @@ class ProjectRouteTests(IsolatedAsyncioTestCase):
         db.execute = fake_execute
         db.refresh = fake_refresh
 
-        with patch.object(projects_api.pipeline_service, "assess_candidate", AsyncMock()) as assess_mock:
+        with (
+            patch.object(
+                projects_api.pipeline_service,
+                "reassess_for_budget",
+                AsyncMock(),
+            ) as budget_mock,
+            patch.object(
+                projects_api.pipeline_service,
+                "assess_candidate",
+                AsyncMock(),
+            ) as extraction_mock,
+        ):
             response = await projects_api.update_project(
                 project_id=project.id,
                 project_data=ProjectUpdate(max_budget=25000),
@@ -63,8 +74,53 @@ class ProjectRouteTests(IsolatedAsyncioTestCase):
 
         self.assertEqual(project.max_budget, 25000)
         self.assertEqual(response.max_budget, 25000)
-        assess_mock.assert_awaited_once_with(db=db, project=project, candidate=candidate)
+        budget_mock.assert_awaited_once_with(db=db, project=project, candidate=candidate)
+        extraction_mock.assert_not_awaited()
         db.flush.assert_awaited_once()
+
+    async def test_update_budget_skips_failed_candidate_with_stale_records(self):
+        user = build_user()
+        project = build_project(user)
+        candidate = build_candidate(project)
+        candidate.processing_stage = "failed"
+        db = FakeAsyncSession()
+        execute_results = [project, [candidate]]
+
+        async def fake_execute(*_args, **_kwargs):
+            class _Result:
+                def __init__(self, value):
+                    self.value = value
+
+                def scalar_one_or_none(self):
+                    return self.value
+
+                def scalars(self):
+                    class _Scalars:
+                        def __init__(self, values):
+                            self.values = values
+
+                        def all(self):
+                            return self.values
+
+                    return _Scalars(self.value)
+
+            return _Result(execute_results.pop(0))
+
+        db.execute = fake_execute
+
+        with patch.object(
+            projects_api.pipeline_service,
+            "reassess_for_budget",
+            AsyncMock(),
+        ) as budget_mock:
+            await projects_api.update_project(
+                project_id=project.id,
+                project_data=ProjectUpdate(max_budget=25000),
+                current_user=user,
+                db=db,
+            )
+
+        budget_mock.assert_not_awaited()
 
     async def test_delete_project_deletes_owned_project(self):
         user = build_user()

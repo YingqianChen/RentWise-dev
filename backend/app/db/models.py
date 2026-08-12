@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import (
     Boolean, Date, DateTime, Float, ForeignKey, String, Text, Integer,
-    func, Index, UUID as PG_UUID
+    Index, UUID as PG_UUID
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -120,8 +120,9 @@ class CandidateListing(Base):
     )  # new | needs_info | follow_up | high_risk_pending | recommended_reject | shortlisted
     processing_stage: Mapped[Optional[str]] = mapped_column(
         String(50), nullable=True
-    )  # queued | running_ocr | extracting | completed | failed
+    )  # queued | running_ocr | extracting | assessing | completed | failed
     processing_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    processing_error_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     user_decision: Mapped[str] = mapped_column(
         String(50), default="undecided", nullable=False
     )  # undecided | shortlisted | rejected
@@ -253,7 +254,7 @@ class CostAssessment(Base):
     )  # high | medium | low
     cost_risk_flag: Mapped[str] = mapped_column(
         String(50), default="none", nullable=False
-    )  # none | possible_additional_cost | hidden_cost_risk | over_budget
+    )  # none | incomplete | possible_additional_cost | over_budget
     summary: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
     # Relationships

@@ -6,6 +6,8 @@ from pathlib import Path
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import patch
 
+from fastapi import HTTPException
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.api.v1 import comparison as comparison_api
@@ -83,6 +85,31 @@ class CompareRouteTests(IsolatedAsyncioTestCase):
         self.assertTrue(response.summary.headline)
         self.assertTrue(response.agent_briefing.current_take)
         self.assertIsNotNone(response.groups.best_current_option)
+
+    async def test_compare_route_rejects_processing_or_failed_analysis(self):
+        user = build_user()
+        project = build_project(user)
+        completed = build_candidate(project, name="Completed")
+        failed = build_candidate(project, name="Failed")
+        failed.processing_stage = "failed"
+        db = FakeAsyncSession(_ListResult([completed, failed]))
+
+        async def fake_get_project_for_user(*_args, **_kwargs):
+            return project
+
+        with patch.object(comparison_api, "get_project_for_user", fake_get_project_for_user):
+            with self.assertRaises(HTTPException) as exc_info:
+                await comparison_api.compare_candidates(
+                    project_id=project.id,
+                    request=comparison_api.ComparisonRequest(
+                        candidate_ids=[completed.id, failed.id]
+                    ),
+                    current_user=user,
+                    db=db,
+                )
+
+        self.assertEqual(exc_info.exception.status_code, 409)
+        self.assertIn("analysis", exc_info.exception.detail.lower())
 
 
 if __name__ == "__main__":

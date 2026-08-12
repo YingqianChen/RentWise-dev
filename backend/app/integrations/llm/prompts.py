@@ -103,7 +103,7 @@ Return JSON only:
     "monthly_cost_missing_items": ["missing cost fields"],
     "move_in_cost_known_part": "Known upfront move-in cost as a number, or null",
     "move_in_cost_confidence": "high/medium/low",
-    "cost_risk_flag": "none/possible_additional_cost/hidden_cost_risk/over_budget",
+    "cost_risk_flag": "none/incomplete/possible_additional_cost/over_budget",
     "summary": "Short English summary of the cost assessment"
 }}
 """
@@ -150,10 +150,10 @@ User preferences:
 
 Return JSON only:
 {{
-    "potential_value_level": "high/medium/low",
+    "potential_value_level": "high/medium/low/unknown",
     "completeness_level": "high/medium/low",
     "critical_uncertainty_level": "high/medium/low",
-    "decision_risk_level": "high/medium/low",
+    "decision_risk_level": "high/medium/low/unknown",
     "information_gain_level": "high/medium/low",
     "recommendation_confidence": "high/medium/low",
     "next_best_action": "verify_cost/verify_clause/schedule_viewing/keep_warm/reject",

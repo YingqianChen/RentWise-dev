@@ -11,12 +11,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Optional, Protocol
+from typing import Awaitable, Callable, Optional, Protocol
 
 from ...integrations.als.client import AlsClient
 from ...integrations.amap.client import AmapClient
 from ...integrations.geocoding.hk_bbox import in_hk
-from ...services.mtr_station_service import MtrStationService, get_mtr_station_service
+from ...services.mtr_station_service import get_mtr_station_service
 
 logger = logging.getLogger(__name__)
 

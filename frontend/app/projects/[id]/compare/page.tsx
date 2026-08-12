@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -391,20 +391,6 @@ function BestOptionHero({
         <p className="mt-3 text-sm leading-6 text-gray-700">{candidate.decision_explanation}</p>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          {candidate.benchmark?.status === "available" && (
-            <div className="rounded-lg bg-emerald-50/60 p-3">
-              <p className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                <TrendingUp className="h-3 w-3" /> District benchmark
-              </p>
-              <p className="mt-1 text-sm text-gray-800">
-                HKD {candidate.benchmark.median_monthly_rent?.toLocaleString()} median in{" "}
-                {candidate.benchmark.district}
-              </p>
-              {candidate.benchmark.record_note === "fewer_than_10_records" && (
-                <p className="mt-0.5 text-xs text-amber-700">Fewer than 10 records.</p>
-              )}
-            </div>
-          )}
           {candidate.commute_evidence?.status === "ready" && (
             <CommutePanel commute={candidate.commute_evidence} />
           )}
@@ -475,13 +461,6 @@ function AlternativeCard({
               ` · ${candidate.commute_evidence.destination_label}`}
           </div>
         )}
-        {candidate.benchmark?.status === "available" &&
-          candidate.benchmark.median_monthly_rent !== undefined && (
-            <div className="flex items-center gap-1.5">
-              <TrendingUp className="h-3 w-3 text-gray-400" />
-              Median HKD {candidate.benchmark.median_monthly_rent?.toLocaleString()}
-            </div>
-          )}
       </div>
 
       <div className="mt-3 flex items-center justify-between gap-2 border-t border-gray-100 pt-3">
@@ -558,6 +537,10 @@ export default function ComparePage() {
   const [comparison, setComparison] = useState<ComparisonResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const selectionError =
+    candidateIds.length < 2
+      ? "Select at least two candidates from the dashboard before opening compare."
+      : null;
 
   const orderedCards = useMemo(() => {
     if (!comparison) return [];
@@ -571,6 +554,26 @@ export default function ComparePage() {
     return candidateIds.map((id) => cardMap.get(id)).filter(Boolean) as CompareCandidateCard[];
   }, [comparison, candidateIds]);
 
+  const loadCompare = useCallback(
+    async (token: string) => {
+      try {
+        const [projectData, compareData] = await Promise.all([
+          getProject(token, projectId),
+          compareCandidates(token, projectId, candidateIds),
+        ]);
+        setProject(projectData);
+        setComparison(compareData);
+        setError(null);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to load compare workspace.";
+        setError(message);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [candidateIds, projectId]
+  );
+
   useEffect(() => {
     const token = getToken();
     if (!token) {
@@ -579,30 +582,11 @@ export default function ComparePage() {
     }
 
     if (candidateIds.length < 2) {
-      setLoading(false);
-      setError("Select at least two candidates from the dashboard before opening compare.");
       return;
     }
 
     void loadCompare(token);
-  }, [candidateIds, projectId, router]);
-
-  const loadCompare = async (token: string) => {
-    try {
-      const [projectData, compareData] = await Promise.all([
-        getProject(token, projectId),
-        compareCandidates(token, projectId, candidateIds),
-      ]);
-      setProject(projectData);
-      setComparison(compareData);
-      setError(null);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load compare workspace.";
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [candidateIds.length, loadCompare, router]);
 
   const updateCompareSet = (nextIds: string[]) => {
     if (nextIds.length < 2) {
@@ -611,7 +595,7 @@ export default function ComparePage() {
     router.push(`/projects/${projectId}/compare?ids=${encodeURIComponent(nextIds.join(","))}`);
   };
 
-  if (loading) {
+  if (loading && !selectionError) {
     return (
       <main className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-sm text-gray-500">Building compare workspace...</div>
@@ -645,10 +629,10 @@ export default function ComparePage() {
           </div>
         </header>
 
-        {error || !comparison ? (
+        {selectionError || error || !comparison ? (
           <Card className="mt-6 p-6">
             <p className="text-sm text-gray-700">
-              {error || "Unable to build the compare workspace."}
+              {selectionError || error || "Unable to build the compare workspace."}
             </p>
             <Link
               href={`/projects/${projectId}`}
@@ -727,7 +711,7 @@ export default function ComparePage() {
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Today's move
+                    Today&apos;s move
                   </p>
                   <p className="mt-0.5 text-sm leading-6 text-gray-800">
                     {comparison.agent_briefing.today_s_move}

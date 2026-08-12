@@ -16,6 +16,7 @@ from ...schemas.comparison import ComparisonRequest, ComparisonResponse
 from ...services.commute_service import CommuteService
 from ...services.comparison_briefing_service import ComparisonBriefingService
 from ...services.comparison_service import ComparisonService
+from ...services.candidate_analysis_state import has_usable_analysis
 from .auth import get_current_user
 from .candidates import get_project_for_user
 
@@ -73,6 +74,16 @@ async def compare_candidates(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="One or more selected candidates were not found in this project.",
+        )
+
+    unavailable = [candidate.name for candidate in candidates if not has_usable_analysis(candidate)]
+    if unavailable:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Every selected candidate must have a completed usable analysis before comparison. "
+                f"Unavailable: {', '.join(unavailable)}."
+            ),
         )
 
     comparison = comparison_service.compare(project=project, candidates=candidates)

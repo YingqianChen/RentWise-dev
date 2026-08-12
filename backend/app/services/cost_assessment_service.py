@@ -36,7 +36,12 @@ def parse_months_value(value: Optional[str]) -> Optional[float]:
 class CostAssessmentService:
     """Build cost assessment from extracted listing fields."""
 
-    def assess(self, extracted_info: CandidateExtractedInfo, max_budget: Optional[int] = None) -> CostAssessment:
+    def assess(
+        self,
+        extracted_info: CandidateExtractedInfo,
+        max_budget: Optional[int] = None,
+        source_text: str = "",
+    ) -> CostAssessment:
         monthly_rent = parse_monetary_amount(extracted_info.monthly_rent)
         management_fee = parse_monetary_amount(extracted_info.management_fee_amount)
         rates = parse_monetary_amount(extracted_info.rates_amount)
@@ -51,10 +56,10 @@ class CostAssessmentService:
             components = [monthly_rent]
             monthly_missing = []
 
-            if management_fee is not None:
-                components.append(management_fee)
-            elif extracted_info.management_fee_included is True:
+            if extracted_info.management_fee_included is True:
                 pass
+            elif extracted_info.management_fee_included is False and management_fee is not None:
+                components.append(management_fee)
             elif extracted_info.management_fee_included is False:
                 monthly_missing.append("management_fee_amount")
                 missing_items.append("management_fee_amount")
@@ -62,10 +67,10 @@ class CostAssessmentService:
                 monthly_missing.append("management_fee_included")
                 missing_items.append("management_fee_included")
 
-            if rates is not None:
-                components.append(rates)
-            elif extracted_info.rates_included is True:
+            if extracted_info.rates_included is True:
                 pass
+            elif extracted_info.rates_included is False and rates is not None:
+                components.append(rates)
             elif extracted_info.rates_included is False:
                 monthly_missing.append("rates_amount")
                 missing_items.append("rates_amount")
@@ -106,6 +111,8 @@ class CostAssessmentService:
             monthly_cost_confidence=monthly_cost_confidence,
             missing_items=missing_items,
             max_budget=max_budget,
+            extracted_info=extracted_info,
+            source_text=source_text,
         )
         summary = self._generate_summary(
             known_monthly_cost=known_monthly_cost,
@@ -130,18 +137,58 @@ class CostAssessmentService:
         monthly_cost_confidence: str,
         missing_items: List[str],
         max_budget: Optional[int],
+        extracted_info: CandidateExtractedInfo,
+        source_text: str,
     ) -> str:
-        if max_budget and known_monthly_cost and known_monthly_cost > max_budget:
+        if (
+            max_budget
+            and known_monthly_cost
+            and known_monthly_cost > max_budget
+            and self._monthly_cost_is_source_backed(extracted_info, source_text)
+        ):
             return "over_budget"
-        critical_missing = any(
-            item in {"monthly_rent", "management_fee_included", "rates_included"}
+        explicitly_separate_unknown = any(
+            item in {"management_fee_amount", "rates_amount"}
             for item in missing_items
         )
-        if critical_missing or monthly_cost_confidence == "low":
-            return "hidden_cost_risk"
-        if missing_items:
+        if explicitly_separate_unknown:
             return "possible_additional_cost"
+        if missing_items or monthly_cost_confidence == "low":
+            return "incomplete"
+        if max_budget and known_monthly_cost and known_monthly_cost > max_budget:
+            return "incomplete"
         return "none"
+
+    def _monthly_cost_is_source_backed(
+        self,
+        extracted_info: CandidateExtractedInfo,
+        source_text: str,
+    ) -> bool:
+        if not self._amount_is_source_backed(extracted_info.monthly_rent, source_text):
+            return False
+
+        for amount, included in (
+            (extracted_info.management_fee_amount, extracted_info.management_fee_included),
+            (extracted_info.rates_amount, extracted_info.rates_included),
+        ):
+            if included is False and parse_monetary_amount(amount) is not None:
+                if not self._amount_is_source_backed(amount, source_text):
+                    return False
+        return True
+
+    def _amount_is_source_backed(self, value: Optional[str], source_text: str) -> bool:
+        amount = parse_monetary_amount(value)
+        if amount is None:
+            return False
+        source_amounts = (
+            parse_monetary_amount(match)
+            for match in re.findall(
+                r"(?:HKD\s*|\$\s*)?\d[\d,]*(?:\.\d+)?",
+                source_text,
+                re.IGNORECASE,
+            )
+        )
+        return any(source_amount == amount for source_amount in source_amounts)
 
     def _generate_summary(
         self,
@@ -155,8 +202,8 @@ class CostAssessmentService:
         parts = [f"The confirmed monthly cost floor is about HKD {known_monthly_cost:,.0f}."]
         if cost_risk_flag == "over_budget":
             parts.append("The known cost already exceeds the stated budget.")
-        elif cost_risk_flag == "hidden_cost_risk":
-            parts.append("There is still a meaningful hidden-cost risk.")
+        elif cost_risk_flag == "incomplete":
+            parts.append("Some cost information has not been stated yet.")
         elif cost_risk_flag == "possible_additional_cost":
             parts.append("There may still be extra charges that have not been confirmed.")
 

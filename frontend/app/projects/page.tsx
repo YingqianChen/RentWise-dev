@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -140,6 +140,26 @@ export default function ProjectsPage() {
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
+  const loadData = useCallback(
+    async (token: string) => {
+      try {
+        const [userData, projectsData] = await Promise.all([
+          getCurrentUser(token),
+          getProjects(token),
+        ]);
+        setUser(userData);
+        setProjects(projectsData.projects);
+      } catch (err) {
+        console.error("Failed to load data:", err);
+        clearToken();
+        router.push("/login");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [router]
+  );
+
   useEffect(() => {
     const token = getToken();
     if (!token) {
@@ -148,21 +168,7 @@ export default function ProjectsPage() {
     }
 
     void loadData(token);
-  }, [router]);
-
-  const loadData = async (token: string) => {
-    try {
-      const [userData, projectsData] = await Promise.all([getCurrentUser(token), getProjects(token)]);
-      setUser(userData);
-      setProjects(projectsData.projects);
-    } catch (err) {
-      console.error("Failed to load data:", err);
-      clearToken();
-      router.push("/login");
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [loadData, router]);
 
   const stats = useMemo(() => {
     const active = projects.filter((p) => p.status === "active").length;

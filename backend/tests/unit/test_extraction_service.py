@@ -7,8 +7,36 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from app.services.analysis_errors import AnalysisError
 from app.services.extraction_service import ExtractionService, normalize_raw_facts
 from tests.helpers import build_candidate, build_project, build_user
+
+
+def build_valid_unknown_payload() -> dict[str, object]:
+    return {
+        "address_text": "unknown",
+        "building_name": "unknown",
+        "nearest_station": "unknown",
+        "district": "unknown",
+        "location_confidence": "unknown",
+        "monthly_rent": "unknown",
+        "management_fee_amount": "unknown",
+        "management_fee_included": "unknown",
+        "rates_amount": "unknown",
+        "rates_included": "unknown",
+        "deposit": "unknown",
+        "agent_fee": "unknown",
+        "lease_term": "unknown",
+        "move_in_date": "unknown",
+        "repair_responsibility": "unknown",
+        "furnished": "unknown",
+        "size_sqft": "unknown",
+        "bedrooms": "unknown",
+        "suspected_sdu": "unknown",
+        "sdu_detection_reason": "unknown",
+        "decision_signals": [],
+        "raw_facts": [],
+    }
 
 
 class ExtractionServiceTests(IsolatedAsyncioTestCase):
@@ -23,6 +51,10 @@ class ExtractionServiceTests(IsolatedAsyncioTestCase):
         with patch(
             "app.services.extraction_service.chat_completion_json",
             return_value={
+                "address_text": "unknown",
+                "building_name": "unknown",
+                "nearest_station": "unknown",
+                "location_confidence": "unknown",
                 "monthly_rent": "$5900",
                 "management_fee_amount": "unknown",
                 "management_fee_included": "unknown",
@@ -57,6 +89,7 @@ class ExtractionServiceTests(IsolatedAsyncioTestCase):
                         "note": None,
                     },
                 ],
+                "raw_facts": [],
             },
         ) as completion:
             extracted = await ExtractionService().extract(candidate)
@@ -113,6 +146,66 @@ class ExtractionServiceTests(IsolatedAsyncioTestCase):
         self.assertEqual(extracted.district, "Sha Tin")
         self.assertEqual(extracted.location_confidence, "medium")
         self.assertEqual(extracted.raw_facts, ["Lease has break clause after year 1"])
+
+    async def test_extract_raises_configured_error_when_llm_key_is_missing(self):
+        candidate = build_candidate(build_project(build_user()))
+
+        with patch(
+            "app.services.extraction_service.chat_completion_json",
+            side_effect=ValueError("GROQ_API_KEY is required for Groq provider"),
+        ):
+            with self.assertRaises(AnalysisError) as exc_info:
+                await ExtractionService().extract(candidate)
+
+        self.assertEqual(exc_info.exception.code, "llm_not_configured")
+        self.assertNotIn("GROQ_API_KEY", exc_info.exception.user_message)
+
+    async def test_extract_maps_timeout_to_llm_unavailable(self):
+        candidate = build_candidate(build_project(build_user()))
+
+        with patch(
+            "app.services.extraction_service.chat_completion_json",
+            side_effect=TimeoutError("provider timed out"),
+        ):
+            with self.assertRaises(AnalysisError) as exc_info:
+                await ExtractionService().extract(candidate)
+
+        self.assertEqual(exc_info.exception.code, "llm_unavailable")
+        self.assertTrue(exc_info.exception.retryable)
+
+    async def test_extract_rejects_incomplete_model_payload(self):
+        candidate = build_candidate(build_project(build_user()))
+
+        with patch("app.services.extraction_service.chat_completion_json", return_value={}):
+            with self.assertRaises(AnalysisError) as exc_info:
+                await ExtractionService().extract(candidate)
+
+        self.assertEqual(exc_info.exception.code, "invalid_model_output")
+
+    async def test_extract_maps_malformed_json_to_invalid_model_output(self):
+        candidate = build_candidate(build_project(build_user()))
+
+        with patch(
+            "app.services.extraction_service.chat_completion_json",
+            side_effect=ValueError("Model response does not contain a valid JSON object."),
+        ):
+            with self.assertRaises(AnalysisError) as exc_info:
+                await ExtractionService().extract(candidate)
+
+        self.assertEqual(exc_info.exception.code, "invalid_model_output")
+
+    async def test_extract_accepts_valid_all_unknown_payload(self):
+        candidate = build_candidate(build_project(build_user()))
+
+        with patch(
+            "app.services.extraction_service.chat_completion_json",
+            return_value=build_valid_unknown_payload(),
+        ):
+            extracted = await ExtractionService().extract(candidate)
+
+        self.assertEqual(extracted.monthly_rent, "unknown")
+        self.assertEqual(extracted.district, "unknown")
+        self.assertEqual(extracted.decision_signals, [])
 
     def test_normalize_raw_facts_filters_noise(self):
         result = normalize_raw_facts(

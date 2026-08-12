@@ -9,7 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.orm import selectinload
 
-from ..db.models import CandidateListing, CandidateSourceAsset, SearchProject
+from ..db.models import CandidateListing, CandidateSourceAsset
+from .analysis_errors import AnalysisError, analysis_error
 from .candidate_import_service import build_combined_text
 from .candidate_pipeline_service import CandidatePipelineService
 from .file_storage_service import LocalFileStorageService
@@ -43,6 +44,7 @@ class CandidateImportBackgroundService:
                 if candidate.source_assets:
                     candidate.processing_stage = "running_ocr"
                     candidate.processing_error = None
+                    candidate.processing_error_code = None
                     await db.commit()
                     await self._run_ocr(candidate.source_assets)
                     await db.commit()
@@ -56,16 +58,16 @@ class CandidateImportBackgroundService:
 
                 if not candidate.combined_text:
                     candidate.processing_stage = "failed"
-                    candidate.processing_error = (
-                        "OCR could not read any usable text from the uploaded images. "
-                        "Try a clearer screenshot or add text manually."
-                    )
+                    failure = analysis_error("no_usable_text", retryable=True)
+                    candidate.processing_error = failure.user_message
+                    candidate.processing_error_code = failure.code
                     candidate.status = "needs_info"
                     await db.commit()
                     return
 
                 candidate.processing_stage = "extracting"
                 candidate.processing_error = None
+                candidate.processing_error_code = None
                 await db.commit()
 
                 await self.pipeline.assess_candidate(db=db, project=project, candidate=candidate)
@@ -74,11 +76,27 @@ class CandidateImportBackgroundService:
 
                 candidate.processing_stage = "completed"
                 candidate.processing_error = None
+                candidate.processing_error_code = None
                 await db.commit()
+            except AnalysisError as exc:
+                logger.warning("Candidate analysis failed with code %s", exc.code)
+                await db.rollback()
+                await self._mark_candidate_failed(
+                    db,
+                    candidate_id=candidate_id,
+                    code=exc.code,
+                    message=exc.user_message,
+                )
             except Exception as exc:  # pragma: no cover - best-effort recovery path
                 logger.exception("Candidate background import failed", exc_info=exc)
                 await db.rollback()
-                await self._mark_candidate_failed(db, candidate_id=candidate_id, message=str(exc))
+                failure = analysis_error("analysis_internal_error", retryable=True)
+                await self._mark_candidate_failed(
+                    db,
+                    candidate_id=candidate_id,
+                    code=failure.code,
+                    message=failure.user_message,
+                )
 
     async def _load_candidate(
         self,
@@ -108,12 +126,20 @@ class CandidateImportBackgroundService:
             asset.ocr_status = ocr_result.status
             asset.ocr_text = ocr_result.text
 
-    async def _mark_candidate_failed(self, db, *, candidate_id: UUID, message: str) -> None:
+    async def _mark_candidate_failed(
+        self,
+        db,
+        *,
+        candidate_id: UUID,
+        code: str,
+        message: str,
+    ) -> None:
         result = await db.execute(select(CandidateListing).where(CandidateListing.id == candidate_id))
         candidate = result.scalar_one_or_none()
         if candidate is None:
             return
         candidate.processing_stage = "failed"
         candidate.processing_error = message
+        candidate.processing_error_code = code
         candidate.status = "needs_info"
         await db.commit()

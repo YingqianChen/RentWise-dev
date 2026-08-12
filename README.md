@@ -184,6 +184,7 @@ cd frontend
 nvm install
 nvm use
 npm ci
+npx playwright install chromium
 cp .env.local.example .env.local
 npm run dev
 ```
@@ -277,12 +278,16 @@ Frontend checks:
 
 ```bash
 cd frontend
+npx playwright install chromium  # first run only
 npm run check
 ```
 
 The suite covers priority ranking, investigation checklist, candidate
 recommendation, compare grouping + explanation + briefing fallback, OCR
-parsing, and legacy reference-data parsing.
+parsing, legacy reference-data parsing, and three mocked browser regressions:
+failed analysis recovery, all-unknown evidence staying not ready, and an
+explicit source-backed over-budget rejection. Browser regressions do not call
+the real LLM, OCR, map service, or database.
 
 A separate pytest-marked eval suite under `backend/tests/evals/` guards
 against regressions in the LLM pipeline: golden listings for extraction,

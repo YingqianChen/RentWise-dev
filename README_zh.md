@@ -171,6 +171,7 @@ cd frontend
 nvm install
 nvm use
 npm ci
+npx playwright install chromium
 cp .env.local.example .env.local
 npm run dev
 ```
@@ -262,8 +263,13 @@ Frontend 检查：
 
 ```bash
 cd frontend
+npx playwright install chromium  # 仅首次运行需要
 npm run check
 ```
+
+前端检查包含三条使用固定假数据的浏览器回归：分析失败后的恢复路径、全部未知时
+保持“暂不可判断”，以及原文明确写明超出个人预算时才建议放弃。测试不会调用真实
+LLM、OCR、地图服务或数据库。
 
 测试覆盖 priority ranking、investigation checklist、candidate recommendation、
 compare grouping + explanation + briefing fallback、OCR parsing、旧参考数据解析。

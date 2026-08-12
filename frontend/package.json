@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "check": "npm run lint && npm run typecheck && npm run build"
+    "test:e2e": "playwright test",
+    "check": "npm run lint && npm run typecheck && npm run build && npm run test:e2e"
   },
   "dependencies": {
     "clsx": "2.1.1",
@@ -19,6 +20,7 @@
     "tailwind-merge": "3.5.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.55.1",
     "@types/node": "20.19.39",
     "@types/react": "18.3.28",
     "@types/react-dom": "18.3.7",

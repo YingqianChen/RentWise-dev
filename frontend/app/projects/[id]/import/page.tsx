@@ -52,13 +52,13 @@ export default function ImportCandidatePage() {
     }
 
     setLoading(true);
-    setLoadingMessage(uploadedImages.length > 0 ? "Uploading images..." : "Extracting and assessing...");
+    setLoadingMessage(uploadedImages.length > 0 ? "Uploading images..." : "Saving source information...");
     const stageOneTimer =
       uploadedImages.length > 0
         ? window.setTimeout(() => setLoadingMessage("Running OCR on uploaded images..."), 800)
         : null;
     const stageTwoTimer = window.setTimeout(
-      () => setLoadingMessage(uploadedImages.length > 0 ? "Queueing OCR and assessment..." : "Queueing assessment..."),
+      () => setLoadingMessage(uploadedImages.length > 0 ? "Starting OCR and analysis..." : "Starting analysis..."),
       uploadedImages.length > 0 ? 2200 : 1000
     );
     try {
@@ -116,7 +116,8 @@ export default function ImportCandidatePage() {
         </div>
         <p className="mb-6 text-sm text-gray-600">
           Paste the listing text, agent chat, upload screenshots, or add your own notes. RentWise
-          will extract the key details and decide what to verify next.
+          will save the source information, start analysis, and show what still needs confirmation.
+          Web links are treated as text; RentWise does not open or read listing URLs.
         </p>
 
         {error && (
@@ -226,7 +227,7 @@ export default function ImportCandidatePage() {
               </ul>
             )}
             <p className="mt-3 text-xs text-gray-500">
-              OCR and assessment continue in the background after upload, so you can move straight to the candidate detail view.
+              After your files are saved, OCR and analysis continue in the background. The candidate page shows progress and keeps your original information if analysis fails.
             </p>
           </section>
 
@@ -245,7 +246,7 @@ export default function ImportCandidatePage() {
               )}
             >
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {loading ? "Processing..." : "Import and assess"}
+              {loading ? "Saving..." : "Save and start analysis"}
             </button>
           </div>
         </form>

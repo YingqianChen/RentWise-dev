@@ -493,6 +493,8 @@ export default function ProjectDashboardPage() {
     recommended_reject: 0,
     shortlisted: 0,
     rejected: 0,
+    processing: 0,
+    analysis_failed: 0,
   };
   const processingCandidates = candidates.filter(
     (candidate) =>
@@ -611,8 +613,10 @@ export default function ProjectDashboardPage() {
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
               System view
             </p>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <KpiCard label="Total" value={stats.total} tone="neutral" />
+              <KpiCard label="Processing" value={stats.processing} tone="blue" />
+              <KpiCard label="Analysis failed" value={stats.analysis_failed} tone="red" />
               <KpiCard label="Needs info" value={stats.needs_info} tone="amber" />
               <KpiCard label="Follow up" value={stats.follow_up} tone="blue" />
               <KpiCard label="High risk" value={stats.high_risk_pending} tone="red" />

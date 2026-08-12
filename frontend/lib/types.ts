@@ -300,6 +300,8 @@ export interface CandidateStats {
   recommended_reject: number;
   shortlisted: number;
   rejected: number;
+  processing: number;
+  analysis_failed: number;
 }
 
 export interface PriorityCandidate {

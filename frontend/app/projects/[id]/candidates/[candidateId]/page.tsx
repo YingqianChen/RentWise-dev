@@ -630,6 +630,16 @@ function ConfidenceBar({ level }: { level?: string | null }) {
   );
 }
 
+function hasUsableAnalysis(candidate: Candidate): boolean {
+  return Boolean(
+    candidate.processing_stage === "completed" &&
+      candidate.extracted_info &&
+      candidate.cost_assessment &&
+      candidate.clause_assessment &&
+      candidate.candidate_assessment
+  );
+}
+
 export default function CandidateDetailPage() {
   const router = useRouter();
   const params = useParams();
@@ -642,6 +652,7 @@ export default function CandidateDetailPage() {
   const [showConfirm, setShowConfirm] = useState<"shortlist" | "reject" | "delete" | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [actionError, setActionError] = useState("");
   const [contactPlan, setContactPlan] = useState<CandidateContactPlan | null>(null);
   const [contactPlanLoading, setContactPlanLoading] = useState(false);
   const [contactPlanError, setContactPlanError] = useState("");
@@ -679,17 +690,21 @@ export default function CandidateDetailPage() {
         setContactPlan(null);
         setContactPlanError("");
         setContactPlanCopied(false);
-        const compareIds = buildSuggestedCompareIds(candidatesData.candidates, data.id);
-        try {
-          if (compareIds.length >= 2) {
-            const comparison = await compareCandidates(token, projectId, compareIds);
-            const card = findCompareCardForCandidate(comparison, data.id);
-            setCompareContext(card ? { comparison, card } : null);
-          } else {
+        if (hasUsableAnalysis(data)) {
+          const compareIds = buildSuggestedCompareIds(candidatesData.candidates, data.id);
+          try {
+            if (compareIds.length >= 2) {
+              const comparison = await compareCandidates(token, projectId, compareIds);
+              const card = findCompareCardForCandidate(comparison, data.id);
+              setCompareContext(card ? { comparison, card } : null);
+            } else {
+              setCompareContext(null);
+            }
+          } catch (compareError) {
+            console.error("Failed to load compare context:", compareError);
             setCompareContext(null);
           }
-        } catch (compareError) {
-          console.error("Failed to load compare context:", compareError);
+        } else {
           setCompareContext(null);
         }
       } catch (err) {
@@ -748,12 +763,14 @@ export default function CandidateDetailPage() {
     if (!token) return;
 
     setActionLoading(true);
+    setActionError("");
     try {
       const updated = await reassessCandidate(token, projectId, candidateId);
       setCandidate(updated);
       await loadCandidate(token);
     } catch (err) {
       console.error("Failed to reassess candidate:", err);
+      setActionError(err instanceof Error ? err.message : "Failed to restart analysis.");
     } finally {
       setActionLoading(false);
     }
@@ -766,6 +783,7 @@ export default function CandidateDetailPage() {
 
     setActionLoading(true);
     setSaveError("");
+    setActionError("");
 
     try {
       const updated = await updateCandidate(token, projectId, candidateId, {
@@ -917,6 +935,8 @@ export default function CandidateDetailPage() {
   const cost = candidate.cost_assessment;
   const clause = candidate.clause_assessment;
   const assessment = candidate.candidate_assessment;
+  const analysisUsable = hasUsableAnalysis(candidate);
+  const analysisFailed = candidate.processing_stage === "failed";
   const decisionBlockers = buildDecisionBlockers(candidate);
   const monthlyCostDisplay = cost?.known_monthly_cost
     ? `HKD ${cost.known_monthly_cost.toLocaleString()}`
@@ -961,7 +981,7 @@ export default function CandidateDetailPage() {
               disabled={actionLoading || isProcessing}
             >
               <Pencil className="h-3.5 w-3.5" />
-              {isEditing ? "Close editor" : "Edit"}
+              {isEditing ? "Close editor" : analysisFailed ? "Edit source information" : "Edit"}
             </Button>
             <Button
               variant="outline"
@@ -970,7 +990,7 @@ export default function CandidateDetailPage() {
               disabled={actionLoading || isProcessing}
             >
               <RefreshCw className={cn("h-3.5 w-3.5", actionLoading && "animate-spin")} />
-              Reassess
+              {analysisFailed ? "Retry analysis" : "Reassess"}
             </Button>
             {candidate.user_decision !== "undecided" && (
               <Button
@@ -1002,7 +1022,34 @@ export default function CandidateDetailPage() {
               <AlertTitle>{processingStageLabel(candidate.processing_stage)}</AlertTitle>
               <AlertDescription>
                 {candidate.processing_error || processingStageDescription(candidate.processing_stage)}
-                {candidate.processing_stage !== "failed" && (
+                {analysisFailed ? (
+                  <div className="mt-3 space-y-3">
+                    <p>Your source information is still saved. Retry now, or edit it before restarting analysis.</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleReassess}
+                        disabled={actionLoading}
+                      >
+                        <RefreshCw className={cn("h-3.5 w-3.5", actionLoading && "animate-spin")} />
+                        Retry analysis
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setSaveError("");
+                          setIsEditing(true);
+                        }}
+                        disabled={actionLoading}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        Edit source information
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
                   <p className="mt-2">This page refreshes automatically while the import runs.</p>
                 )}
               </AlertDescription>
@@ -1095,6 +1142,18 @@ export default function CandidateDetailPage() {
               </Card>
             )}
 
+            {actionError && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <div>
+                  <AlertTitle>Could not restart analysis</AlertTitle>
+                  <AlertDescription>{actionError}</AlertDescription>
+                </div>
+              </Alert>
+            )}
+
+            {analysisUsable && (
+              <>
             {/* Tabs: Cost / Clause / Commute / Fit */}
             <Tabs defaultValue="cost">
               <TabsList>
@@ -1449,6 +1508,8 @@ export default function CandidateDetailPage() {
                 )}
               </CardContent>
             </Card>
+              </>
+            )}
 
             {/* Edit form (conditional) */}
             {isEditing && (
@@ -1456,7 +1517,7 @@ export default function CandidateDetailPage() {
                 <CardHeader>
                   <CardTitle>Edit candidate</CardTitle>
                   <CardDescription>
-                    Update source text and the assistant will rerun extraction and assessment.
+                    Update the saved source information. Saving will restart extraction and assessment.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -1761,7 +1822,7 @@ export default function CandidateDetailPage() {
                     <Button
                       className="w-full bg-emerald-600 hover:bg-emerald-700"
                       onClick={() => setShowConfirm("shortlist")}
-                      disabled={isProcessing}
+                      disabled={!analysisUsable}
                     >
                       <CheckCircle2 className="h-3.5 w-3.5" />
                       Shortlist
@@ -1770,7 +1831,7 @@ export default function CandidateDetailPage() {
                       variant="outline"
                       className="w-full text-red-600 hover:text-red-700"
                       onClick={() => setShowConfirm("reject")}
-                      disabled={isProcessing}
+                      disabled={!analysisUsable}
                     >
                       <XCircle className="h-3.5 w-3.5" />
                       Reject
@@ -1796,13 +1857,29 @@ export default function CandidateDetailPage() {
                     Your decision: {candidate.user_decision === "shortlisted" ? "Shortlisted" : "Rejected"}
                   </div>
                 )}
-                <Link
-                  href={`/projects/${projectId}/compare?ids=${candidateId}`}
-                  className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
-                >
-                  <ArrowLeftRight className="h-3.5 w-3.5" />
-                  Add to compare
-                </Link>
+                {analysisUsable ? (
+                  <Link
+                    href={`/projects/${projectId}/compare?ids=${candidateId}`}
+                    className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+                  >
+                    <ArrowLeftRight className="h-3.5 w-3.5" />
+                    Add to compare
+                  </Link>
+                ) : (
+                  <button
+                    type="button"
+                    disabled
+                    className="inline-flex h-9 w-full cursor-not-allowed items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-gray-100 px-3 text-sm font-medium text-gray-400"
+                  >
+                    <ArrowLeftRight className="h-3.5 w-3.5" />
+                    Compare unavailable
+                  </button>
+                )}
+                {!analysisUsable && (
+                  <p className="text-xs leading-5 text-gray-500">
+                    Complete the analysis before making a decision, comparing, or drafting outreach.
+                  </p>
+                )}
               </CardContent>
             </Card>
 

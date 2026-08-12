@@ -1,9 +1,10 @@
 # RentWise
 
 RentWise is a candidate-pool research workspace for Hong Kong renters. You
-import listings (text, URLs, screenshots), and the app extracts facts,
-scores each candidate against your criteria, estimates real door-to-door
-commute times, and explains what to verify next.
+provide listing text, agent chats, screenshots, and personal notes; the app
+organizes known facts, keeps missing details visible, compares known costs with
+your own budget, estimates door-to-door commute times, and explains what to
+verify next. It does not open or scrape pasted listing URLs.
 
 This README is the canonical project document. A synchronized Chinese copy
 is kept in `README_zh.md`; update both together.

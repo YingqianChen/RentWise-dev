@@ -61,7 +61,7 @@ export default function LoginPage() {
           </h1>
           <p className="mt-1 text-sm text-gray-500">
             {isRegister
-              ? "Start organizing rental candidates with AI-powered assessment."
+              ? "Start organizing rental information and the questions you still need to confirm."
               : "Sign in to continue where you left off."}
           </p>
 
@@ -143,7 +143,7 @@ export default function LoginPage() {
         </div>
 
         <p className="mt-6 text-center text-xs text-gray-400">
-          Hong Kong rental research · powered by Claude
+          Hong Kong rental research · your information stays editable
         </p>
       </div>
     </main>

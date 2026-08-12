@@ -5,13 +5,13 @@ import { Logo } from "@/components/brand/logo";
 const FEATURES = [
   {
     icon: FileSearch,
-    title: "Import from any listing source",
-    body: "Paste a listing URL, 28hse / Squarefoot / Spacious link, or screenshot. RentWise pulls out the key facts and flags what's missing.",
+    title: "Organize the information you have",
+    body: "Paste listing text, agent chats, upload screenshots, or add your own notes. RentWise separates known facts from details that still need confirmation.",
   },
   {
     icon: ClipboardList,
-    title: "AI-assessed candidate pool",
-    body: "Each listing is scored against your criteria — budget, area, MTR access, pet policy — so you can focus on the top contenders.",
+    title: "Review candidates against your needs",
+    body: "Compare known costs with your budget, surface conflicts with your stated requirements, and keep missing information visible instead of guessing.",
   },
   {
     icon: Compass,
@@ -88,7 +88,7 @@ export default function Home() {
 
         <footer className="mt-16 border-t border-gray-200 pt-8 text-center">
           <p className="text-xs text-gray-500">
-            Hong Kong rental research · powered by Claude, Amap, and HK Gov ALS
+            Hong Kong rental research · decision support, not legal or professional advice
           </p>
         </footer>
       </div>

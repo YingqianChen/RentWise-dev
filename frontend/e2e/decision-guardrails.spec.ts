@@ -213,7 +213,9 @@ test("import failure keeps the source and offers a clean retry path", async ({ p
   const api = await installApiMock(page, failed, { importedCandidate: failed });
 
   await page.goto(`/projects/${PROJECT_ID}/import`);
-  await page.getByLabel("Listing text").fill(SAVED_SOURCE);
+  await page
+    .getByPlaceholder("Paste the property ad or listing details here...")
+    .fill(SAVED_SOURCE);
   await page.getByRole("button", { name: "Save and start analysis" }).click();
 
   await expect(page).toHaveURL(
@@ -230,7 +232,7 @@ test("import failure keeps the source and offers a clean retry path", async ({ p
   await expect(page.getByRole("button", { name: "Compare unavailable" })).toBeDisabled();
 
   await page.getByRole("button", { name: "Edit source information" }).first().click();
-  await expect(page.getByLabel("Listing text")).toHaveValue(SAVED_SOURCE);
+  await expect(page.locator("textarea").first()).toHaveValue(SAVED_SOURCE);
   await page.getByRole("button", { name: "Close editor" }).click();
 
   await page.getByRole("button", { name: "Retry analysis" }).first().click();

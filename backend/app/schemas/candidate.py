@@ -1,7 +1,7 @@
 """Candidate schemas"""
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -67,6 +67,46 @@ class CandidateSourceAssetResponse(BaseModel):
     ocr_text: Optional[str]
     created_at: datetime
     updated_at: datetime
+
+
+class CandidateFieldEvidenceResponse(BaseModel):
+    """One verified source claim for a core candidate field."""
+
+    id: UUID
+    source_type: str
+    source_asset_id: Optional[UUID]
+    source_label: str
+    quote: str
+    claim_value: Any
+    claim_kind: str
+    confidence: str
+
+
+class CandidateFieldFactResponse(BaseModel):
+    """Effective field value plus the latest system result and its evidence."""
+
+    key: str
+    label: str
+    group: str
+    value: Any = None
+    state: str
+    confidence: str
+    decision_usable: bool
+    system_value: Any = None
+    system_state: str
+    system_confidence: str
+    user_action: Optional[str] = None
+    user_note: Optional[str] = None
+    user_updated_at: Optional[datetime] = None
+    evidence: List[CandidateFieldEvidenceResponse] = Field(default_factory=list)
+
+
+class CandidateFieldActionRequest(BaseModel):
+    """Confirm, correct, clear, or revert one core candidate field."""
+
+    action: Literal["confirm", "correct", "mark_unknown", "revert"]
+    value: Any = None
+    note: Optional[str] = Field(default=None, max_length=1000)
 
 
 # ============== Assessments ==============
@@ -180,6 +220,10 @@ class CandidateResponse(BaseModel):
     benchmark: Optional[BenchmarkEvidence] = None
     commute_evidence: Optional[CommuteEvidence] = None
     source_assets: List[CandidateSourceAssetResponse] = Field(default_factory=list)
+    field_facts: List[CandidateFieldFactResponse] = Field(
+        default_factory=list,
+        validation_alias="_serialized_field_facts",
+    )
 
 
 class CandidateListResponse(BaseModel):

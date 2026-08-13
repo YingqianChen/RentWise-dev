@@ -13,9 +13,16 @@ from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.orm import selectinload
 
 from ...db.database import get_db, get_session_factory
-from ...db.models import CandidateListing, SearchProject, User
+from ...db.models import (
+    CandidateFieldEvidence,
+    CandidateFieldFact,
+    CandidateListing,
+    SearchProject,
+    User,
+)
 from ...schemas.candidate import (
     CandidateContactPlanResponse,
+    CandidateFieldActionRequest,
     CandidateListResponse,
     CandidateResponse,
     CandidateUpdate,
@@ -25,6 +32,13 @@ from ...services.candidate_analysis_state import has_usable_analysis
 from ...services.candidate_import_background_service import CandidateImportBackgroundService
 from ...services.candidate_import_service import CandidateImportService, build_combined_text, infer_source_type
 from ...services.candidate_analysis_runner import run_candidate_analysis
+from ...services.candidate_field_correction_service import (
+    CandidateFieldAction,
+    CandidateFieldCorrectionError,
+    CandidateFieldCorrectionService,
+)
+from ...services.candidate_field_registry import CANDIDATE_FIELD_BY_KEY
+from ...services.candidate_field_serialization_service import serialize_candidate_field_facts
 from ...services.candidate_pipeline_service import CandidatePipelineService
 from ...services.commute_service import CommuteService
 from .auth import get_current_user
@@ -35,6 +49,7 @@ commute_service = CommuteService()
 candidate_contact_plan_service = CandidateContactPlanService()
 candidate_import_service = CandidateImportService()
 candidate_import_background_service = CandidateImportBackgroundService(get_session_factory())
+candidate_field_correction_service = CandidateFieldCorrectionService()
 
 
 async def get_project_for_user(project_id: UUID, user: User, db: AsyncSession) -> SearchProject:
@@ -60,6 +75,9 @@ def _candidate_detail_query():
             selectinload(CandidateListing.clause_assessment),
             selectinload(CandidateListing.candidate_assessment),
             selectinload(CandidateListing.source_assets),
+            selectinload(CandidateListing.field_facts)
+            .selectinload(CandidateFieldFact.evidence)
+            .selectinload(CandidateFieldEvidence.source_asset),
         )
     )
 
@@ -70,7 +88,9 @@ async def _serialize_candidate(
     compute_commute: bool = False,
     db: AsyncSession | None = None,
 ) -> CandidateResponse:
-    response = CandidateResponse.model_validate(candidate)
+    response = CandidateResponse.model_validate(candidate).model_copy(
+        update={"field_facts": serialize_candidate_field_facts(candidate.field_facts)}
+    )
     if not has_usable_analysis(candidate):
         return response.model_copy(
             update={
@@ -80,6 +100,7 @@ async def _serialize_candidate(
                 "candidate_assessment": None,
                 "benchmark": None,
                 "commute_evidence": None,
+                "field_facts": [],
             }
         )
 
@@ -114,15 +135,38 @@ async def get_candidate_for_project_user(
     """Get a candidate belonging to a project owned by the current user."""
     project = await get_project_for_user(project_id, user, db)
     result = await db.execute(
-        _candidate_detail_query().where(
+        _candidate_detail_query()
+        .where(
             CandidateListing.id == candidate_id,
             CandidateListing.project_id == project.id,
         )
+        .execution_options(populate_existing=True)
     )
     candidate = result.scalar_one_or_none()
     if candidate is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found")
     return project, candidate
+
+
+async def _apply_candidate_field_actions(
+    *,
+    db: AsyncSession,
+    project: SearchProject,
+    candidate: CandidateListing,
+    actor_user_id: UUID,
+    actions: list[CandidateFieldAction],
+) -> None:
+    try:
+        await candidate_field_correction_service.apply_candidate_actions(
+            db,
+            project=project,
+            candidate=candidate,
+            actor_user_id=actor_user_id,
+            actions=actions,
+            pipeline=pipeline_service,
+        )
+    except CandidateFieldCorrectionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
 
 @router.post("/projects/{project_id}/candidates/import", response_model=CandidateResponse, status_code=status.HTTP_201_CREATED)
@@ -187,6 +231,7 @@ async def import_candidate(
     set_committed_value(candidate, "cost_assessment", None)
     set_committed_value(candidate, "clause_assessment", None)
     set_committed_value(candidate, "candidate_assessment", None)
+    set_committed_value(candidate, "field_facts", [])
 
     if not candidate.combined_text:
         if not uploaded_images:
@@ -258,12 +303,7 @@ async def update_candidate(
     location_fields = {"address_text", "building_name", "nearest_station"}
     should_reassess = any(field in update_data for field in text_fields)
 
-    # Apply location field updates to extracted_info
     location_updates = {k: v for k, v in update_data.items() if k in location_fields}
-    if location_updates and candidate.extracted_info is not None:
-        for field, value in location_updates.items():
-            setattr(candidate.extracted_info, field, value)
-        candidate.extracted_info.location_source = "user_corrected"
 
     # Apply non-location fields to candidate
     for field, value in update_data.items():
@@ -285,17 +325,54 @@ async def update_candidate(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="At least one text field is required",
             )
-        await run_candidate_analysis(
+        analysis_succeeded = await run_candidate_analysis(
             db=db,
             project=project,
             candidate=candidate,
             pipeline=pipeline_service,
         )
+        if analysis_succeeded:
+            _, candidate = await get_candidate_for_project_user(
+                project.id,
+                candidate.id,
+                current_user,
+                db,
+            )
 
-    if not should_reassess:
+    if location_updates and (not should_reassess or analysis_succeeded):
+        location_actions = [
+            CandidateFieldAction(
+                field_key=field_key,
+                action=(
+                    "mark_unknown"
+                    if value is None or (isinstance(value, str) and not value.strip())
+                    else "correct"
+                ),
+                value=(
+                    None
+                    if value is None or (isinstance(value, str) and not value.strip())
+                    else value
+                ),
+            )
+            for field_key, value in location_updates.items()
+        ]
+        await _apply_candidate_field_actions(
+            db=db,
+            project=project,
+            candidate=candidate,
+            actor_user_id=current_user.id,
+            actions=location_actions,
+        )
+
+    if not should_reassess and not location_updates:
         await db.flush()
     _, candidate = await get_candidate_for_project_user(project.id, candidate.id, current_user, db)
-    return await _serialize_candidate(candidate, project=project, compute_commute=True, db=db)
+    return await _serialize_candidate(
+        candidate,
+        project=project,
+        compute_commute=not location_updates,
+        db=db,
+    )
 
 
 @router.post("/projects/{project_id}/candidates/{candidate_id}/reassess", response_model=CandidateResponse)
@@ -315,6 +392,54 @@ async def reassess_candidate(
     )
     _, candidate = await get_candidate_for_project_user(project.id, candidate.id, current_user, db)
     return await _serialize_candidate(candidate, project=project, compute_commute=True, db=db)
+
+
+@router.patch(
+    "/projects/{project_id}/candidates/{candidate_id}/fields/{field_key}",
+    response_model=CandidateResponse,
+)
+async def update_candidate_field(
+    project_id: UUID,
+    candidate_id: UUID,
+    field_key: str,
+    field_data: CandidateFieldActionRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Apply one auditable field action and locally recalculate affected results."""
+    if field_key not in CANDIDATE_FIELD_BY_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Unsupported candidate field: {field_key}",
+        )
+
+    project, candidate = await get_candidate_for_project_user(
+        project_id,
+        candidate_id,
+        current_user,
+        db,
+    )
+    await _apply_candidate_field_actions(
+        db=db,
+        project=project,
+        candidate=candidate,
+        actor_user_id=current_user.id,
+        actions=[
+            CandidateFieldAction(
+                field_key=field_key,
+                action=field_data.action,
+                value=field_data.value,
+                note=field_data.note,
+            )
+        ],
+    )
+    _, candidate = await get_candidate_for_project_user(
+        project.id,
+        candidate.id,
+        current_user,
+        db,
+    )
+    return await _serialize_candidate(candidate, project=project, compute_commute=False, db=db)
 
 
 @router.post(

@@ -138,3 +138,19 @@ def is_decision_usable(state: EffectiveFieldState) -> bool:
     if state not in EFFECTIVE_FIELD_STATES:
         raise ValueError(f"Unsupported effective field state: {state}")
     return state in DECISION_USABLE_STATES
+
+
+def effective_field_value(
+    *,
+    system_value: object | None,
+    system_state: SystemFieldState,
+    user_action: UserFieldAction | None,
+    user_value: object | None,
+) -> object | None:
+    """Resolve the displayed field value without mutating either source of truth."""
+    state = effective_field_state(system_state, user_action)
+    if state in {"user_confirmed", "user_corrected"}:
+        return user_value
+    if state == "user_marked_unknown":
+        return None
+    return system_value

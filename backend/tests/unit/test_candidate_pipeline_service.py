@@ -79,3 +79,22 @@ class CandidatePipelineServiceTests(IsolatedAsyncioTestCase):
                 self.assertEqual(candidate.user_decision, user_decision)
                 self.assertEqual(candidate.status, "needs_info")
                 self.assertEqual(candidate.candidate_assessment.status, "needs_info")
+
+    async def test_field_change_reassessment_is_local_only(self):
+        project = build_project(build_user())
+        candidate = build_candidate(project)
+        service = CandidatePipelineService()
+        service.extraction_service.extract_with_evidence = AsyncMock()
+        service.clause_service.attach_legal_references = AsyncMock()
+        db = _FakeSession()
+
+        await service.reassess_after_field_change(
+            db=db,
+            project=project,
+            candidate=candidate,
+        )
+
+        service.extraction_service.extract_with_evidence.assert_not_awaited()
+        service.clause_service.attach_legal_references.assert_not_awaited()
+        db.commit.assert_not_awaited()
+        db.flush.assert_awaited_once()

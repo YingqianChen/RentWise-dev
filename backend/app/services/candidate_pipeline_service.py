@@ -70,6 +70,29 @@ class CandidatePipelineService:
         )
         return candidate
 
+    async def reassess_after_field_change(
+        self,
+        db: AsyncSession,
+        project: SearchProject,
+        candidate: CandidateListing,
+    ) -> CandidateListing:
+        """Recalculate local assessments without extraction, legal RAG, or maps."""
+        if candidate.extracted_info is None:
+            raise ValueError("Field reassessment requires an extracted snapshot.")
+
+        clause_assessment = self.clause_service.assess(
+            candidate.extracted_info,
+            move_in_target=project.move_in_target,
+        )
+        await self._assess_from_extracted(
+            db=db,
+            project=project,
+            candidate=candidate,
+            extracted_info=candidate.extracted_info,
+            clause_assessment=clause_assessment,
+        )
+        return candidate
+
     async def _assess_from_extracted(
         self,
         *,

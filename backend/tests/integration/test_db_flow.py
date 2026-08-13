@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.core.config import settings
 from app.db.models import (
+    CandidateCommuteEvidence,
     CandidateFieldEvidence,
     CandidateFieldFact,
     CandidateFieldRevision,
@@ -119,6 +120,7 @@ class DatabaseFlowTests(TestCase):
 
     def setUp(self) -> None:
         self.email = f"db-flow-{uuid.uuid4().hex[:12]}@example.com"
+        self.other_email = f"other-{self.email}"
 
     def tearDown(self) -> None:
         asyncio.run(self._cleanup_user())
@@ -127,7 +129,9 @@ class DatabaseFlowTests(TestCase):
         engine = create_async_engine(settings.DATABASE_URL, future=True)
         session_factory = async_sessionmaker(engine, expire_on_commit=False)
         async with session_factory() as session:
-            await session.execute(delete(User).where(User.email == self.email))
+            await session.execute(
+                delete(User).where(User.email.in_([self.email, self.other_email]))
+            )
             await session.commit()
         await engine.dispose()
 
@@ -386,6 +390,234 @@ class DatabaseFlowTests(TestCase):
         self.assertEqual(detail["candidate_assessment"]["top_level_recommendation"], "not_ready")
         self.assertEqual(detail["candidate_assessment"]["next_best_action"], "verify_cost")
         self.assertNotEqual(detail["status"], "recommended_reject")
+
+    def test_field_actions_are_typed_audited_and_transactional(self) -> None:
+        register_response = self.client.post(
+            "/api/v1/auth/register",
+            json={"email": self.email, "password": "db-flow-password"},
+        )
+        self.assertEqual(register_response.status_code, 201, register_response.text)
+        headers = {"Authorization": f"Bearer {register_response.json()['access_token']}"}
+        me_response = self.client.get("/api/v1/auth/me", headers=headers)
+        self.assertEqual(me_response.status_code, 200, me_response.text)
+        user_id = uuid.UUID(me_response.json()["id"])
+
+        project_response = self.client.post(
+            "/api/v1/projects",
+            headers=headers,
+            json={"title": "Field action project", "max_budget": 22000},
+        )
+        self.assertEqual(project_response.status_code, 201, project_response.text)
+        project_id = project_response.json()["id"]
+
+        with patch(
+            "app.services.extraction_service.chat_completion_json",
+            AsyncMock(return_value=_valid_extraction_payload()),
+        ):
+            candidate_response = self.client.post(
+                f"/api/v1/projects/{project_id}/candidates/import",
+                headers=headers,
+                data={
+                    "name": "Field action candidate",
+                    "raw_listing_text": "Wan Chai flat, rent 18000, deposit 2 months, lease 2 years.",
+                },
+            )
+        self.assertEqual(candidate_response.status_code, 201, candidate_response.text)
+        candidate_id = candidate_response.json()["id"]
+
+        detail = self.client.get(
+            f"/api/v1/projects/{project_id}/candidates/{candidate_id}",
+            headers=headers,
+        ).json()
+        self.assertEqual(len(detail["field_facts"]), 14)
+        rent = next(fact for fact in detail["field_facts"] if fact["key"] == "monthly_rent")
+        self.assertEqual(rent["state"], "explicit")
+        self.assertEqual(rent["value"], 18000)
+        self.assertEqual(rent["evidence"][0]["source_label"], "Listing text")
+
+        field_url = f"/api/v1/projects/{project_id}/candidates/{candidate_id}/fields"
+        confirmed_response = self.client.patch(
+            f"{field_url}/monthly_rent",
+            headers=headers,
+            json={"action": "confirm", "note": "Confirmed by phone"},
+        )
+        self.assertEqual(confirmed_response.status_code, 200, confirmed_response.text)
+        confirmed_rent = next(
+            fact
+            for fact in confirmed_response.json()["field_facts"]
+            if fact["key"] == "monthly_rent"
+        )
+        self.assertEqual(confirmed_rent["state"], "user_confirmed")
+        self.assertEqual(confirmed_rent["value"], 18000)
+
+        corrected_response = self.client.patch(
+            f"{field_url}/monthly_rent",
+            headers=headers,
+            json={"action": "correct", "value": 20000},
+        )
+        self.assertEqual(corrected_response.status_code, 200, corrected_response.text)
+        corrected = corrected_response.json()
+        corrected_rent = next(
+            fact for fact in corrected["field_facts"] if fact["key"] == "monthly_rent"
+        )
+        self.assertEqual(corrected_rent["state"], "user_corrected")
+        self.assertEqual(corrected_rent["value"], 20000)
+        self.assertEqual(corrected["extracted_info"]["monthly_rent"], "20000")
+        self.assertEqual(corrected["cost_assessment"]["known_monthly_cost"], 20000)
+
+        invalid_response = self.client.patch(
+            f"{field_url}/monthly_rent",
+            headers=headers,
+            json={"action": "correct", "value": "twenty thousand"},
+        )
+        self.assertEqual(invalid_response.status_code, 422, invalid_response.text)
+
+        with patch(
+            "app.api.v1.candidates.pipeline_service.reassess_after_field_change",
+            AsyncMock(side_effect=RuntimeError("forced local reassessment failure")),
+        ):
+            with self.assertRaises(RuntimeError):
+                self.client.patch(
+                    f"{field_url}/monthly_rent",
+                    headers=headers,
+                    json={"action": "correct", "value": 21000},
+                )
+
+        after_rollback = self.client.get(
+            f"/api/v1/projects/{project_id}/candidates/{candidate_id}",
+            headers=headers,
+        ).json()
+        rollback_rent = next(
+            fact for fact in after_rollback["field_facts"] if fact["key"] == "monthly_rent"
+        )
+        self.assertEqual(rollback_rent["value"], 20000)
+
+        unknown_response = self.client.patch(
+            f"{field_url}/monthly_rent",
+            headers=headers,
+            json={"action": "mark_unknown"},
+        )
+        self.assertEqual(unknown_response.status_code, 200, unknown_response.text)
+        unknown = unknown_response.json()
+        unknown_rent = next(
+            fact for fact in unknown["field_facts"] if fact["key"] == "monthly_rent"
+        )
+        self.assertEqual(unknown_rent["state"], "user_marked_unknown")
+        self.assertIsNone(unknown["extracted_info"]["monthly_rent"])
+
+        reverted_response = self.client.patch(
+            f"{field_url}/monthly_rent",
+            headers=headers,
+            json={"action": "revert"},
+        )
+        self.assertEqual(reverted_response.status_code, 200, reverted_response.text)
+        reverted = reverted_response.json()
+        reverted_rent = next(
+            fact for fact in reverted["field_facts"] if fact["key"] == "monthly_rent"
+        )
+        self.assertEqual(reverted_rent["state"], "explicit")
+        self.assertEqual(reverted_rent["value"], 18000)
+
+        unsupported_response = self.client.patch(
+            f"{field_url}/furnished",
+            headers=headers,
+            json={"action": "correct", "value": "furnished"},
+        )
+        self.assertEqual(unsupported_response.status_code, 422)
+
+        other_register = self.client.post(
+            "/api/v1/auth/register",
+            json={"email": self.other_email, "password": "db-flow-password"},
+        )
+        self.assertEqual(other_register.status_code, 201, other_register.text)
+        other_headers = {
+            "Authorization": f"Bearer {other_register.json()['access_token']}"
+        }
+        cross_user_response = self.client.patch(
+            f"{field_url}/monthly_rent",
+            headers=other_headers,
+            json={"action": "correct", "value": 1},
+        )
+        self.assertEqual(cross_user_response.status_code, 404)
+
+        asyncio.run(self._insert_commute_cache(uuid.UUID(candidate_id)))
+        location_response = self.client.patch(
+            f"{field_url}/district",
+            headers=headers,
+            json={"action": "correct", "value": "Causeway Bay"},
+        )
+        self.assertEqual(location_response.status_code, 200, location_response.text)
+        self.assertIsNone(location_response.json()["commute_evidence"])
+
+        asyncio.run(self._insert_commute_cache(uuid.UUID(candidate_id)))
+        legacy_location_response = self.client.put(
+            f"/api/v1/projects/{project_id}/candidates/{candidate_id}",
+            headers=headers,
+            json={"building_name": "Harbour View Building"},
+        )
+        self.assertEqual(
+            legacy_location_response.status_code,
+            200,
+            legacy_location_response.text,
+        )
+        legacy_building = next(
+            fact
+            for fact in legacy_location_response.json()["field_facts"]
+            if fact["key"] == "building_name"
+        )
+        self.assertEqual(legacy_building["state"], "user_corrected")
+        self.assertEqual(legacy_building["value"], "Harbour View Building")
+        self.assertIsNone(legacy_location_response.json()["commute_evidence"])
+
+        self.assertEqual(
+            asyncio.run(
+                self._field_action_counts(
+                    candidate_id=uuid.UUID(candidate_id),
+                    actor_user_id=user_id,
+                )
+            ),
+            (6, 0),
+        )
+
+    async def _insert_commute_cache(self, candidate_id: uuid.UUID) -> None:
+        engine = create_async_engine(settings.DATABASE_URL, future=True)
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with session_factory() as session:
+            session.add(
+                CandidateCommuteEvidence(
+                    candidate_id=candidate_id,
+                    config_signature="test-signature",
+                    status="ready",
+                    estimated_minutes=20,
+                )
+            )
+            await session.commit()
+        await engine.dispose()
+
+    async def _field_action_counts(
+        self,
+        *,
+        candidate_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+    ) -> tuple[int, int]:
+        engine = create_async_engine(settings.DATABASE_URL, future=True)
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with session_factory() as session:
+            revision_count = await session.scalar(
+                select(func.count())
+                .select_from(CandidateFieldRevision)
+                .where(
+                    CandidateFieldRevision.candidate_id == candidate_id,
+                    CandidateFieldRevision.actor_user_id == actor_user_id,
+                )
+            )
+            commute_count = await session.scalar(
+                select(func.count())
+                .select_from(CandidateCommuteEvidence)
+                .where(CandidateCommuteEvidence.candidate_id == candidate_id)
+            )
+        await engine.dispose()
+        return int(revision_count or 0), int(commute_count or 0)
 
     def test_candidate_field_schema_enforces_contract_and_cascades(self) -> None:
         asyncio.run(self._exercise_candidate_field_schema())

@@ -12,6 +12,7 @@ from app.services.candidate_field_registry import (
     CANDIDATE_FIELD_KEYS,
     CandidateFieldValueError,
     effective_field_state,
+    effective_field_value,
     is_decision_usable,
     validate_field_value,
 )
@@ -88,4 +89,23 @@ class CandidateFieldRegistryTests(TestCase):
         self.assertEqual(
             {state: is_decision_usable(state) for state in expected},
             expected,
+        )
+
+    def test_effective_value_prefers_snapshotted_user_value(self) -> None:
+        self.assertEqual(
+            effective_field_value(
+                system_value=19000,
+                system_state="explicit",
+                user_action="confirmed",
+                user_value=18000,
+            ),
+            18000,
+        )
+        self.assertIsNone(
+            effective_field_value(
+                system_value=19000,
+                system_state="explicit",
+                user_action="marked_unknown",
+                user_value=None,
+            )
         )

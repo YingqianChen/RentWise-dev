@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import CandidateAssessment, CandidateExtractedInfo, CandidateListing, ClauseAssessment, CostAssessment, SearchProject
 from .candidate_assessment_service import CandidateAssessmentService
+from .candidate_field_evidence_service import CandidateFieldEvidenceService
 from .clause_assessment_service import ClauseAssessmentService
 from .cost_assessment_service import CostAssessmentService
 from .extraction_service import ExtractionService
@@ -16,6 +17,7 @@ class CandidatePipelineService:
 
     def __init__(self) -> None:
         self.extraction_service = ExtractionService()
+        self.field_evidence_service = CandidateFieldEvidenceService()
         self.cost_service = CostAssessmentService()
         self.clause_service = ClauseAssessmentService()
         self.candidate_service = CandidateAssessmentService()
@@ -27,11 +29,18 @@ class CandidatePipelineService:
         candidate: CandidateListing,
     ) -> CandidateListing:
         """Create or refresh all assessment records for a candidate."""
-        extracted_info = await self.extraction_service.extract(candidate)
+        extraction_result = await self.extraction_service.extract_with_evidence(candidate)
+        extracted_info = extraction_result.extracted_info
         candidate.processing_stage = "assessing"
         candidate.processing_error = None
         candidate.processing_error_code = None
         await db.commit()
+
+        await self.field_evidence_service.replace_system_results(
+            db,
+            candidate_id=candidate.id,
+            facts=extraction_result.field_facts,
+        )
 
         await self._assess_from_extracted(
             db=db,

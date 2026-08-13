@@ -226,7 +226,7 @@ class CandidateExtractedInfo(Base):
     building_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     nearest_station: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     location_confidence: Mapped[str] = mapped_column(String(50), default="unknown", nullable=False)  # high | medium | low | unknown
-    location_source: Mapped[str] = mapped_column(String(50), default="unknown", nullable=False)  # extracted | user_corrected | mixed | unknown
+    location_source: Mapped[str] = mapped_column(String(50), default="unknown", nullable=False)
     decision_signals: Mapped[list[dict[str, str]]] = mapped_column(
         JSONB, default=list, nullable=False
     )

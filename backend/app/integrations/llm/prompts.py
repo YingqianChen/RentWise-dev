@@ -1,57 +1,55 @@
 """LLM prompt templates for extraction and analysis."""
 
-EXTRACTION_PROMPT = """Extract the key rental fields from the Hong Kong rental evidence below.
-The evidence may include listing copy, agent or landlord chat, tenant notes, and OCR text from screenshots.
+EXTRACTION_PROMPT = """Extract source-backed facts from the Hong Kong rental evidence below.
+Each source has a stable identifier. Do not combine sources into a single answer and do not decide which source is newer or more trustworthy.
 
 Important rules:
-1. You MUST return every key listed in the JSON schema below, in the exact order shown. Never skip a key. Use "unknown" only when the evidence is truly silent about that field.
-2. Location fields (address_text, building_name, nearest_station, district) are especially important. If the evidence contains any building name, estate name, street, or station — even in English only — copy it into the matching field verbatim. Do not drop English place names.
-3. Combine all sources into one current decision read. Do not assume the original listing is always the final truth.
-4. If later chat or notes clarify a practical rental condition, you may use that clarification in the canonical field.
-5. If sources conflict and you cannot safely resolve the current state, keep the canonical field conservative and add a decision signal about the conflict or ambiguity.
-6. Relative timing notes such as "available at semester start", "move in at the start of school", or "after finals" are still usable timing notes. Do not mark them unknown just because they are not exact calendar dates.
-7. Notes such as "school dorm, maintenance included", "owner covers repairs", or "landlord handles repairs" should not be treated as unknown repair responsibility.
-8. decision_signals is only for the predefined keys listed below. Return an empty list when there is nothing clearly decision-relevant.
-9. raw_facts is for any factual observation that does not fit the typed fields above but might still matter to the tenant (e.g. "landlord is the owner, not an agent", "unit renovated last year", "photos show air-conditioner in every room", "chat mentions pet-friendly"). Do NOT repeat facts already captured in the typed fields. Return an empty list if nothing noteworthy.
+1. For each direct or reasonably inferred claim about one of the 14 core fields, return one field_claims item. Return no placeholder claim for a missing field.
+2. The 14 allowed field_key values are: monthly_rent, management_fee_amount, management_fee_included, rates_amount, rates_included, deposit, agent_fee, lease_term, move_in_date, repair_responsibility, district, address_text, building_name, nearest_station.
+3. Copy a short quote verbatim from the named source. The quote must occur in that exact source. Never invent or paraphrase a quote.
+4. source_type must be listing, chat, note, or image_ocr. For image_ocr, copy its UUID into source_asset_id. For every other source type, source_asset_id must be null.
+5. claim_kind is explicit only when the source directly states the value. Use inferred when interpretation is required. Do not turn an inferred claim into an explicit one merely because it seems likely.
+6. Return money values as non-negative JSON numbers without currency symbols or commas. Return included fields as JSON booleans. Return every other core value as concise text.
+7. Preserve separate contradictory claims. The application, not you, will calculate the final conflict state.
+8. Relative timing such as "available at semester start" is valid text. A repair note such as "owner covers repairs" is also valid text.
+9. The supplemental object preserves a few existing non-core observations. Use "unknown" when absent. decision_signals and raw_facts must stay grounded in the supplied sources.
 
 Evidence:
 {text}
 
-Return JSON only with these fields, in this exact order:
+Return JSON only in this shape:
 {{
-    "address_text": "Best available address or partial address from the evidence. Prefer Chinese when available for geocoding accuracy (e.g. 彌敦道123號旺角). If only English is available, include it as-is (e.g. 123 Nathan Road Mong Kok). Return unknown if missing.",
-    "building_name": "Building or estate name if mentioned. Prefer Chinese when available (e.g. 沙田第一城, 美孚新邨). If only English, include as-is (e.g. City One Shatin). Return unknown if missing.",
-    "nearest_station": "Nearest MTR or transport station if mentioned or clearly implied. Prefer Chinese when available (e.g. 旺角東站, 沙田站). If only English, include as-is (e.g. Mong Kok East). Return unknown if missing.",
-    "district": "District or area name",
-    "location_confidence": "high if full or partial address is available, medium if building name or station is available but no street address, low if only district or vague area hint, unknown if no location information at all",
-    "monthly_rent": "Monthly rent including currency symbol when available, e.g. $15000 or HKD 15,000",
-    "management_fee_amount": "Management fee amount",
-    "management_fee_included": true/false/unknown,
-    "rates_amount": "Government rates amount",
-    "rates_included": true/false/unknown,
-    "deposit": "Deposit amount or months of rent",
-    "agent_fee": "Agent fee amount",
-    "lease_term": "A short normalized lease note, e.g. 2 years, 1 year fixed 1 year optional, monthly rolling, no break clause, short-term only, or unknown",
-    "move_in_date": "A short normalized availability note, e.g. available now, available from May 2026, ready after current tenant leaves, negotiable timing, or unknown",
-    "repair_responsibility": "A short normalized note about who appears to handle repairs, e.g. landlord handles major repairs, tenant pays minor repairs, agency says owner will cover repairs, or unknown",
-    "furnished": "Furniture and appliance status",
-    "size_sqft": "Size in square feet",
-    "bedrooms": "Number of bedrooms or room type",
-    "suspected_sdu": true/false/unknown,
-    "sdu_detection_reason": "Short reason such as keyword_match, room_only_layout, or unknown",
-    "decision_signals": [
+    "field_claims": [
         {{
-            "key": "One of commute_advantage, building_amenity, condition_positive, bathroom_sharing, listing_ambiguity, source_conflict, holding_fee_risk, agent_pressure, trust_concern, fee_discount, photo_quality_concern, repair_support_signal, move_in_timing_signal, other_decision_signal",
-            "category": "One of fit, building, condition, living_arrangement, conflict, trust, cost, timing, other",
-            "label": "Short neutral label under 60 characters",
-            "source": "listing/chat/note/ocr/mixed",
-            "evidence": "Short quote or paraphrase grounded in the evidence",
-            "note": "Optional short explanation of why this matters, or null"
+            "field_key": "one of the 14 allowed keys",
+            "value": "typed value: number, boolean, or text as required by the field",
+            "source_type": "listing/chat/note/image_ocr",
+            "source_asset_id": "image UUID when source_type is image_ocr, otherwise null",
+            "quote": "short verbatim quote from that exact source",
+            "claim_kind": "explicit/inferred",
+            "confidence": "high/medium/low"
         }}
     ],
-    "raw_facts": [
-        "Short neutral factual observation under 25 words, grounded in the evidence."
-    ]
+    "supplemental": {{
+        "furnished": "Furniture and appliance status or unknown",
+        "size_sqft": "Size in square feet or unknown",
+        "bedrooms": "Number of bedrooms or room type or unknown",
+        "suspected_sdu": true/false/unknown,
+        "sdu_detection_reason": "Short source-grounded reason or unknown",
+        "decision_signals": [
+            {{
+                "key": "One of commute_advantage, building_amenity, condition_positive, bathroom_sharing, listing_ambiguity, source_conflict, holding_fee_risk, agent_pressure, trust_concern, fee_discount, photo_quality_concern, repair_support_signal, move_in_timing_signal, other_decision_signal",
+                "category": "One of fit, building, condition, living_arrangement, conflict, trust, cost, timing, other",
+                "label": "Short neutral label under 60 characters",
+                "source": "listing/chat/note/ocr/mixed",
+                "evidence": "Short quote or paraphrase grounded in the evidence",
+                "note": "Optional short explanation of why this matters, or null"
+            }}
+        ],
+        "raw_facts": [
+            "Short neutral factual observation under 25 words that does not duplicate a core field."
+        ]
+    }}
 }}
 """
 

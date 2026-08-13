@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock
 
@@ -22,13 +23,13 @@ class CandidatePipelineServiceTests(IsolatedAsyncioTestCase):
         project = build_project(build_user())
         candidate = build_candidate(project)
         service = CandidatePipelineService()
-        service.extraction_service.extract = AsyncMock()
+        service.extraction_service.extract_with_evidence = AsyncMock()
         service.clause_service.attach_legal_references = AsyncMock()
         db = _FakeSession()
 
         await service.reassess_for_budget(db=db, project=project, candidate=candidate)
 
-        service.extraction_service.extract.assert_not_awaited()
+        service.extraction_service.extract_with_evidence.assert_not_awaited()
         service.clause_service.attach_legal_references.assert_not_awaited()
         db.flush.assert_awaited_once()
 
@@ -37,7 +38,10 @@ class CandidatePipelineServiceTests(IsolatedAsyncioTestCase):
         candidate = build_candidate(project)
         service = CandidatePipelineService()
         extracted = candidate.extracted_info
-        service.extraction_service.extract = AsyncMock(return_value=extracted)
+        service.extraction_service.extract_with_evidence = AsyncMock(
+            return_value=SimpleNamespace(extracted_info=extracted, field_facts=())
+        )
+        service.field_evidence_service.replace_system_results = AsyncMock()
         service.clause_service.attach_legal_references = AsyncMock()
         db = _FakeSession()
 
@@ -45,6 +49,11 @@ class CandidatePipelineServiceTests(IsolatedAsyncioTestCase):
 
         self.assertEqual(candidate.processing_stage, "assessing")
         db.commit.assert_awaited_once()
+        service.field_evidence_service.replace_system_results.assert_awaited_once_with(
+            db,
+            candidate_id=candidate.id,
+            facts=(),
+        )
 
     async def test_reassessment_preserves_user_decision_without_overwriting_system_status(self):
         project = build_project(build_user())

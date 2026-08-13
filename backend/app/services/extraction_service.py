@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
@@ -10,25 +11,16 @@ from ..db.models import CandidateExtractedInfo, CandidateListing
 from ..integrations.llm.prompts import EXTRACTION_PROMPT, LISTING_NAME_PROMPT
 from ..integrations.llm.utils import chat_completion_json
 from .analysis_errors import AnalysisError, analysis_error, classify_extraction_exception
+from .candidate_field_evidence_service import (
+    CandidateEvidenceSource,
+    MergedFieldFact,
+    merge_field_claims,
+    verify_field_claims,
+)
 
 logger = logging.getLogger(__name__)
 
-REQUIRED_EXTRACTION_KEYS = {
-    "address_text",
-    "building_name",
-    "nearest_station",
-    "district",
-    "location_confidence",
-    "monthly_rent",
-    "management_fee_amount",
-    "management_fee_included",
-    "rates_amount",
-    "rates_included",
-    "deposit",
-    "agent_fee",
-    "lease_term",
-    "move_in_date",
-    "repair_responsibility",
+REQUIRED_SUPPLEMENTAL_KEYS = {
     "furnished",
     "size_sqft",
     "bedrooms",
@@ -37,6 +29,14 @@ REQUIRED_EXTRACTION_KEYS = {
     "decision_signals",
     "raw_facts",
 }
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateExtractionResult:
+    """Compatibility snapshot plus the new source-backed field results."""
+
+    extracted_info: CandidateExtractedInfo
+    field_facts: tuple[MergedFieldFact, ...]
 
 
 def _coerce_to_str(value: object) -> str:
@@ -159,15 +159,24 @@ def validate_extraction_payload(value: object) -> dict[str, object]:
     if not isinstance(value, dict):
         raise analysis_error("invalid_model_output", retryable=True)
 
-    missing_keys = REQUIRED_EXTRACTION_KEYS.difference(value)
-    if missing_keys:
+    if set(value) != {"field_claims", "supplemental"}:
         raise analysis_error("invalid_model_output", retryable=True)
 
-    if not isinstance(value["decision_signals"], list) or not isinstance(value["raw_facts"], list):
+    field_claims = value["field_claims"]
+    supplemental = value["supplemental"]
+    if not isinstance(field_claims, list) or not isinstance(supplemental, dict):
         raise analysis_error("invalid_model_output", retryable=True)
 
-    for key in REQUIRED_EXTRACTION_KEYS.difference({"decision_signals", "raw_facts"}):
-        if isinstance(value[key], (dict, list)):
+    if set(supplemental) != REQUIRED_SUPPLEMENTAL_KEYS:
+        raise analysis_error("invalid_model_output", retryable=True)
+
+    if not isinstance(supplemental["decision_signals"], list) or not isinstance(
+        supplemental["raw_facts"], list
+    ):
+        raise analysis_error("invalid_model_output", retryable=True)
+
+    for key in REQUIRED_SUPPLEMENTAL_KEYS.difference({"decision_signals", "raw_facts"}):
+        if isinstance(supplemental[key], (dict, list)):
             raise analysis_error("invalid_model_output", retryable=True)
 
     return value
@@ -177,40 +186,85 @@ class ExtractionService:
     """Service for extracting structured information from listing text."""
 
     @staticmethod
-    def _collect_ocr_texts(candidate: CandidateListing) -> list[str]:
-        """Collect OCR texts from uploaded source assets."""
-        if not getattr(candidate, "source_assets", None):
-            return []
-        return [
-            asset.ocr_text.strip()
-            for asset in candidate.source_assets
-            if asset.ocr_text and asset.ocr_text.strip()
-        ]
+    def _collect_sources(candidate: CandidateListing) -> tuple[CandidateEvidenceSource, ...]:
+        """Keep each user-supplied source independently addressable."""
+        sources: list[CandidateEvidenceSource] = []
+
+        def add_text_source(source_type: str, value: Optional[str]) -> None:
+            if value and value.strip():
+                sources.append(CandidateEvidenceSource(source_type=source_type, text=value.strip()))
+
+        add_text_source("listing", candidate.raw_listing_text)
+        add_text_source("chat", candidate.raw_chat_text)
+        add_text_source("note", candidate.raw_note_text)
+
+        for asset in getattr(candidate, "source_assets", None) or []:
+            if asset.ocr_text and asset.ocr_text.strip():
+                sources.append(
+                    CandidateEvidenceSource(
+                        source_type="image_ocr",
+                        source_asset_id=asset.id,
+                        filename=asset.original_filename,
+                        text=asset.ocr_text.strip(),
+                    )
+                )
+
+        return tuple(sources)
 
     @staticmethod
-    def _build_extraction_context(candidate: CandidateListing, ocr_texts: list[str]) -> str:
+    def _build_extraction_context(sources: tuple[CandidateEvidenceSource, ...]) -> str:
         """Build a source-aware evidence bundle for extraction."""
         sections: list[str] = []
 
-        def add_section(title: str, value: Optional[str]) -> None:
-            if value and value.strip():
-                sections.append(f"[{title}]\n{value.strip()}")
+        for source in sources:
+            source_label = f"SOURCE {source.source_type}"
+            if source.source_asset_id is not None:
+                safe_filename = (source.filename or "image").replace("\n", " ").replace("]", "")
+                source_label += f" asset_id={source.source_asset_id} filename={safe_filename}"
+            sections.append(f"[{source_label}]\n{source.text}")
+        return "\n\n".join(sections)
 
-        add_section("Listing", candidate.raw_listing_text)
-        add_section("Chat", candidate.raw_chat_text)
-        add_section("Notes", candidate.raw_note_text)
-        if ocr_texts:
-            sections.append("[OCR]\n" + "\n\n".join(ocr_texts))
+    @staticmethod
+    def _legacy_value(facts_by_key: dict[str, MergedFieldFact], field_key: str) -> object | None:
+        """Only project explicit facts into the pre-Sprint-2 assessment tables."""
+        fact = facts_by_key[field_key]
+        return fact.system_value if fact.system_state == "explicit" else None
 
-        if sections:
-            return "\n\n".join(sections)
+    @staticmethod
+    def _location_metadata(facts_by_key: dict[str, MergedFieldFact]) -> tuple[str, str]:
+        location_keys = ("address_text", "building_name", "nearest_station", "district")
+        explicit_keys = [
+            field_key
+            for field_key in location_keys
+            if facts_by_key[field_key].system_state == "explicit"
+        ]
+        if "address_text" in explicit_keys:
+            confidence = "high"
+        elif "building_name" in explicit_keys or "nearest_station" in explicit_keys:
+            confidence = "medium"
+        elif "district" in explicit_keys:
+            confidence = "low"
+        else:
+            return "unknown", "unknown"
 
-        return (candidate.combined_text or "").strip()
+        source_types = {
+            claim.source_type
+            for field_key in explicit_keys
+            for claim in facts_by_key[field_key].evidence
+            if claim.claim_kind == "explicit"
+        }
+        source = next(iter(source_types)) if len(source_types) == 1 else "mixed"
+        return confidence, source
 
     async def extract(self, candidate: CandidateListing) -> CandidateExtractedInfo:
-        """Extract structured information from a candidate's combined text."""
-        ocr_texts = self._collect_ocr_texts(candidate)
-        context = self._build_extraction_context(candidate, ocr_texts)
+        """Return the compatibility snapshot used by existing callers."""
+        result = await self.extract_with_evidence(candidate)
+        return result.extracted_info
+
+    async def extract_with_evidence(self, candidate: CandidateListing) -> CandidateExtractionResult:
+        """Extract, verify, and merge source-backed field claims."""
+        sources = self._collect_sources(candidate)
+        context = self._build_extraction_context(sources)
         if not context:
             raise analysis_error("no_usable_text", retryable=True)
 
@@ -225,33 +279,59 @@ class ExtractionService:
             raise failure from exc
 
         data = validate_extraction_payload(data)
+        verified_claims = verify_field_claims(data["field_claims"], sources)
+        field_facts = merge_field_claims(verified_claims)
+        facts_by_key = {fact.field_key: fact for fact in field_facts}
+        supplemental = data["supplemental"]
+        location_confidence, location_source = self._location_metadata(facts_by_key)
+        ocr_texts = [source.text for source in sources if source.source_type == "image_ocr"]
 
-        return CandidateExtractedInfo(
+        extracted_info = CandidateExtractedInfo(
             candidate_id=candidate.id,
-            monthly_rent=normalize_value(data.get("monthly_rent", "")),
-            management_fee_amount=normalize_value(data.get("management_fee_amount", "")),
-            management_fee_included=parse_bool_value(str(data.get("management_fee_included", ""))),
-            rates_amount=normalize_value(data.get("rates_amount", "")),
-            rates_included=parse_bool_value(str(data.get("rates_included", ""))),
-            deposit=normalize_value(data.get("deposit", "")),
-            agent_fee=normalize_value(data.get("agent_fee", "")),
-            lease_term=normalize_value(data.get("lease_term", "")),
-            move_in_date=normalize_value(data.get("move_in_date", "")),
-            repair_responsibility=normalize_value(data.get("repair_responsibility", "")),
-            district=normalize_value(data.get("district", "")),
-            furnished=normalize_value(data.get("furnished", "")),
-            size_sqft=normalize_value(data.get("size_sqft", "")),
-            bedrooms=normalize_value(data.get("bedrooms", "")),
-            suspected_sdu=parse_bool_value(str(data.get("suspected_sdu", ""))),
-            sdu_detection_reason=normalize_optional_value(str(data.get("sdu_detection_reason", ""))),
-            address_text=normalize_optional_value(str(data.get("address_text", ""))),
-            building_name=normalize_optional_value(str(data.get("building_name", ""))),
-            nearest_station=normalize_optional_value(str(data.get("nearest_station", ""))),
-            location_confidence=normalize_value(data.get("location_confidence", "unknown")),
-            location_source="extracted",
-            decision_signals=normalize_decision_signals(data.get("decision_signals", [])),
-            raw_facts=normalize_raw_facts(data.get("raw_facts", [])),
+            monthly_rent=normalize_value(self._legacy_value(facts_by_key, "monthly_rent")),
+            management_fee_amount=normalize_value(
+                self._legacy_value(facts_by_key, "management_fee_amount")
+            ),
+            management_fee_included=self._legacy_value(
+                facts_by_key, "management_fee_included"
+            ),
+            rates_amount=normalize_value(self._legacy_value(facts_by_key, "rates_amount")),
+            rates_included=self._legacy_value(facts_by_key, "rates_included"),
+            deposit=normalize_value(self._legacy_value(facts_by_key, "deposit")),
+            agent_fee=normalize_value(self._legacy_value(facts_by_key, "agent_fee")),
+            lease_term=normalize_value(self._legacy_value(facts_by_key, "lease_term")),
+            move_in_date=normalize_value(self._legacy_value(facts_by_key, "move_in_date")),
+            repair_responsibility=normalize_value(
+                self._legacy_value(facts_by_key, "repair_responsibility")
+            ),
+            district=normalize_value(self._legacy_value(facts_by_key, "district")),
+            furnished=normalize_value(supplemental.get("furnished", "")),
+            size_sqft=normalize_value(supplemental.get("size_sqft", "")),
+            bedrooms=normalize_value(supplemental.get("bedrooms", "")),
+            suspected_sdu=parse_bool_value(str(supplemental.get("suspected_sdu", ""))),
+            sdu_detection_reason=normalize_optional_value(
+                str(supplemental.get("sdu_detection_reason", ""))
+            ),
+            address_text=normalize_optional_value(
+                self._legacy_value(facts_by_key, "address_text")
+            ),
+            building_name=normalize_optional_value(
+                self._legacy_value(facts_by_key, "building_name")
+            ),
+            nearest_station=normalize_optional_value(
+                self._legacy_value(facts_by_key, "nearest_station")
+            ),
+            location_confidence=location_confidence,
+            location_source=location_source,
+            decision_signals=normalize_decision_signals(
+                supplemental.get("decision_signals", [])
+            ),
+            raw_facts=normalize_raw_facts(supplemental.get("raw_facts", [])),
             ocr_texts=ocr_texts,
+        )
+        return CandidateExtractionResult(
+            extracted_info=extracted_info,
+            field_facts=field_facts,
         )
 
     async def generate_listing_name(

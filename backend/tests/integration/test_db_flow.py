@@ -28,60 +28,68 @@ from app.db.models import (
     User,
 )
 from app.main import app
+from app.services.candidate_field_evidence_service import (
+    CandidateFieldEvidenceService,
+    VerifiedFieldClaim,
+    merge_field_claims,
+)
 
 
 def _valid_extraction_payload() -> dict[str, object]:
     return {
-        "address_text": "unknown",
-        "building_name": "unknown",
-        "nearest_station": "unknown",
-        "district": "Wan Chai",
-        "location_confidence": "low",
-        "monthly_rent": "18000",
-        "management_fee_amount": "unknown",
-        "management_fee_included": "unknown",
-        "rates_amount": "unknown",
-        "rates_included": "unknown",
-        "deposit": "2 months",
-        "agent_fee": "unknown",
-        "lease_term": "2 years",
-        "move_in_date": "unknown",
-        "repair_responsibility": "unknown",
-        "furnished": "unknown",
-        "size_sqft": "unknown",
-        "bedrooms": "unknown",
-        "suspected_sdu": "unknown",
-        "sdu_detection_reason": "unknown",
-        "decision_signals": [],
-        "raw_facts": [],
+        "field_claims": [
+            {
+                "field_key": "district",
+                "value": "Wan Chai",
+                "source_type": "listing",
+                "source_asset_id": None,
+                "quote": "Wan Chai",
+                "claim_kind": "explicit",
+                "confidence": "high",
+            },
+            {
+                "field_key": "monthly_rent",
+                "value": 18000,
+                "source_type": "listing",
+                "source_asset_id": None,
+                "quote": "rent 18000",
+                "claim_kind": "explicit",
+                "confidence": "high",
+            },
+            {
+                "field_key": "deposit",
+                "value": "2 months",
+                "source_type": "listing",
+                "source_asset_id": None,
+                "quote": "deposit 2 months",
+                "claim_kind": "explicit",
+                "confidence": "high",
+            },
+            {
+                "field_key": "lease_term",
+                "value": "2 years",
+                "source_type": "listing",
+                "source_asset_id": None,
+                "quote": "lease 2 years",
+                "claim_kind": "explicit",
+                "confidence": "high",
+            },
+        ],
+        "supplemental": {
+            "furnished": "unknown",
+            "size_sqft": "unknown",
+            "bedrooms": "unknown",
+            "suspected_sdu": "unknown",
+            "sdu_detection_reason": "unknown",
+            "decision_signals": [],
+            "raw_facts": [],
+        },
     }
 
 
 def _all_unknown_extraction_payload() -> dict[str, object]:
     payload = _valid_extraction_payload()
-    for key in (
-        "address_text",
-        "building_name",
-        "nearest_station",
-        "district",
-        "location_confidence",
-        "monthly_rent",
-        "management_fee_amount",
-        "rates_amount",
-        "deposit",
-        "agent_fee",
-        "lease_term",
-        "move_in_date",
-        "repair_responsibility",
-        "furnished",
-        "size_sqft",
-        "bedrooms",
-        "suspected_sdu",
-        "sdu_detection_reason",
-    ):
-        payload[key] = "unknown"
-    payload["management_fee_included"] = "unknown"
-    payload["rates_included"] = "unknown"
+    payload["field_claims"] = []
     return payload
 
 
@@ -122,6 +130,23 @@ class DatabaseFlowTests(TestCase):
             await session.execute(delete(User).where(User.email == self.email))
             await session.commit()
         await engine.dispose()
+
+    async def _field_record_counts(self, candidate_id: uuid.UUID) -> tuple[int, int]:
+        engine = create_async_engine(settings.DATABASE_URL, future=True)
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with session_factory() as session:
+            fact_count = await session.scalar(
+                select(func.count())
+                .select_from(CandidateFieldFact)
+                .where(CandidateFieldFact.candidate_id == candidate_id)
+            )
+            evidence_count = await session.scalar(
+                select(func.count())
+                .select_from(CandidateFieldEvidence)
+                .where(CandidateFieldEvidence.candidate_id == candidate_id)
+            )
+        await engine.dispose()
+        return int(fact_count or 0), int(evidence_count or 0)
 
     def test_register_create_project_import_candidate_and_fetch_dashboard(self) -> None:
         register_response = self.client.post(
@@ -176,6 +201,10 @@ class DatabaseFlowTests(TestCase):
         candidate_detail = candidate_detail_response.json()
         self.assertEqual(candidate_detail["processing_stage"], "completed")
         self.assertIsNotNone(candidate_detail["candidate_assessment"])
+        self.assertEqual(
+            asyncio.run(self._field_record_counts(uuid.UUID(candidate_id))),
+            (14, 4),
+        )
 
         dashboard_response = self.client.get(
             f"/api/v1/projects/{project_id}/dashboard",
@@ -473,6 +502,94 @@ class DatabaseFlowTests(TestCase):
                 ),
                 0,
             )
+
+        await engine.dispose()
+
+    def test_reanalysis_replaces_system_evidence_but_preserves_user_override(self) -> None:
+        asyncio.run(self._exercise_field_evidence_replacement())
+
+    async def _exercise_field_evidence_replacement(self) -> None:
+        engine = create_async_engine(settings.DATABASE_URL, future=True)
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+        async with session_factory() as session:
+            user = User(email=self.email, password_hash="not-used-in-evidence-test")
+            project = SearchProject(user=user, title="Evidence replacement project")
+            candidate = CandidateListing(
+                project=project,
+                name="Evidence replacement candidate",
+                raw_listing_text="Updated rent HKD 19,000",
+                combined_text="Updated rent HKD 19,000",
+            )
+            fact = CandidateFieldFact(
+                candidate=candidate,
+                field_key="monthly_rent",
+                system_value=18_000,
+                system_state="explicit",
+                system_confidence="high",
+                user_action="corrected",
+                user_value=17_500,
+                user_note="Landlord confirmed this directly",
+            )
+            fact.evidence.append(
+                CandidateFieldEvidence(
+                    candidate_id=candidate.id,
+                    field_key="monthly_rent",
+                    source_type="listing",
+                    quote="Old rent HKD 18,000",
+                    claim_value=18_000,
+                    claim_kind="explicit",
+                    confidence="high",
+                )
+            )
+            session.add(user)
+            await session.commit()
+
+            merged_facts = merge_field_claims(
+                (
+                    VerifiedFieldClaim(
+                        field_key="monthly_rent",
+                        value=19_000,
+                        source_type="listing",
+                        source_asset_id=None,
+                        quote="Updated rent HKD 19,000",
+                        claim_kind="explicit",
+                        confidence="high",
+                    ),
+                )
+            )
+            await CandidateFieldEvidenceService().replace_system_results(
+                session,
+                candidate_id=candidate.id,
+                facts=merged_facts,
+            )
+            await session.commit()
+
+            result = await session.execute(
+                select(CandidateFieldFact).where(
+                    CandidateFieldFact.candidate_id == candidate.id
+                )
+            )
+            stored_facts = {stored.field_key: stored for stored in result.scalars().all()}
+            self.assertEqual(len(stored_facts), 14)
+            self.assertEqual(stored_facts["monthly_rent"].system_value, 19_000)
+            self.assertEqual(stored_facts["monthly_rent"].user_action, "corrected")
+            self.assertEqual(stored_facts["monthly_rent"].user_value, 17_500)
+            self.assertEqual(
+                stored_facts["monthly_rent"].user_note,
+                "Landlord confirmed this directly",
+            )
+            self.assertEqual(stored_facts["deposit"].system_state, "unknown")
+
+            evidence = (
+                await session.execute(
+                    select(CandidateFieldEvidence).where(
+                        CandidateFieldEvidence.candidate_id == candidate.id
+                    )
+                )
+            ).scalars().all()
+            self.assertEqual(len(evidence), 1)
+            self.assertEqual(evidence[0].quote, "Updated rent HKD 19,000")
 
         await engine.dispose()
 

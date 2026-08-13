@@ -433,7 +433,7 @@ test("inferred field can be confirmed and corrected with its source still visibl
   await expect(page.getByText("Around eighteen thousand, I think")).toBeVisible();
   await page.getByRole("button", { name: "Confirm" }).first().click();
   await expect.poll(api.fieldUpdateCount).toBe(1);
-  await expect(page.getByText("You confirmed")).toBeVisible();
+  await expect(page.getByText("You confirmed", { exact: true })).toBeVisible();
 
   const confirmedRentCard = page.locator("article").filter({ hasText: "Monthly rent" }).filter({ hasText: "You confirmed" }).first();
   await confirmedRentCard.getByRole("button", { name: "Correct" }).click();
@@ -483,5 +483,5 @@ test("field update error stays on the card and can be retried", async ({ page })
 
   await rentCard.getByRole("button", { name: "Confirm" }).click();
   await expect.poll(api.fieldUpdateCount).toBe(2);
-  await expect(page.getByText("You confirmed")).toBeVisible();
+  await expect(page.getByText("You confirmed", { exact: true })).toBeVisible();
 });

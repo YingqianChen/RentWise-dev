@@ -11,14 +11,22 @@ from unittest.mock import AsyncMock, patch
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
-from sqlalchemy import delete
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.core.config import settings
-from app.db.models import User
+from app.db.models import (
+    CandidateFieldEvidence,
+    CandidateFieldFact,
+    CandidateFieldRevision,
+    CandidateListing,
+    SearchProject,
+    User,
+)
 from app.main import app
 
 
@@ -91,8 +99,8 @@ class DatabaseFlowTests(TestCase):
                 "DATABASE_URL must point to a database whose name ends with '_test'."
             )
 
-        alembic_cfg = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
-        command.upgrade(alembic_cfg, "head")
+        cls.alembic_cfg = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+        command.upgrade(cls.alembic_cfg, "head")
         cls.client = TestClient(app)
         cls.client.__enter__()
 
@@ -349,3 +357,152 @@ class DatabaseFlowTests(TestCase):
         self.assertEqual(detail["candidate_assessment"]["top_level_recommendation"], "not_ready")
         self.assertEqual(detail["candidate_assessment"]["next_best_action"], "verify_cost")
         self.assertNotEqual(detail["status"], "recommended_reject")
+
+    def test_candidate_field_schema_enforces_contract_and_cascades(self) -> None:
+        asyncio.run(self._exercise_candidate_field_schema())
+
+    async def _exercise_candidate_field_schema(self) -> None:
+        engine = create_async_engine(settings.DATABASE_URL, future=True)
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        candidate_id: uuid.UUID
+
+        async with session_factory() as session:
+            user = User(email=self.email, password_hash="not-used-in-schema-test")
+            project = SearchProject(user=user, title="Field schema project")
+            candidate = CandidateListing(
+                project=project,
+                name="Field schema candidate",
+                raw_listing_text="Rent HKD 18,000",
+                combined_text="Rent HKD 18,000",
+            )
+            fact = CandidateFieldFact(
+                candidate=candidate,
+                field_key="monthly_rent",
+                system_value=18_000,
+                system_state="explicit",
+                system_confidence="high",
+            )
+            fact.evidence.append(
+                CandidateFieldEvidence(
+                    candidate_id=candidate.id,
+                    field_key="monthly_rent",
+                    source_type="listing",
+                    quote="Rent HKD 18,000",
+                    claim_value=18_000,
+                    claim_kind="explicit",
+                    confidence="high",
+                )
+            )
+            fact.revisions.append(
+                CandidateFieldRevision(
+                    candidate_id=candidate.id,
+                    field_key="monthly_rent",
+                    actor_user=user,
+                    action="confirm",
+                    previous_value=None,
+                    new_value=18_000,
+                )
+            )
+            session.add(user)
+            await session.commit()
+            candidate_id = candidate.id
+
+            self.assertEqual(
+                await session.scalar(
+                    select(func.count())
+                    .select_from(CandidateFieldFact)
+                    .where(CandidateFieldFact.candidate_id == candidate_id)
+                ),
+                1,
+            )
+            self.assertEqual(
+                await session.scalar(
+                    select(func.count())
+                    .select_from(CandidateFieldEvidence)
+                    .where(CandidateFieldEvidence.candidate_id == candidate_id)
+                ),
+                1,
+            )
+            self.assertEqual(
+                await session.scalar(
+                    select(func.count())
+                    .select_from(CandidateFieldRevision)
+                    .where(CandidateFieldRevision.candidate_id == candidate_id)
+                ),
+                1,
+            )
+
+            session.add(
+                CandidateFieldFact(
+                    candidate_id=candidate_id,
+                    field_key="deposit",
+                    system_value="2 months",
+                    system_state="unknown",
+                    system_confidence="low",
+                )
+            )
+            with self.assertRaises(IntegrityError):
+                await session.commit()
+            await session.rollback()
+
+            await session.execute(
+                delete(CandidateListing).where(CandidateListing.id == candidate_id)
+            )
+            await session.commit()
+            self.assertEqual(
+                await session.scalar(
+                    select(func.count())
+                    .select_from(CandidateFieldFact)
+                    .where(CandidateFieldFact.candidate_id == candidate_id)
+                ),
+                0,
+            )
+            self.assertEqual(
+                await session.scalar(
+                    select(func.count())
+                    .select_from(CandidateFieldEvidence)
+                    .where(CandidateFieldEvidence.candidate_id == candidate_id)
+                ),
+                0,
+            )
+            self.assertEqual(
+                await session.scalar(
+                    select(func.count())
+                    .select_from(CandidateFieldRevision)
+                    .where(CandidateFieldRevision.candidate_id == candidate_id)
+                ),
+                0,
+            )
+
+        await engine.dispose()
+
+    def test_zz_candidate_field_migration_round_trip(self) -> None:
+        expected_tables = {
+            "candidate_field_facts",
+            "candidate_field_evidence",
+            "candidate_field_revisions",
+        }
+        self.assertEqual(asyncio.run(self._candidate_field_table_names()), expected_tables)
+
+        try:
+            command.downgrade(self.alembic_cfg, "20260812_0014")
+            self.assertEqual(asyncio.run(self._candidate_field_table_names()), set())
+        finally:
+            command.upgrade(self.alembic_cfg, "head")
+
+        self.assertEqual(asyncio.run(self._candidate_field_table_names()), expected_tables)
+
+    async def _candidate_field_table_names(self) -> set[str]:
+        engine = create_async_engine(settings.DATABASE_URL, future=True)
+        try:
+            async with engine.connect() as connection:
+                result = await connection.execute(
+                    text(
+                        "SELECT table_name FROM information_schema.tables "
+                        "WHERE table_schema = 'public' "
+                        "AND table_name LIKE 'candidate_field_%'"
+                    )
+                )
+                return set(result.scalars())
+        finally:
+            await engine.dispose()

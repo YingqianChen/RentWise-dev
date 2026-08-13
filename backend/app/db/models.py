@@ -5,8 +5,8 @@ from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import (
-    Boolean, Date, DateTime, Float, ForeignKey, String, Text, Integer,
-    Index, UUID as PG_UUID
+    Boolean, CheckConstraint, Date, DateTime, Float, ForeignKey,
+    ForeignKeyConstraint, String, Text, Integer, Index, UUID as PG_UUID
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -38,6 +38,9 @@ class User(Base):
     # Relationships
     projects: Mapped[List["SearchProject"]] = relationship(
         "SearchProject", back_populates="user", cascade="all, delete-orphan"
+    )
+    candidate_field_revisions: Mapped[List["CandidateFieldRevision"]] = relationship(
+        "CandidateFieldRevision", back_populates="actor_user"
     )
 
 
@@ -156,6 +159,9 @@ class CandidateListing(Base):
     investigation_items: Mapped[List["InvestigationItem"]] = relationship(
         "InvestigationItem", back_populates="candidate", cascade="all, delete-orphan"
     )
+    field_facts: Mapped[List["CandidateFieldFact"]] = relationship(
+        "CandidateFieldFact", back_populates="candidate", cascade="all, delete-orphan"
+    )
 
 
 class CandidateSourceAsset(Base):
@@ -185,6 +191,9 @@ class CandidateSourceAsset(Base):
     )
 
     candidate: Mapped["CandidateListing"] = relationship("CandidateListing", back_populates="source_assets")
+    field_evidence: Mapped[List["CandidateFieldEvidence"]] = relationship(
+        "CandidateFieldEvidence", back_populates="source_asset", passive_deletes=True
+    )
 
 
 class CandidateExtractedInfo(Base):
@@ -230,6 +239,183 @@ class CandidateExtractedInfo(Base):
 
     # Relationships
     candidate: Mapped["CandidateListing"] = relationship("CandidateListing", back_populates="extracted_info")
+
+
+class CandidateFieldFact(Base):
+    """Current system result plus an optional user override for one core field."""
+
+    __tablename__ = "candidate_field_facts"
+    __table_args__ = (
+        CheckConstraint(
+            "field_key IN ('monthly_rent', 'management_fee_amount', "
+            "'management_fee_included', 'rates_amount', 'rates_included', "
+            "'deposit', 'agent_fee', 'lease_term', 'move_in_date', "
+            "'repair_responsibility', 'district', 'address_text', "
+            "'building_name', 'nearest_station')",
+            name="field_key_allowed",
+        ),
+        CheckConstraint(
+            "system_state IN ('explicit', 'inferred', 'conflicted', 'unknown')",
+            name="system_state_allowed",
+        ),
+        CheckConstraint(
+            "system_confidence IN ('high', 'medium', 'low')",
+            name="system_confidence_allowed",
+        ),
+        CheckConstraint(
+            "((system_state IN ('explicit', 'inferred') AND system_value IS NOT NULL) OR "
+            "(system_state IN ('conflicted', 'unknown') AND system_value IS NULL))",
+            name="system_value_matches_state",
+        ),
+        CheckConstraint(
+            "user_action IS NULL OR user_action IN ('confirmed', 'corrected', 'marked_unknown')",
+            name="user_action_allowed",
+        ),
+        CheckConstraint(
+            "((user_action IS NULL AND user_value IS NULL) OR "
+            "(user_action IN ('confirmed', 'corrected') AND user_value IS NOT NULL) OR "
+            "(user_action = 'marked_unknown' AND user_value IS NULL))",
+            name="user_value_matches_action",
+        ),
+    )
+
+    candidate_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("candidate_listings.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    field_key: Mapped[str] = mapped_column(String(50), primary_key=True)
+    system_value: Mapped[Optional[Any]] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
+    system_state: Mapped[str] = mapped_column(String(50), nullable=False)
+    system_confidence: Mapped[str] = mapped_column(String(50), nullable=False)
+    user_action: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    user_value: Mapped[Optional[Any]] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
+    user_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    user_updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    candidate: Mapped["CandidateListing"] = relationship(
+        "CandidateListing", back_populates="field_facts"
+    )
+    evidence: Mapped[List["CandidateFieldEvidence"]] = relationship(
+        "CandidateFieldEvidence", back_populates="field_fact", cascade="all, delete-orphan"
+    )
+    revisions: Mapped[List["CandidateFieldRevision"]] = relationship(
+        "CandidateFieldRevision", back_populates="field_fact", cascade="all, delete-orphan"
+    )
+
+
+class CandidateFieldEvidence(Base):
+    """A source-specific claim supporting one system field result."""
+
+    __tablename__ = "candidate_field_evidence"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["candidate_id", "field_key"],
+            ["candidate_field_facts.candidate_id", "candidate_field_facts.field_key"],
+            ondelete="CASCADE",
+        ),
+        CheckConstraint(
+            "source_type IN ('listing', 'chat', 'note', 'image_ocr')",
+            name="source_type_allowed",
+        ),
+        CheckConstraint(
+            "((source_type = 'image_ocr' AND source_asset_id IS NOT NULL) OR "
+            "(source_type != 'image_ocr' AND source_asset_id IS NULL))",
+            name="source_asset_matches_type",
+        ),
+        CheckConstraint(
+            "claim_kind IN ('explicit', 'inferred')",
+            name="claim_kind_allowed",
+        ),
+        CheckConstraint(
+            "confidence IN ('high', 'medium', 'low')",
+            name="confidence_allowed",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), primary_key=True, default=generate_uuid
+    )
+    candidate_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    field_key: Mapped[str] = mapped_column(String(50), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    source_asset_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("candidate_source_assets.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    quote: Mapped[str] = mapped_column(Text, nullable=False)
+    claim_value: Mapped[Any] = mapped_column(JSONB(none_as_null=True), nullable=False)
+    claim_kind: Mapped[str] = mapped_column(String(50), nullable=False)
+    confidence: Mapped[str] = mapped_column(String(50), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    field_fact: Mapped["CandidateFieldFact"] = relationship(
+        "CandidateFieldFact", back_populates="evidence"
+    )
+    source_asset: Mapped[Optional["CandidateSourceAsset"]] = relationship(
+        "CandidateSourceAsset", back_populates="field_evidence"
+    )
+
+
+class CandidateFieldRevision(Base):
+    """Audit record for a user's field confirmation or correction action."""
+
+    __tablename__ = "candidate_field_revisions"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["candidate_id", "field_key"],
+            ["candidate_field_facts.candidate_id", "candidate_field_facts.field_key"],
+            ondelete="CASCADE",
+        ),
+        CheckConstraint(
+            "action IN ('confirm', 'correct', 'mark_unknown', 'revert')",
+            name="action_allowed",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), primary_key=True, default=generate_uuid
+    )
+    candidate_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    field_key: Mapped[str] = mapped_column(String(50), nullable=False)
+    actor_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    action: Mapped[str] = mapped_column(String(50), nullable=False)
+    previous_value: Mapped[Optional[Any]] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
+    new_value: Mapped[Optional[Any]] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    field_fact: Mapped["CandidateFieldFact"] = relationship(
+        "CandidateFieldFact", back_populates="revisions"
+    )
+    actor_user: Mapped[Optional["User"]] = relationship(
+        "User", back_populates="candidate_field_revisions"
+    )
 
 
 class CostAssessment(Base):
@@ -432,6 +618,10 @@ Index("ix_candidate_listings_project_id", CandidateListing.project_id)
 Index("ix_candidate_listings_status", CandidateListing.status)
 Index("ix_candidate_listings_user_decision", CandidateListing.user_decision)
 Index("ix_candidate_source_assets_candidate_id", CandidateSourceAsset.candidate_id)
+Index("ix_candidate_field_evidence_candidate_id", CandidateFieldEvidence.candidate_id)
+Index("ix_candidate_field_evidence_source_asset_id", CandidateFieldEvidence.source_asset_id)
+Index("ix_candidate_field_revisions_candidate_id", CandidateFieldRevision.candidate_id)
+Index("ix_candidate_field_revisions_actor_user_id", CandidateFieldRevision.actor_user_id)
 Index("ix_investigation_items_project_id", InvestigationItem.project_id)
 Index("ix_investigation_items_candidate_id", InvestigationItem.candidate_id)
 Index("ix_investigation_items_status", InvestigationItem.status)

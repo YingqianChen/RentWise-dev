@@ -217,9 +217,14 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
 async function installApiMock(
   page: Page,
   initialCandidate: Candidate,
-  options: { importedCandidate?: Candidate; failFirstFieldUpdate?: boolean } = {}
+  options: {
+    importedCandidate?: Candidate;
+    failFirstFieldUpdate?: boolean;
+    reassessResult?: (candidate: Candidate) => Candidate;
+  } = {}
 ) {
   let currentCandidate = initialCandidate;
+  let pendingReassessedCandidate: Candidate | null = null;
   let retryCount = 0;
   let fieldUpdateCount = 0;
 
@@ -244,6 +249,7 @@ async function installApiMock(
 
     if (method === "POST" && path.endsWith(`/${CANDIDATE_ID}/reassess`)) {
       retryCount += 1;
+      pendingReassessedCandidate = options.reassessResult?.(currentCandidate) ?? null;
       currentCandidate = {
         ...currentCandidate,
         processing_stage: "queued",
@@ -318,6 +324,10 @@ async function installApiMock(
     }
 
     if (method === "GET" && path.endsWith(`/candidates/${CANDIDATE_ID}`)) {
+      if (pendingReassessedCandidate) {
+        currentCandidate = pendingReassessedCandidate;
+        pendingReassessedCandidate = null;
+      }
       await fulfillJson(route, currentCandidate);
       return;
     }
@@ -393,6 +403,9 @@ test("explicit source-backed over-budget evidence can produce likely reject", as
   await expect(page.getByText("HKD 30,000").first()).toBeVisible();
   await expect(page.getByText("The verified rent is above the user's stated budget.")).toBeVisible();
   await expect(page.getByText("System: not ready")).toHaveCount(0);
+  const rentCard = page.locator("article").filter({ hasText: "Monthly rent" }).first();
+  await rentCard.getByText("View 1 source quote").click();
+  await expect(rentCard.getByText("HKD 30,000 per month")).toBeVisible();
 });
 
 test("inferred field can be confirmed and corrected with its source still visible", async ({ page }) => {
@@ -484,4 +497,135 @@ test("field update error stays on the card and can be retried", async ({ page })
   await rentCard.getByRole("button", { name: "Confirm" }).click();
   await expect.poll(api.fieldUpdateCount).toBe(2);
   await expect(page.getByText("You confirmed", { exact: true })).toBeVisible();
+});
+
+test("conflicting source claims can be reviewed and resolved", async ({ page }) => {
+  const candidate = baseCandidate({
+    name: "Conflicting rent case",
+    field_facts: unknownFieldFacts().map((fact) =>
+      fact.key === "monthly_rent"
+        ? {
+            ...fact,
+            state: "conflicted",
+            system_state: "conflicted",
+            evidence: [
+              {
+                id: "listing-rent",
+                source_type: "listing",
+                source_asset_id: null,
+                source_label: "Listing text",
+                quote: "Monthly rent HKD 18,000",
+                claim_value: 18000,
+                claim_kind: "explicit",
+                confidence: "high",
+              },
+              {
+                id: "chat-rent",
+                source_type: "chat",
+                source_asset_id: null,
+                source_label: "Agent chat",
+                quote: "The updated rent is HKD 19,000",
+                claim_value: 19000,
+                claim_kind: "explicit",
+                confidence: "high",
+              },
+            ],
+          }
+        : fact
+    ),
+  });
+  const api = await installApiMock(page, candidate);
+
+  await page.goto(`/projects/${PROJECT_ID}/candidates/${CANDIDATE_ID}`);
+  const rentCard = page.locator("article").filter({ hasText: "Monthly rent" }).first();
+  await expect(rentCard.getByText("Sources conflict", { exact: true })).toBeVisible();
+  await rentCard.getByText("View 2 source quotes").click();
+  await expect(rentCard.getByText("Monthly rent HKD 18,000")).toBeVisible();
+  await expect(rentCard.getByText("The updated rent is HKD 19,000")).toBeVisible();
+  await expect(rentCard.getByText("Claimed value: HKD 18,000")).toBeVisible();
+  await expect(rentCard.getByText("Claimed value: HKD 19,000")).toBeVisible();
+
+  await rentCard.getByRole("button", { name: "Correct" }).click();
+  await rentCard.getByLabel("Correct value").fill("18500");
+  await rentCard.getByRole("button", { name: "Save correction" }).click();
+  await expect.poll(api.fieldUpdateCount).toBe(1);
+  await expect(page.getByText("You corrected", { exact: true })).toBeVisible();
+  await expect(page.getByText("HKD 18,500")).toBeVisible();
+});
+
+test("reassessment refreshes source evidence without overwriting a user correction", async ({ page }) => {
+  const candidate = baseCandidate({
+    name: "Correction survives reassessment",
+    field_facts: unknownFieldFacts().map((fact) =>
+      fact.key === "monthly_rent"
+        ? {
+            ...fact,
+            value: 18000,
+            state: "explicit",
+            confidence: "high",
+            decision_usable: true,
+            system_value: 18000,
+            system_state: "explicit",
+            system_confidence: "high",
+            evidence: [
+              {
+                id: "old-rent",
+                source_type: "listing",
+                source_asset_id: null,
+                source_label: "Listing text",
+                quote: "Original rent HKD 18,000",
+                claim_value: 18000,
+                claim_kind: "explicit",
+                confidence: "high",
+              },
+            ],
+          }
+        : fact
+    ),
+  });
+  const api = await installApiMock(page, candidate, {
+    reassessResult: (current) => ({
+      ...current,
+      processing_stage: "completed",
+      field_facts: current.field_facts.map((fact) =>
+        fact.key === "monthly_rent"
+          ? {
+              ...fact,
+              system_value: 19000,
+              system_state: "explicit",
+              system_confidence: "high",
+              evidence: [
+                {
+                  id: "updated-rent",
+                  source_type: "listing",
+                  source_asset_id: null,
+                  source_label: "Listing text",
+                  quote: "Updated listing rent HKD 19,000",
+                  claim_value: 19000,
+                  claim_kind: "explicit",
+                  confidence: "high",
+                },
+              ],
+            }
+          : fact
+      ),
+    }),
+  });
+
+  await page.goto(`/projects/${PROJECT_ID}/candidates/${CANDIDATE_ID}`);
+  const rentCard = page.locator("article").filter({ hasText: "Monthly rent" }).first();
+  await rentCard.getByRole("button", { name: "Correct" }).click();
+  await rentCard.getByLabel("Correct value").fill("17500");
+  await rentCard.getByRole("button", { name: "Save correction" }).click();
+  await expect(page.getByText("You corrected", { exact: true })).toBeVisible();
+  await expect(page.getByText("HKD 17,500")).toBeVisible();
+
+  await page.getByRole("button", { name: "Reassess", exact: true }).click();
+  await expect.poll(api.retryCount).toBe(1);
+  const reassessedRentCard = page.locator("article").filter({ hasText: "Monthly rent" }).first();
+  await expect(reassessedRentCard.getByText("You corrected", { exact: true })).toBeVisible();
+  await expect(reassessedRentCard.getByText("HKD 17,500")).toBeVisible();
+  await reassessedRentCard.getByText("View 1 source quote").click();
+  await expect(reassessedRentCard.getByText("Updated listing rent HKD 19,000")).toBeVisible();
+  await expect(reassessedRentCard.getByText("Original rent HKD 18,000")).toHaveCount(0);
 });

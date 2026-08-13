@@ -24,11 +24,26 @@ is kept in `README_zh.md`; update both together.
   in-process background task
 - Dashboard with action-oriented priority queue and a grouped
   investigation checklist
-- Candidate detail: decision snapshot, blockers, reassess / shortlist /
-  reject, edit with auto-reassessment, delete, on-demand landlord/agent
-  outreach draft
+- Candidate detail: decision snapshot, blockers, 14 grouped core facts with
+  source quotes, field confirmation/correction, reassess / shortlist / reject,
+  source editing with auto-reassessment, delete, and an on-demand
+  landlord/agent outreach draft
 - Top-level first-pass recommendation per candidate: shortlist / not
   ready / likely reject
+
+**Core fact evidence**
+- Fourteen decision fields cover recurring cost, move-in cost and lease,
+  repair responsibility and timing, and location.
+- Every field is labeled as source-stated, system-inferred, conflicting,
+  unknown, user-confirmed, user-corrected, or user-marked-unknown.
+- Source quotes stay attached to the field they support. Conflicting claims
+  remain visible side by side instead of being silently merged.
+- Only source-stated, user-confirmed, and user-corrected facts can affect
+  cost, clause, recommendation, dashboard, compare, commute, or outreach
+  decisions. Inferences may suggest a follow-up question but cannot reject a
+  candidate by themselves.
+- User actions are auditable and survive reassessment. Reassessment refreshes
+  system evidence without silently overwriting a user correction.
 
 **Compare workflow**
 - Manual selection of 2+ shortlisted candidates
@@ -108,6 +123,25 @@ RentWise/
   document/                # source PDFs
   legacy/                  # archived prototype
 ```
+
+## Core fact API contract
+
+- `GET /api/v1/projects/{project_id}/candidates/{candidate_id}` returns
+  `field_facts` in a fixed 14-field order, including effective value, system
+  value, state, source evidence, and the latest user action.
+- `PATCH /api/v1/projects/{project_id}/candidates/{candidate_id}/fields/{field_key}`
+  accepts `confirm`, `correct`, `mark_unknown`, or `revert`. `correct` requires
+  a type-valid `value`; all actions may include a short `note` where relevant.
+- A successful field action writes an audit revision and deterministically
+  recalculates affected outputs in one database transaction. It does not call
+  the LLM, OCR, legal retrieval, or map services.
+- `POST /api/v1/projects/{project_id}/candidates/{candidate_id}/reassess`
+  re-runs source analysis, replaces system evidence, and preserves user
+  overrides. Older candidates without all 14 facts must be reassessed before
+  their old analysis can be used.
+
+Interactive request and response schemas remain available in FastAPI Swagger
+at `/docs` while the backend is running.
 
 ### Backend modules
 
@@ -284,9 +318,11 @@ npm run check
 
 The suite covers priority ranking, investigation checklist, candidate
 recommendation, compare grouping + explanation + briefing fallback, OCR
-parsing, legacy reference-data parsing, and three mocked browser regressions:
-failed analysis recovery, all-unknown evidence staying not ready, and an
-explicit source-backed over-budget rejection. Browser regressions do not call
+parsing, legacy reference-data parsing, and seven mocked browser regressions:
+failed analysis recovery, all-unknown evidence staying not ready, explicit
+source-backed budget rejection, all four field actions, retry after an update
+failure, conflicting-source resolution, and reassessment preserving a user
+correction while refreshing source evidence. Browser regressions do not call
 the real LLM, OCR, map service, or database.
 
 A separate pytest-marked eval suite under `backend/tests/evals/` guards
@@ -315,10 +351,11 @@ Before pushing to GitHub:
 - `.env.example` contains only placeholders
 - Review `git status` before every push
 
-## Evidence layers
+## Supporting evidence layers
 
-RentWise uses two active evidence layers. Neither feeds the main candidate
-score directly — they exist to support user judgment.
+The core fact model above is the decision evidence layer. RentWise also has
+two supporting evidence layers. Neither creates a hidden candidate score;
+they exist to support user judgment within their stated scope.
 
 **Archived: SDU benchmark** (disabled)
 - Source: `document/SDU_median_rents.pdf`, extracted into
@@ -358,8 +395,11 @@ score directly — they exist to support user judgment.
 - **Phase 1** (auth, projects, candidate import, dashboard, detail,
   editing, deletion, budget, migrations, tests) — complete
 - **Phase 2** (compare MVP with grouping + briefing) — complete
-- **Phase 2.5** (agent-style explanation, decision signals) — active
+- **Phase 2.5** (agent-style explanation, decision signals) — archived as
+  unmodeled context; these signals no longer affect decisions
 - **Phase 3** (commute evidence + cohesive UI redesign) — complete
+- **Sprint 1** (analysis reliability and decision guardrails) — complete
+- **Sprint 2** (14-field evidence, user correction, trusted reads, UI) — complete
 
 ## Product philosophy
 

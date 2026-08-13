@@ -774,6 +774,17 @@ class DatabaseFlowTests(TestCase):
                     confidence="high",
                 )
             )
+            fact.revisions.append(
+                CandidateFieldRevision(
+                    candidate_id=candidate.id,
+                    field_key="monthly_rent",
+                    actor_user=user,
+                    action="correct",
+                    previous_value=18_000,
+                    new_value=17_500,
+                    note="Landlord confirmed this directly",
+                )
+            )
             session.add(user)
             await session.commit()
 
@@ -822,6 +833,21 @@ class DatabaseFlowTests(TestCase):
             ).scalars().all()
             self.assertEqual(len(evidence), 1)
             self.assertEqual(evidence[0].quote, "Updated rent HKD 19,000")
+
+            revisions = (
+                await session.execute(
+                    select(CandidateFieldRevision).where(
+                        CandidateFieldRevision.candidate_id == candidate.id
+                    )
+                )
+            ).scalars().all()
+            self.assertEqual(len(revisions), 1)
+            self.assertEqual(revisions[0].action, "correct")
+            self.assertEqual(revisions[0].new_value, 17_500)
+            self.assertEqual(
+                revisions[0].note,
+                "Landlord confirmed this directly",
+            )
 
         await engine.dispose()
 

@@ -20,10 +20,21 @@ RentWise 是一个面向香港租客的候选房源研究工作区。你提供�
 - 注册登录、搜房 project（含预算）、项目删除
 - 文本 + 多图片混合导入 candidate；OCR 与 assessment 在应用内后台任务中执行
 - Dashboard：行动导向的 priority queue + 按 blocker 聚合的 investigation checklist
-- Candidate detail：决策快照 + blockers、reassess / shortlist / reject、
-  编辑自动重评、删除、按需生成给房东/中介的外联草稿
+- Candidate detail：决策快照 + blockers、14 个分组核心事实与来源原文、
+  逐字段确认 / 修正、reassess / shortlist / reject、原始资料编辑后自动
+  reassess、删除、按需生成给房东/中介的外联草稿
 - 每个 candidate 都有顶层 first-pass recommendation：shortlist / not ready /
   likely reject
+
+**核心事实证据**
+- 14 个决策字段覆盖每月费用、入住费用与租约、维修责任与时间、位置。
+- 每个字段都会标明原文明确、系统推测、来源冲突、未知、用户确认、
+  用户修正或用户标记未知。
+- 来源原文与它支持的字段绑定；冲突说法会并排保留，不会被静默合并。
+- 只有原文明确、用户确认和用户修正的事实能影响费用、条款、系统建议、
+  Dashboard、Compare、通勤或沟通草稿。推测可以生成待确认问题，但不能单独导致放弃。
+- 用户操作会留下记录并在重新分析后保留。重新分析会更新系统证据，
+  不会静默覆盖用户修正。
 
 **Compare workflow**
 - 从 shortlist 手动选择 2 个及以上 candidate
@@ -93,6 +104,21 @@ RentWise/
   document/                # 源 PDF
   legacy/                  # 归档原型
 ```
+
+## 核心字段 API 契约
+
+- `GET /api/v1/projects/{project_id}/candidates/{candidate_id}` 以固定顺序返回 14 个
+  `field_facts`，包含当前有效值、系统值、状态、来源证据和最新用户操作。
+- `PATCH /api/v1/projects/{project_id}/candidates/{candidate_id}/fields/{field_key}`
+  支持 `confirm`、`correct`、`mark_unknown` 和 `revert`。`correct` 必须提交类型正确的
+  `value`；相关操作可附带简短 `note`。
+- 字段操作成功后，会在同一数据库事务中写入操作记录并重算受影响的结果；
+  不会调用 LLM、OCR、法律检索或地图服务。
+- `POST /api/v1/projects/{project_id}/candidates/{candidate_id}/reassess` 会重新分析来源、
+  替换系统证据并保留用户覆盖。缺少全部 14 个字段的旧房源必须先重新分析，
+  旧分析才能继续使用。
+
+后端运行时，可在 FastAPI Swagger `/docs` 查看可交互的请求和响应结构。
 
 ### Backend 模块
 
@@ -267,8 +293,9 @@ npx playwright install chromium  # 仅首次运行需要
 npm run check
 ```
 
-前端检查包含三条使用固定假数据的浏览器回归：分析失败后的恢复路径、全部未知时
-保持“暂不可判断”，以及原文明确写明超出个人预算时才建议放弃。测试不会调用真实
+前端检查包含七条使用固定假数据的浏览器回归：分析失败后的恢复路径、全部未知时
+保持“暂不可判断”、原文明确超出个人预算时才建议放弃、四种字段操作、更新失败重试、
+解决来源冲突，以及重新分析更新证据时保留用户修正。测试不会调用真实
 LLM、OCR、地图服务或数据库。
 
 测试覆盖 priority ranking、investigation checklist、candidate recommendation、
@@ -298,10 +325,10 @@ commit 间 diff 质量漂移。fixture 与 floor 细节见
 - `.env.example` 只保留占位符
 - 每次 push 前都检查 `git status`
 
-## Evidence 层
+## 支撑性 Evidence 层
 
-RentWise 使用两条启用中的 evidence 层。它们都不直接进入主 candidate score，
-只作为帮助用户判断的支撑证据。
+上述核心事实模型是产品的决策证据层。RentWise 另有两条支撑性 evidence 层；
+它们不会生成隐藏的 candidate score，只在各自声明的范围内帮助用户判断。
 
 **已归档：SDU benchmark**（已停用）
 - 来源：`document/SDU_median_rents.pdf`，抽取到
@@ -338,8 +365,11 @@ RentWise 使用两条启用中的 evidence 层。它们都不直接进入主 can
 - **Phase 1**（auth、projects、candidate import、dashboard、detail、
   编辑、删除、预算、migration、测试）— 已完成
 - **Phase 2**（compare MVP：grouping + briefing）— 已完成
-- **Phase 2.5**（agent-style explanation、decision signals）— 进行中
+- **Phase 2.5**（agent-style explanation、decision signals）— 已归档为未建模背景，
+  这些 signals 不再影响决策
 - **Phase 3**（通勤证据 + 统一 UI 改版）— 已完成
+- **Sprint 1**（分析可靠性与决策门禁）— 已完成
+- **Sprint 2**（14 字段证据、用户修正、可信读取和页面）— 已完成
 
 ## 产品哲学
 

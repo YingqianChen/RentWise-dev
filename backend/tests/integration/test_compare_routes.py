@@ -111,6 +111,31 @@ class CompareRouteTests(IsolatedAsyncioTestCase):
         self.assertEqual(exc_info.exception.status_code, 409)
         self.assertIn("analysis", exc_info.exception.detail.lower())
 
+    async def test_compare_route_rejects_legacy_candidate_without_field_contract(self):
+        user = build_user()
+        project = build_project(user)
+        current = build_candidate(project, name="Current")
+        legacy = build_candidate(project, name="Legacy")
+        legacy.field_facts = []
+        db = FakeAsyncSession(_ListResult([current, legacy]))
+
+        async def fake_get_project_for_user(*_args, **_kwargs):
+            return project
+
+        with patch.object(comparison_api, "get_project_for_user", fake_get_project_for_user):
+            with self.assertRaises(HTTPException) as exc_info:
+                await comparison_api.compare_candidates(
+                    project_id=project.id,
+                    request=comparison_api.ComparisonRequest(
+                        candidate_ids=[current.id, legacy.id]
+                    ),
+                    current_user=user,
+                    db=db,
+                )
+
+        self.assertEqual(exc_info.exception.status_code, 409)
+        self.assertIn("legacy", exc_info.exception.detail.lower())
+
 
 if __name__ == "__main__":
     import unittest

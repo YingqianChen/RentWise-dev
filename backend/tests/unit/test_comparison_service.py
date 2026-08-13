@@ -159,6 +159,20 @@ class ComparisonServiceTests(TestCase):
         self.assertIn("shortlisted by you", card.decision_explanation.lower())
         self.assertIn("system", card.decision_explanation.lower())
 
+    def test_unmodeled_furnishing_does_not_change_comparison_fit(self):
+        project = build_project(build_user())
+        furnished = build_candidate(project, name="Furnished")
+        unfurnished = build_candidate(project, name="Unfurnished")
+        furnished.extracted_info.furnished = "furnished"
+        unfurnished.extracted_info.furnished = "unfurnished"
+
+        service = ComparisonService()
+
+        self.assertEqual(
+            service._project_fit_score(project, furnished),
+            service._project_fit_score(project, unfurnished),
+        )
+
 
 if __name__ == "__main__":
     import unittest

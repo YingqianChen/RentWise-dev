@@ -105,7 +105,6 @@ class CandidatePipelineService:
         cost_assessment = self.cost_service.assess(
             extracted_info,
             max_budget=project.max_budget,
-            source_text=candidate.combined_text or "",
         )
         if clause_assessment is None:
             clause_assessment = self.clause_service.assess(
@@ -117,12 +116,7 @@ class CandidatePipelineService:
             extracted_info=extracted_info,
             cost_assessment=cost_assessment,
             clause_assessment=clause_assessment,
-            max_budget=project.max_budget,
             preferred_districts=project.preferred_districts,
-            must_have=project.must_have,
-            deal_breakers=project.deal_breakers,
-            move_in_target=project.move_in_target,
-            source_text=candidate.combined_text or "",
         )
 
         self._apply_assessment_records(

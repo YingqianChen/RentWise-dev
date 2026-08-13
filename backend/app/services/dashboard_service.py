@@ -10,6 +10,7 @@ from uuid import UUID, uuid5, NAMESPACE_URL
 from ..db.models import CandidateListing, SearchProject
 from ..schemas.dashboard import CandidateStats, InvestigationItemSummary, PriorityCandidate
 from .candidate_analysis_state import PROCESSING_STAGES, has_usable_analysis
+from .candidate_field_read_service import candidate_field_state
 from .priority_service import PriorityService
 
 
@@ -214,7 +215,11 @@ class DashboardService:
                     category="cost",
                     slug="rent",
                     title_prefix="Confirm the quoted rent",
-                    question="You cannot compare these candidates fairly until the quoted monthly rent is explicit.",
+                    question=self._with_field_state_note(
+                        candidate,
+                        ["monthly_rent"],
+                        "You cannot compare these candidates fairly until the quoted monthly rent is explicit.",
+                    ),
                     priority="high",
                     candidates=[candidate],
                 )
@@ -225,7 +230,11 @@ class DashboardService:
                     category="cost",
                     slug="management",
                     title_prefix="Clarify the management fee",
-                    question="Ask whether the management fee is included and, if not, how much it adds each month.",
+                    question=self._with_field_state_note(
+                        candidate,
+                        ["management_fee_included", "management_fee_amount"],
+                        "Ask whether the management fee is included and, if not, how much it adds each month.",
+                    ),
                     priority="high",
                     candidates=[candidate],
                 )
@@ -241,10 +250,12 @@ class DashboardService:
                         if is_cost_incomplete
                         else "Confirm the expected amount of separate rates or government charges"
                     ),
-                    question=(
+                    question=self._with_field_state_note(
+                        candidate,
+                        ["rates_included", "rates_amount"],
                         "Ask whether rates are included at all. Until that is clear, the true monthly cost could still shift."
                         if is_cost_incomplete
-                        else "Ask what the expected monthly amount is for rates or government charges so you can tighten the cost estimate."
+                        else "Ask what the expected monthly amount is for rates or government charges so you can tighten the cost estimate.",
                     ),
                     priority="high" if is_cost_incomplete else "medium",
                     candidates=[candidate],
@@ -256,7 +267,11 @@ class DashboardService:
                     category="cost",
                     slug="deposit",
                     title_prefix="Confirm deposit expectations",
-                    question="Find out how many months of deposit are required so you can gauge the upfront cash burden.",
+                    question=self._with_field_state_note(
+                        candidate,
+                        ["deposit"],
+                        "Find out how many months of deposit are required so you can gauge the upfront cash burden.",
+                    ),
                     priority="medium",
                     candidates=[candidate],
                 )
@@ -267,7 +282,11 @@ class DashboardService:
                     category="cost",
                     slug="agent-fee",
                     title_prefix="Check whether there is an agent fee",
-                    question="Confirm whether an agent fee applies and how much it adds to move-in cost.",
+                    question=self._with_field_state_note(
+                        candidate,
+                        ["agent_fee"],
+                        "Confirm whether an agent fee applies and how much it adds to move-in cost.",
+                    ),
                     priority="medium",
                     candidates=[candidate],
                 )
@@ -284,7 +303,11 @@ class DashboardService:
                     category="clause",
                     slug="repair",
                     title_prefix="Clarify repair responsibility",
-                    question="Ask which repairs the landlord covers and which costs could fall on the tenant.",
+                    question=self._with_field_state_note(
+                        candidate,
+                        ["repair_responsibility"],
+                        "Ask which repairs the landlord covers and which costs could fall on the tenant.",
+                    ),
                     priority="high",
                     candidates=[candidate],
                 )
@@ -318,7 +341,11 @@ class DashboardService:
                     category="clause",
                     slug="lease-term",
                     title_prefix="Confirm lease flexibility",
-                    question="Ask about lease length, break clause, and early termination terms so you understand how rigid the commitment is.",
+                    question=self._with_field_state_note(
+                        candidate,
+                        ["lease_term"],
+                        "Ask about lease length, break clause, and early termination terms so you understand how rigid the commitment is.",
+                    ),
                     priority="medium" if clause.lease_term_level == "rigid" else "high",
                     candidates=[candidate],
                 )
@@ -330,13 +357,30 @@ class DashboardService:
                     category="timing",
                     slug="move-in",
                     title_prefix="Confirm move-in timing",
-                    question="Ask for the earliest realistic move-in date and whether it still fits your own timeline.",
+                    question=self._with_field_state_note(
+                        candidate,
+                        ["move_in_date"],
+                        "Ask for the earliest realistic move-in date and whether it still fits your own timeline.",
+                    ),
                     priority="high" if clause.move_in_date_level == "mismatch" else "medium",
                     candidates=[candidate],
                 )
             )
 
         return tasks
+
+    def _with_field_state_note(
+        self,
+        candidate: CandidateListing,
+        field_keys: list[str],
+        question: str,
+    ) -> str:
+        states = {candidate_field_state(candidate, field_key) for field_key in field_keys}
+        if "conflicted" in states:
+            return f"{question} The supplied sources currently disagree on this point."
+        if "inferred" in states:
+            return f"{question} The current value is only inferred, not directly stated."
+        return question
 
     def _add_grouped_tasks(
         self,

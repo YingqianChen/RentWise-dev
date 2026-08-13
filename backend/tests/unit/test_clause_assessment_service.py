@@ -97,3 +97,28 @@ class ClauseAssessmentServiceTests(TestCase):
         result = self.service.assess(candidate.extracted_info, move_in_target=None)
 
         self.assertEqual(result.move_in_date_level, "fit")
+
+    def test_unmodeled_signals_cannot_fill_missing_clause_fields(self):
+        candidate = build_candidate(self.project)
+        candidate.extracted_info.repair_responsibility = None
+        candidate.extracted_info.move_in_date = None
+        candidate.extracted_info.decision_signals = [
+            {
+                "key": "repair_support_signal",
+                "label": "Landlord covers repairs",
+                "evidence": "The landlord handles repairs.",
+            },
+            {
+                "key": "move_in_timing_signal",
+                "label": "Available now",
+                "evidence": "Available now.",
+            },
+        ]
+
+        result = self.service.assess(
+            candidate.extracted_info,
+            move_in_target=self.project.move_in_target,
+        )
+
+        self.assertEqual(result.repair_responsibility_level, "unknown")
+        self.assertEqual(result.move_in_date_level, "unknown")

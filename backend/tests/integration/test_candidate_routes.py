@@ -252,6 +252,18 @@ class CandidateRouteTests(IsolatedAsyncioTestCase):
         self.assertIsNone(response.candidate_assessment)
         self.assertIsNone(response.benchmark)
 
+    async def test_serialize_legacy_candidate_without_field_contract_hides_old_analysis(self):
+        candidate = build_candidate(build_project(build_user()))
+        candidate.field_facts = []
+
+        response = await candidates_api._serialize_candidate(candidate)
+
+        self.assertIsNone(response.extracted_info)
+        self.assertIsNone(response.cost_assessment)
+        self.assertIsNone(response.clause_assessment)
+        self.assertIsNone(response.candidate_assessment)
+        self.assertEqual(response.field_facts, [])
+
     async def test_serialize_completed_candidate_does_not_expose_market_benchmark(self):
         candidate = build_candidate(build_project(build_user()))
 
@@ -264,6 +276,31 @@ class CandidateRouteTests(IsolatedAsyncioTestCase):
         project = build_project(user)
         candidate = build_candidate(project)
         candidate.processing_stage = "failed"
+        db = FakeAsyncSession()
+
+        async def fake_get_candidate_for_project_user(*_args, **_kwargs):
+            return project, candidate
+
+        with patch.object(
+            candidates_api,
+            "get_candidate_for_project_user",
+            fake_get_candidate_for_project_user,
+        ):
+            with self.assertRaises(HTTPException) as exc_info:
+                await candidates_api.generate_candidate_contact_plan(
+                    project_id=project.id,
+                    candidate_id=candidate.id,
+                    current_user=user,
+                    db=db,
+                )
+
+        self.assertEqual(exc_info.exception.status_code, 409)
+
+    async def test_contact_plan_rejects_legacy_candidate_without_field_contract(self):
+        user = build_user()
+        project = build_project(user)
+        candidate = build_candidate(project)
+        candidate.field_facts = []
         db = FakeAsyncSession()
 
         async def fake_get_candidate_for_project_user(*_args, **_kwargs):

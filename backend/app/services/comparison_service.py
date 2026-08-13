@@ -17,6 +17,7 @@ from ..schemas.comparison import (
 )
 from .dashboard_service import DashboardService
 from .candidate_analysis_state import has_usable_analysis
+from .candidate_field_read_service import candidate_field_state
 
 
 @dataclass
@@ -208,13 +209,6 @@ class ComparisonService:
             else:
                 score -= 1.6
 
-        furnished_required = any(item.lower() == "furnished" for item in project.must_have)
-        if furnished_required and extracted and extracted.furnished:
-            if "furnished" in extracted.furnished.lower():
-                score += 0.8
-            else:
-                score -= 0.8
-
         return score
 
     def _build_candidate_card(
@@ -355,6 +349,14 @@ class ComparisonService:
             return "No structured assessment has been generated yet."
 
         if cost and cost.monthly_cost_missing_items:
+            unresolved_cost_states = {
+                candidate_field_state(candidate, field_key)
+                for field_key in cost.monthly_cost_missing_items
+            }
+            if "conflicted" in unresolved_cost_states:
+                return "The supplied sources conflict on a cost field, so it cannot be compared fairly yet."
+            if "inferred" in unresolved_cost_states:
+                return "A cost field is only inferred and still needs direct confirmation."
             if "management_fee_amount" in cost.monthly_cost_missing_items or "management_fee_included" in cost.monthly_cost_missing_items:
                 return "Management fee is still unclear."
             if "rates_amount" in cost.monthly_cost_missing_items or "rates_included" in cost.monthly_cost_missing_items:
@@ -494,7 +496,7 @@ class ComparisonService:
                     category="project_fit",
                     title="Project fit still matters as much as price",
                     summary=(
-                        f"{fit_lead} currently fits the project constraints best based on budget, district, and stated must-haves."
+                        f"{fit_lead} currently fits the comparable project constraints best based on personal budget and preferred district."
                     ),
                 )
             )

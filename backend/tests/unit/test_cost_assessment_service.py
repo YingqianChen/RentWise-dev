@@ -67,31 +67,23 @@ class CostAssessmentServiceTests(TestCase):
 
         self.assertEqual(result.known_monthly_cost, 19500)
 
-    def test_unverifiable_amount_over_budget_stays_incomplete(self):
+    def test_trusted_projected_amount_over_budget_is_marked_over_budget(self):
         info = self.candidate.extracted_info
         info.monthly_rent = "30000"
         info.management_fee_included = True
         info.rates_included = True
 
-        result = self.service.assess(
-            info,
-            max_budget=22000,
-            source_text="Rent amount to be confirmed with the agent.",
-        )
+        result = self.service.assess(info, max_budget=22000)
 
-        self.assertEqual(result.cost_risk_flag, "incomplete")
-        self.assertNotIn("exceeds", result.summary.lower())
+        self.assertEqual(result.cost_risk_flag, "over_budget")
+        self.assertIn("exceeds", result.summary.lower())
 
-    def test_source_backed_amount_can_be_marked_over_budget(self):
+    def test_user_corrected_style_numeric_value_does_not_require_original_text_match(self):
         info = self.candidate.extracted_info
         info.monthly_rent = "HKD 30,000"
         info.management_fee_included = True
         info.rates_included = True
 
-        result = self.service.assess(
-            info,
-            max_budget=22000,
-            source_text="Monthly rent: HKD 30,000, including management fees and rates.",
-        )
+        result = self.service.assess(info, max_budget=22000)
 
         self.assertEqual(result.cost_risk_flag, "over_budget")

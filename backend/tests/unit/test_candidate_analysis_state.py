@@ -29,3 +29,9 @@ class CandidateAnalysisStateTests(TestCase):
         candidate.cost_assessment = None
 
         self.assertFalse(has_usable_analysis(candidate))
+
+    def test_legacy_candidate_without_all_core_field_facts_requires_reanalysis(self):
+        candidate = build_candidate(build_project(build_user()))
+        candidate.field_facts.pop()
+
+        self.assertFalse(has_usable_analysis(candidate))

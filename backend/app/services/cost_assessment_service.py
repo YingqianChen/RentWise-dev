@@ -40,7 +40,6 @@ class CostAssessmentService:
         self,
         extracted_info: CandidateExtractedInfo,
         max_budget: Optional[int] = None,
-        source_text: str = "",
     ) -> CostAssessment:
         monthly_rent = parse_monetary_amount(extracted_info.monthly_rent)
         management_fee = parse_monetary_amount(extracted_info.management_fee_amount)
@@ -111,8 +110,6 @@ class CostAssessmentService:
             monthly_cost_confidence=monthly_cost_confidence,
             missing_items=missing_items,
             max_budget=max_budget,
-            extracted_info=extracted_info,
-            source_text=source_text,
         )
         summary = self._generate_summary(
             known_monthly_cost=known_monthly_cost,
@@ -137,14 +134,11 @@ class CostAssessmentService:
         monthly_cost_confidence: str,
         missing_items: List[str],
         max_budget: Optional[int],
-        extracted_info: CandidateExtractedInfo,
-        source_text: str,
     ) -> str:
         if (
-            max_budget
-            and known_monthly_cost
+            max_budget is not None
+            and known_monthly_cost is not None
             and known_monthly_cost > max_budget
-            and self._monthly_cost_is_source_backed(extracted_info, source_text)
         ):
             return "over_budget"
         explicitly_separate_unknown = any(
@@ -155,40 +149,7 @@ class CostAssessmentService:
             return "possible_additional_cost"
         if missing_items or monthly_cost_confidence == "low":
             return "incomplete"
-        if max_budget and known_monthly_cost and known_monthly_cost > max_budget:
-            return "incomplete"
         return "none"
-
-    def _monthly_cost_is_source_backed(
-        self,
-        extracted_info: CandidateExtractedInfo,
-        source_text: str,
-    ) -> bool:
-        if not self._amount_is_source_backed(extracted_info.monthly_rent, source_text):
-            return False
-
-        for amount, included in (
-            (extracted_info.management_fee_amount, extracted_info.management_fee_included),
-            (extracted_info.rates_amount, extracted_info.rates_included),
-        ):
-            if included is False and parse_monetary_amount(amount) is not None:
-                if not self._amount_is_source_backed(amount, source_text):
-                    return False
-        return True
-
-    def _amount_is_source_backed(self, value: Optional[str], source_text: str) -> bool:
-        amount = parse_monetary_amount(value)
-        if amount is None:
-            return False
-        source_amounts = (
-            parse_monetary_amount(match)
-            for match in re.findall(
-                r"(?:HKD\s*|\$\s*)?\d[\d,]*(?:\.\d+)?",
-                source_text,
-                re.IGNORECASE,
-            )
-        )
-        return any(source_amount == amount for source_amount in source_amounts)
 
     def _generate_summary(
         self,

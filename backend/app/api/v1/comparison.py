@@ -34,6 +34,7 @@ def _candidate_query(project_id: UUID, candidate_ids: list[UUID]):
             selectinload(CandidateListing.cost_assessment),
             selectinload(CandidateListing.clause_assessment),
             selectinload(CandidateListing.candidate_assessment),
+            selectinload(CandidateListing.field_facts),
         )
         .where(
             CandidateListing.project_id == project_id,

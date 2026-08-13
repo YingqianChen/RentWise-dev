@@ -133,13 +133,9 @@ class ComparisonBriefingService:
 
     def _project_context(self, project: SearchProject) -> str:
         preferred = ", ".join(project.preferred_districts) if project.preferred_districts else "No preferred districts stated"
-        must_have = ", ".join(project.must_have) if project.must_have else "No must-have list stated"
-        deal_breakers = ", ".join(project.deal_breakers) if project.deal_breakers else "No deal breakers stated"
         return (
             f"Budget cap: {project.max_budget or 'unknown'}\n"
             f"Preferred districts: {preferred}\n"
-            f"Must have: {must_have}\n"
-            f"Deal breakers: {deal_breakers}\n"
             f"Move-in target: {project.move_in_target or 'unknown'}"
         )
 

@@ -119,6 +119,15 @@ class PriorityAndDashboardServiceTests(TestCase):
         self.assertEqual(stats.processing, 1)
         self.assertEqual(service.build_priority_candidates([processing]), [])
 
+    def test_legacy_candidate_without_field_contract_is_not_ranked(self):
+        legacy = build_candidate(build_project(build_user()))
+        legacy.field_facts = []
+
+        service = DashboardService()
+
+        self.assertEqual(service.build_priority_candidates([legacy]), [])
+        self.assertEqual(service.build_investigation_items([legacy]), [])
+
     def test_top_level_recommendation_is_derived_from_assessment_state(self):
         user = build_user()
         project = build_project(user)

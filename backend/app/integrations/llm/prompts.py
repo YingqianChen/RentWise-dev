@@ -256,4 +256,5 @@ Writing rules:
 4. The message draft should sound natural and ready to send.
 5. Do not repeat the whole assessment summary.
 6. Do not invent facts that are not in the provided context.
+7. Copy 2 to 3 items exactly from the Allowed questions list. Do not add or paraphrase questions.
 """

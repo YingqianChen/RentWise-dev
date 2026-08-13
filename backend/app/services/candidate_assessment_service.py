@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import date
-import re
 from typing import List, Optional
 
 from ..db.models import CandidateAssessment, CandidateExtractedInfo, ClauseAssessment, CostAssessment
@@ -17,33 +15,15 @@ class CandidateAssessmentService:
         extracted_info: CandidateExtractedInfo,
         cost_assessment: CostAssessment,
         clause_assessment: ClauseAssessment,
-        max_budget: Optional[int] = None,
         preferred_districts: Optional[List[str]] = None,
-        must_have: Optional[List[str]] = None,
-        deal_breakers: Optional[List[str]] = None,
-        move_in_target: Optional[date] = None,
-        source_text: str = "",
     ) -> CandidateAssessment:
-        decision_signals = extracted_info.decision_signals or []
         preferred_districts = preferred_districts or []
-        must_have = must_have or []
-        deal_breakers = deal_breakers or []
 
-        hard_conflict = self._has_hard_conflict(
-            extracted_info=extracted_info,
-            cost_assessment=cost_assessment,
-            decision_signals=decision_signals,
-            must_have=must_have,
-            deal_breakers=deal_breakers,
-            max_budget=max_budget,
-            source_text=source_text,
-        )
+        hard_conflict = self._has_hard_conflict(cost_assessment)
         potential_value = self._assess_potential_value(
             extracted_info=extracted_info,
             cost_assessment=cost_assessment,
-            decision_signals=decision_signals,
             preferred_districts=preferred_districts,
-            must_have=must_have,
             hard_conflict=hard_conflict,
         )
         completeness = self._assess_completeness(
@@ -58,7 +38,6 @@ class CandidateAssessmentService:
         decision_risk = self._assess_decision_risk(
             cost_assessment=cost_assessment,
             clause_assessment=clause_assessment,
-            decision_signals=decision_signals,
             hard_conflict=hard_conflict,
         )
         information_gain = self._assess_information_gain(
@@ -76,7 +55,6 @@ class CandidateAssessmentService:
         next_action = self._determine_next_action(
             cost_assessment=cost_assessment,
             clause_assessment=clause_assessment,
-            decision_signals=decision_signals,
             decision_risk=decision_risk,
             recommendation_confidence=recommendation_confidence,
             potential_value=potential_value,
@@ -91,7 +69,6 @@ class CandidateAssessmentService:
             extracted_info=extracted_info,
             cost_assessment=cost_assessment,
             clause_assessment=clause_assessment,
-            decision_signals=decision_signals,
             hard_conflict=hard_conflict,
         )
         summary = self._generate_summary(
@@ -99,7 +76,6 @@ class CandidateAssessmentService:
             completeness=completeness,
             next_action=next_action,
             labels=labels,
-            decision_signals=decision_signals,
             hard_conflict=hard_conflict,
         )
 
@@ -117,53 +93,14 @@ class CandidateAssessmentService:
             summary=summary,
         )
 
-    def _has_hard_conflict(
-        self,
-        extracted_info: CandidateExtractedInfo,
-        cost_assessment: CostAssessment,
-        decision_signals: list[dict[str, str]],
-        must_have: List[str],
-        deal_breakers: List[str],
-        max_budget: Optional[int],
-        source_text: str,
-    ) -> bool:
-        if (
-            max_budget
-            and cost_assessment.known_monthly_cost
-            and cost_assessment.known_monthly_cost > max_budget
-            and self._monthly_cost_is_source_backed(extracted_info, source_text)
-        ):
-            return True
-
-        normalized_must_have = {item.strip().lower() for item in must_have}
-        normalized_deal_breakers = {item.strip().lower() for item in deal_breakers}
-        furnished = (extracted_info.furnished or "").lower()
-
-        if (
-            "furnished" in normalized_must_have
-            and self._is_explicitly_unfurnished(furnished)
-            and self._text_is_source_backed(furnished, source_text)
-        ):
-            return True
-        if "shared bathroom" in normalized_deal_breakers and extracted_info.bedrooms:
-            bedrooms = extracted_info.bedrooms.lower()
-            if "shared bathroom" in bedrooms and self._text_is_source_backed("shared bathroom", source_text):
-                return True
-        if "shared bathroom" in normalized_deal_breakers and self._has_source_backed_signal(
-            decision_signals,
-            {"bathroom_sharing"},
-            source_text,
-        ):
-            return True
-        return False
+    def _has_hard_conflict(self, cost_assessment: CostAssessment) -> bool:
+        return cost_assessment.cost_risk_flag == "over_budget"
 
     def _assess_potential_value(
         self,
         extracted_info: CandidateExtractedInfo,
         cost_assessment: CostAssessment,
-        decision_signals: list[dict[str, str]],
         preferred_districts: List[str],
-        must_have: List[str],
         hard_conflict: bool,
     ) -> str:
         if hard_conflict:
@@ -179,13 +116,7 @@ class CandidateAssessmentService:
         if not self._is_unknown(district) and district.strip().lower() in normalized_preferred:
             score += 1
 
-        furnished = (extracted_info.furnished or "").lower()
-        if "furnished" in {item.strip().lower() for item in must_have} and "furnished" in furnished:
-            score += 1
-        if self._has_signal(decision_signals, {"commute_advantage", "building_amenity", "condition_positive"}):
-            score += 1
-
-        if score >= 3:
+        if score >= 2:
             return "high"
         if score >= 1:
             return "medium"
@@ -234,15 +165,10 @@ class CandidateAssessmentService:
         self,
         cost_assessment: CostAssessment,
         clause_assessment: ClauseAssessment,
-        decision_signals: list[dict[str, str]],
         hard_conflict: bool,
     ) -> str:
         if hard_conflict:
             return "high"
-        if self._has_signal(decision_signals, {"holding_fee_risk", "trust_concern"}):
-            return "high"
-        if self._has_signal(decision_signals, {"source_conflict", "listing_ambiguity", "agent_pressure"}):
-            return "medium"
         if clause_assessment.clause_risk_flag == "high_risk":
             return "high"
         if cost_assessment.cost_risk_flag == "possible_additional_cost":
@@ -292,7 +218,6 @@ class CandidateAssessmentService:
         self,
         cost_assessment: CostAssessment,
         clause_assessment: ClauseAssessment,
-        decision_signals: list[dict[str, str]],
         decision_risk: str,
         recommendation_confidence: str,
         potential_value: str,
@@ -306,11 +231,6 @@ class CandidateAssessmentService:
             or cost_assessment.cost_risk_flag in {"incomplete", "possible_additional_cost", "over_budget"}
         ):
             return "verify_cost"
-        if self._has_signal(
-            decision_signals,
-            {"holding_fee_risk", "trust_concern", "source_conflict", "listing_ambiguity", "agent_pressure"},
-        ):
-            return "verify_clause"
         if clause_assessment.clause_confidence == "low" or clause_assessment.clause_risk_flag in {"needs_confirmation", "high_risk"}:
             return "verify_clause"
         if recommendation_confidence == "high" and potential_value in {"high", "medium"}:
@@ -333,7 +253,6 @@ class CandidateAssessmentService:
         extracted_info: CandidateExtractedInfo,
         cost_assessment: CostAssessment,
         clause_assessment: ClauseAssessment,
-        decision_signals: list[dict[str, str]],
         hard_conflict: bool,
     ) -> List[str]:
         labels: List[str] = []
@@ -348,13 +267,6 @@ class CandidateAssessmentService:
             labels.append("Tenant-heavy repairs")
         if clause_assessment.lease_term_level == "unstable":
             labels.append("Unstable lease")
-        if self._has_signal(decision_signals, {"holding_fee_risk", "trust_concern"}):
-            labels.append("Trust concern")
-        elif self._has_signal(decision_signals, {"source_conflict", "listing_ambiguity"}):
-            labels.append("Info conflict")
-        if self._has_signal(decision_signals, {"commute_advantage"}):
-            labels.append("Strong commute")
-
         if not self._is_unknown(extracted_info.district):
             labels.append(str(extracted_info.district))
 
@@ -366,7 +278,6 @@ class CandidateAssessmentService:
         completeness: str,
         next_action: str,
         labels: List[str],
-        decision_signals: list[dict[str, str]],
         hard_conflict: bool,
     ) -> str:
         if hard_conflict:
@@ -389,84 +300,10 @@ class CandidateAssessmentService:
         parts = [value_map.get(potential_value, "This candidate still needs review.")]
         if completeness == "low":
             parts.append("Important information is still missing.")
-        if self._has_signal(decision_signals, {"holding_fee_risk", "trust_concern"}):
-            parts.append("There is also a trust or payment-handling concern in the current evidence.")
-        elif self._has_signal(decision_signals, {"source_conflict", "listing_ambiguity"}):
-            parts.append("Some source details still conflict, so the current read should stay cautious.")
         parts.append(action_map.get(next_action, ""))
         if labels:
             parts.append(f"Key signals: {', '.join(labels)}.")
         return " ".join(part for part in parts if part)
-
-    def _has_signal(self, signals: list[dict[str, str]], keys: set[str]) -> bool:
-        return any(signal.get("key") in keys for signal in signals)
-
-    def _has_source_backed_signal(
-        self,
-        signals: list[dict[str, str]],
-        keys: set[str],
-        source_text: str,
-    ) -> bool:
-        return any(
-            signal.get("key") in keys
-            and self._text_is_source_backed(signal.get("evidence", ""), source_text)
-            for signal in signals
-        )
-
-    def _monthly_cost_is_source_backed(
-        self,
-        extracted_info: CandidateExtractedInfo,
-        source_text: str,
-    ) -> bool:
-        if not self._amount_is_source_backed(extracted_info.monthly_rent, source_text):
-            return False
-
-        for amount, included in (
-            (extracted_info.management_fee_amount, extracted_info.management_fee_included),
-            (extracted_info.rates_amount, extracted_info.rates_included),
-        ):
-            if included is False and not self._is_unknown(amount):
-                if not self._amount_is_source_backed(amount, source_text):
-                    return False
-        return True
-
-    def _amount_is_source_backed(self, value: Optional[str], source_text: str) -> bool:
-        amount = self._parse_amount(value)
-        if amount is None:
-            return False
-        return any(
-            parsed == amount
-            for parsed in (
-                self._parse_amount(match)
-                for match in re.findall(r"(?:HKD\s*|\$\s*)?\d[\d,]*(?:\.\d+)?", source_text, re.IGNORECASE)
-            )
-        )
-
-    def _parse_amount(self, value: Optional[str]) -> Optional[float]:
-        if self._is_unknown(value):
-            return None
-        match = re.search(r"\d[\d,]*(?:\.\d+)?", str(value))
-        if not match:
-            return None
-        try:
-            return float(match.group().replace(",", ""))
-        except ValueError:
-            return None
-
-    def _text_is_source_backed(self, value: str, source_text: str) -> bool:
-        normalized_value = self._normalize_evidence(value)
-        normalized_source = self._normalize_evidence(source_text)
-        return bool(normalized_value and normalized_value in normalized_source)
-
-    def _normalize_evidence(self, value: str) -> str:
-        return re.sub(r"[^\w]+", "", str(value).lower(), flags=re.UNICODE)
-
-    def _is_explicitly_unfurnished(self, value: str) -> bool:
-        normalized = value.strip().lower()
-        return any(
-            marker in normalized
-            for marker in ("unfurnished", "not furnished", "no furniture", "without furniture", "bare unit")
-        )
 
     def _clause_is_all_unknown(self, clause_assessment: ClauseAssessment) -> bool:
         return all(

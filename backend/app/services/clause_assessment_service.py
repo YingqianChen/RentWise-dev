@@ -76,13 +76,11 @@ class ClauseAssessmentService:
     def assess(self, extracted_info: CandidateExtractedInfo, move_in_target: Optional[date] = None) -> ClauseAssessment:
         repair_level = self._assess_repair_responsibility(
             extracted_info.repair_responsibility,
-            extracted_info.decision_signals,
         )
         lease_level = self._assess_lease_term(extracted_info.lease_term)
         move_in_level = self._assess_move_in_date(
             extracted_info.move_in_date,
             move_in_target,
-            extracted_info.decision_signals,
         )
         clause_confidence = self._determine_confidence(repair_level, lease_level, move_in_level)
         clause_risk_flag = self._determine_risk_flag(repair_level, lease_level, move_in_level)
@@ -100,13 +98,11 @@ class ClauseAssessmentService:
     def _assess_repair_responsibility(
         self,
         value: Optional[str],
-        signals: list[dict[str, str]] | None = None,
     ) -> str:
-        signal_text = self._signal_text(signals, {"repair_support_signal"})
-        if self._is_unknown(value) and not signal_text:
+        if self._is_unknown(value):
             return "unknown"
 
-        lower = f"{value or ''} {signal_text}".lower()
+        lower = str(value).lower()
         repair_topic = any(
             keyword in lower
             for keyword in [
@@ -239,12 +235,10 @@ class ClauseAssessmentService:
         self,
         value: Optional[str],
         target_date: Optional[date],
-        signals: list[dict[str, str]] | None = None,
     ) -> str:
-        signal_text = self._signal_text(signals, {"move_in_timing_signal"})
-        if self._is_unknown(value) and not signal_text:
+        if self._is_unknown(value):
             return "unknown"
-        lower = f"{value or ''} {signal_text}".lower()
+        lower = str(value).lower()
         if self._contains_any(lower, ["immediate", "anytime", "available now", "ready now", "move in now", "vacant now"]):
             return "fit"
         if self._contains_any(
@@ -364,20 +358,6 @@ class ClauseAssessmentService:
             return None, int(month_number_match.group(1))
 
         return None, None
-
-    def _signal_text(self, signals: list[dict[str, str]] | None, keys: set[str]) -> str:
-        if not signals:
-            return ""
-
-        fragments: list[str] = []
-        for signal in signals:
-            if signal.get("key") in keys:
-                fragments.extend(
-                    part
-                    for part in [signal.get("label", ""), signal.get("evidence", ""), signal.get("note", "")]
-                    if part
-                )
-        return " ".join(fragments)
 
     # ------------------------------------------------------------------
     # RAG enrichment

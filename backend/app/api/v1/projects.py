@@ -192,6 +192,7 @@ async def update_project(
                 selectinload(CandidateListing.cost_assessment),
                 selectinload(CandidateListing.clause_assessment),
                 selectinload(CandidateListing.candidate_assessment),
+                selectinload(CandidateListing.field_facts),
             )
             .where(
                 CandidateListing.project_id == project.id,

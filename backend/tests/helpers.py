@@ -6,6 +6,7 @@ from datetime import date, datetime, timezone
 from app.db.models import (
     CandidateAssessment,
     CandidateExtractedInfo,
+    CandidateFieldFact,
     CandidateListing,
     ClauseAssessment,
     CostAssessment,
@@ -129,4 +130,39 @@ def build_candidate(
         labels=["promising", "cost_unknown"],
         summary="Promising candidate that needs more confirmation.",
     )
+    explicit_values = {
+        "monthly_rent": 18000,
+        "deposit": "36000",
+        "lease_term": "2 years",
+        "move_in_date": "2026-05-01",
+        "district": "Wan Chai",
+    }
+    field_keys = (
+        "monthly_rent",
+        "management_fee_amount",
+        "management_fee_included",
+        "rates_amount",
+        "rates_included",
+        "deposit",
+        "agent_fee",
+        "lease_term",
+        "move_in_date",
+        "repair_responsibility",
+        "district",
+        "address_text",
+        "building_name",
+        "nearest_station",
+    )
+    candidate.field_facts = [
+        CandidateFieldFact(
+            candidate_id=candidate.id,
+            field_key=field_key,
+            system_value=explicit_values.get(field_key),
+            system_state="explicit" if field_key in explicit_values else "unknown",
+            system_confidence="high" if field_key in explicit_values else "low",
+            created_at=utc_now(),
+            updated_at=utc_now(),
+        )
+        for field_key in field_keys
+    ]
     return candidate

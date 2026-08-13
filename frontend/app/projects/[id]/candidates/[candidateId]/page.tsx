@@ -38,17 +38,21 @@ import {
   rejectCandidate,
   shortlistCandidate,
   updateCandidate,
+  updateCandidateField,
 } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import type {
   Candidate,
   CandidateContactPlan,
+  CandidateFieldActionRequest,
+  CandidateFieldFact,
   CommuteSegment,
   CompareCandidateCard,
   ComparisonResponse,
   DecisionSignal,
 } from "@/lib/types";
 import { Logo } from "@/components/brand/logo";
+import { CandidateFieldFacts } from "@/components/candidate-field-facts";
 
 function cn(...classes: Array<string | false | null | undefined>): string {
   return classes.filter(Boolean).join(" ");
@@ -507,7 +511,6 @@ function buildDecisionBlockers(candidate: Candidate): string[] {
   const blockers: string[] = [];
   const cost = candidate.cost_assessment;
   const clause = candidate.clause_assessment;
-  const signals = candidate.extracted_info?.decision_signals ?? [];
 
   if (cost?.cost_risk_flag === "incomplete") {
     blockers.push("The real monthly cost is still incomplete.");
@@ -523,18 +526,6 @@ function buildDecisionBlockers(candidate: Candidate): string[] {
   if (clause?.move_in_date_level && ["unknown", "uncertain", "mismatch"].includes(clause.move_in_date_level)) {
     blockers.push("Move-in timing may still break the fit.");
   }
-  for (const signal of signals) {
-    if (signal.key === "holding_fee_risk") {
-      blockers.push("Payment handling looks risky and needs written confirmation.");
-    } else if (signal.key === "trust_concern" || signal.key === "agent_pressure") {
-      blockers.push("The current agent interaction adds trust pressure to this option.");
-    } else if (signal.key === "source_conflict" || signal.key === "listing_ambiguity") {
-      blockers.push("Core facts still conflict across the listing, chat, or notes.");
-    } else if (signal.key === "bathroom_sharing") {
-      blockers.push("Bathroom arrangement may be less private than expected.");
-    }
-  }
-
   return blockers.slice(0, 3);
 }
 
@@ -573,20 +564,6 @@ function signalSourceLabel(source: string) {
       return "OCR";
     default:
       return "Mixed";
-  }
-}
-
-function signalTone(category: string) {
-  switch (category) {
-    case "trust":
-    case "conflict":
-      return "bg-red-50 border-red-200 text-red-900";
-    case "cost":
-    case "timing":
-    case "living_arrangement":
-      return "bg-amber-50 border-amber-200 text-amber-900";
-    default:
-      return "bg-gray-50 border-gray-200 text-gray-800";
   }
 }
 
@@ -636,7 +613,8 @@ function hasUsableAnalysis(candidate: Candidate): boolean {
       candidate.extracted_info &&
       candidate.cost_assessment &&
       candidate.clause_assessment &&
-      candidate.candidate_assessment
+      candidate.candidate_assessment &&
+      candidate.field_facts.length === 14
   );
 }
 
@@ -857,6 +835,25 @@ export default function CandidateDetailPage() {
     }
   };
 
+  const handleFieldAction = async (
+    fact: CandidateFieldFact,
+    request: CandidateFieldActionRequest
+  ) => {
+    const token = getToken();
+    if (!token) throw new Error("Your session has expired. Please sign in again.");
+    const updated = await updateCandidateField(
+      token,
+      projectId,
+      candidateId,
+      fact.key,
+      request
+    );
+    setCandidate(updated);
+    setContactPlan(null);
+    setContactPlanError("");
+    await loadCandidate(token);
+  };
+
   const handleCopyContactDraft = async () => {
     if (!contactPlan?.message_draft) return;
 
@@ -891,9 +888,6 @@ export default function CandidateDetailPage() {
     }
     if (extracted?.deposit && extracted.deposit !== "unknown") {
       facts.push({ icon: DollarSign, label: "Deposit", value: extracted.deposit });
-    }
-    if (extracted?.size_sqft && extracted.size_sqft !== "unknown") {
-      facts.push({ icon: Gauge, label: "Size", value: `${extracted.size_sqft} sqft` });
     }
     if (extracted?.move_in_date && extracted.move_in_date !== "unknown") {
       facts.push({ icon: Clock, label: "Move-in", value: extracted.move_in_date });
@@ -1595,101 +1589,19 @@ export default function CandidateDetailPage() {
               </Card>
             )}
 
-            {/* Evidence drill-down */}
+            {analysisUsable && candidate.field_facts.length === 14 && (
+              <CandidateFieldFacts facts={candidate.field_facts} onAction={handleFieldAction} />
+            )}
+
+            {/* Supplemental evidence drill-down */}
             <Card>
               <CardHeader>
-                <CardTitle>Evidence</CardTitle>
+                <CardTitle>Supplemental source material</CardTitle>
                 <CardDescription>
-                  Raw extraction, OCR text, and observations — open only when you need to audit a claim.
+                  Extra observations, OCR output, and full source text. These do not replace the field-level evidence above.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
-                <details className="group rounded-lg border border-gray-200 bg-gray-50 p-4 open:bg-white">
-                  <summary className="flex cursor-pointer items-center justify-between gap-2 text-sm font-medium text-gray-900">
-                    <span className="inline-flex items-center gap-2">
-                      <FileText className="h-3.5 w-3.5 text-gray-500" />
-                      Structured listing fields
-                    </span>
-                    <span className="text-xs text-gray-500 group-open:hidden">Expand</span>
-                    <span className="hidden text-xs text-gray-500 group-open:inline">Collapse</span>
-                  </summary>
-                  <dl className="mt-4 grid gap-x-6 gap-y-2 text-sm md:grid-cols-2">
-                    {extracted?.monthly_rent && (
-                      <div className="flex justify-between gap-4 border-b border-gray-200/60 py-1.5">
-                        <dt className="text-gray-500">Monthly rent</dt>
-                        <dd className="font-medium text-gray-900">{extracted.monthly_rent}</dd>
-                      </div>
-                    )}
-                    {extracted?.district && (
-                      <div className="flex justify-between gap-4 border-b border-gray-200/60 py-1.5">
-                        <dt className="text-gray-500">District</dt>
-                        <dd className="font-medium text-gray-900">{extracted.district}</dd>
-                      </div>
-                    )}
-                    {extracted?.building_name && (
-                      <div className="flex justify-between gap-4 border-b border-gray-200/60 py-1.5">
-                        <dt className="text-gray-500">Building</dt>
-                        <dd className="font-medium text-gray-900">{extracted.building_name}</dd>
-                      </div>
-                    )}
-                    {extracted?.nearest_station && (
-                      <div className="flex justify-between gap-4 border-b border-gray-200/60 py-1.5">
-                        <dt className="text-gray-500">Nearest station</dt>
-                        <dd className="font-medium text-gray-900">{extracted.nearest_station}</dd>
-                      </div>
-                    )}
-                    {extracted?.deposit && (
-                      <div className="flex justify-between gap-4 border-b border-gray-200/60 py-1.5">
-                        <dt className="text-gray-500">Deposit</dt>
-                        <dd className="text-gray-900">{extracted.deposit}</dd>
-                      </div>
-                    )}
-                    {extracted?.agent_fee && (
-                      <div className="flex justify-between gap-4 border-b border-gray-200/60 py-1.5">
-                        <dt className="text-gray-500">Agent fee</dt>
-                        <dd className="text-gray-900">{extracted.agent_fee}</dd>
-                      </div>
-                    )}
-                    {extracted?.management_fee_amount && (
-                      <div className="flex justify-between gap-4 border-b border-gray-200/60 py-1.5">
-                        <dt className="text-gray-500">Management fee</dt>
-                        <dd className="text-gray-900">
-                          {extracted.management_fee_amount}
-                          {extracted.management_fee_included === true
-                            ? " (included)"
-                            : extracted.management_fee_included === false
-                              ? " (separate)"
-                              : ""}
-                        </dd>
-                      </div>
-                    )}
-                    {extracted?.lease_term && (
-                      <div className="flex justify-between gap-4 border-b border-gray-200/60 py-1.5">
-                        <dt className="text-gray-500">Lease term</dt>
-                        <dd className="text-gray-900">{extracted.lease_term}</dd>
-                      </div>
-                    )}
-                    {extracted?.move_in_date && (
-                      <div className="flex justify-between gap-4 border-b border-gray-200/60 py-1.5">
-                        <dt className="text-gray-500">Move-in date</dt>
-                        <dd className="text-gray-900">{extracted.move_in_date}</dd>
-                      </div>
-                    )}
-                    {extracted?.furnished && (
-                      <div className="flex justify-between gap-4 border-b border-gray-200/60 py-1.5">
-                        <dt className="text-gray-500">Furnishing</dt>
-                        <dd className="text-gray-900">{extracted.furnished}</dd>
-                      </div>
-                    )}
-                    {extracted?.size_sqft && (
-                      <div className="flex justify-between gap-4 border-b border-gray-200/60 py-1.5">
-                        <dt className="text-gray-500">Size</dt>
-                        <dd className="text-gray-900">{extracted.size_sqft} sqft</dd>
-                      </div>
-                    )}
-                  </dl>
-                </details>
-
                 {extracted && extracted.raw_facts && extracted.raw_facts.length > 0 && (
                   <details className="group rounded-lg border border-gray-200 bg-gray-50 p-4 open:bg-white">
                     <summary className="flex cursor-pointer items-center justify-between gap-2 text-sm font-medium text-gray-900">
@@ -1714,17 +1626,20 @@ export default function CandidateDetailPage() {
                     <summary className="flex cursor-pointer items-center justify-between gap-2 text-sm font-medium text-gray-900">
                       <span className="inline-flex items-center gap-2">
                         <AlertTriangle className="h-3.5 w-3.5 text-gray-500" />
-                        Decision signals
+                        Unmodeled observations
                       </span>
                       <span className="text-xs text-gray-500 group-open:hidden">
                         {extracted.decision_signals.length} signals
                       </span>
                     </summary>
+                    <p className="mt-2 text-xs leading-5 text-gray-500">
+                      Kept as context only. These observations do not affect the recommendation until they have their own field and evidence rules.
+                    </p>
                     <div className="mt-4 space-y-2">
                       {extracted.decision_signals.map((signal: DecisionSignal, index) => (
                         <div
                           key={`${signal.key}-${index}`}
-                          className={cn("rounded-lg border p-3", signalTone(signal.category))}
+                          className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-gray-800"
                         >
                           <div className="mb-1 flex flex-wrap items-center gap-1.5">
                             <span className="text-sm font-medium">{signal.label}</span>

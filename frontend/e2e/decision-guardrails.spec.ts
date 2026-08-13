@@ -1,11 +1,45 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
-import type { Candidate } from "../lib/types";
+import type { Candidate, CandidateFieldFact } from "../lib/types";
 
 const PROJECT_ID = "project-e2e";
 const CANDIDATE_ID = "candidate-e2e";
 const SAVED_SOURCE = "Listing source: HKD 30,000 per month. Management fee not stated.";
 const NOW = "2026-08-13T12:00:00Z";
+
+const FIELD_DEFINITIONS: Array<Pick<CandidateFieldFact, "key" | "label" | "group">> = [
+  { key: "monthly_rent", label: "Monthly rent", group: "monthly_cost" },
+  { key: "management_fee_amount", label: "Management fee", group: "monthly_cost" },
+  { key: "management_fee_included", label: "Management fee included", group: "monthly_cost" },
+  { key: "rates_amount", label: "Rates amount", group: "monthly_cost" },
+  { key: "rates_included", label: "Rates included", group: "monthly_cost" },
+  { key: "deposit", label: "Deposit", group: "move_in_and_lease" },
+  { key: "agent_fee", label: "Agent fee", group: "move_in_and_lease" },
+  { key: "lease_term", label: "Lease term", group: "move_in_and_lease" },
+  { key: "move_in_date", label: "Move-in date", group: "repairs_and_timing" },
+  { key: "repair_responsibility", label: "Repair responsibility", group: "repairs_and_timing" },
+  { key: "district", label: "District", group: "location" },
+  { key: "address_text", label: "Address", group: "location" },
+  { key: "building_name", label: "Building name", group: "location" },
+  { key: "nearest_station", label: "Nearest station", group: "location" },
+];
+
+function unknownFieldFacts(): CandidateFieldFact[] {
+  return FIELD_DEFINITIONS.map((definition) => ({
+    ...definition,
+    value: null,
+    state: "unknown",
+    confidence: "low",
+    decision_usable: false,
+    system_value: null,
+    system_state: "unknown",
+    system_confidence: "low",
+    user_action: null,
+    user_note: null,
+    user_updated_at: null,
+    evidence: [],
+  }));
+}
 
 function baseCandidate(overrides: Partial<Candidate> = {}): Candidate {
   return {
@@ -87,6 +121,7 @@ function baseCandidate(overrides: Partial<Candidate> = {}): Candidate {
     benchmark: null,
     commute_evidence: null,
     source_assets: [],
+    field_facts: unknownFieldFacts(),
     ...overrides,
   };
 }
@@ -101,6 +136,7 @@ function failedCandidate(): Candidate {
     cost_assessment: null,
     clause_assessment: null,
     candidate_assessment: null,
+    field_facts: [],
   });
 }
 
@@ -141,6 +177,32 @@ function overBudgetCandidate(): Candidate {
       labels: ["Over budget"],
       summary: "The verified rent is above the user's stated budget.",
     },
+    field_facts: candidate.field_facts.map((fact) =>
+      fact.key === "monthly_rent"
+        ? {
+            ...fact,
+            value: 30000,
+            state: "explicit",
+            confidence: "high",
+            decision_usable: true,
+            system_value: 30000,
+            system_state: "explicit",
+            system_confidence: "high",
+            evidence: [
+              {
+                id: "evidence-rent",
+                source_type: "listing",
+                source_asset_id: null,
+                source_label: "Listing text",
+                quote: "HKD 30,000 per month",
+                claim_value: 30000,
+                claim_kind: "explicit",
+                confidence: "high",
+              },
+            ],
+          }
+        : fact
+    ),
   };
 }
 
@@ -155,10 +217,11 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
 async function installApiMock(
   page: Page,
   initialCandidate: Candidate,
-  options: { importedCandidate?: Candidate } = {}
+  options: { importedCandidate?: Candidate; failFirstFieldUpdate?: boolean } = {}
 ) {
   let currentCandidate = initialCandidate;
   let retryCount = 0;
+  let fieldUpdateCount = 0;
 
   await page.addInitScript(() => {
     window.localStorage.setItem("rentwise_token", "browser-test-token");
@@ -190,6 +253,70 @@ async function installApiMock(
       return;
     }
 
+    if (method === "PATCH" && path.includes(`/${CANDIDATE_ID}/fields/`)) {
+      const fieldKey = path.split("/").at(-1)!;
+      const payload = request.postDataJSON() as {
+        action: "confirm" | "correct" | "mark_unknown" | "revert";
+        value?: unknown;
+        note?: string;
+      };
+      fieldUpdateCount += 1;
+      if (options.failFirstFieldUpdate && fieldUpdateCount === 1) {
+        await fulfillJson(route, { detail: "Temporary field update failure." }, 409);
+        return;
+      }
+      currentCandidate = {
+        ...currentCandidate,
+        field_facts: currentCandidate.field_facts.map((fact) => {
+          if (fact.key !== fieldKey) return fact;
+          if (payload.action === "revert") {
+            return {
+              ...fact,
+              value: fact.system_value,
+              state: fact.system_state,
+              decision_usable: fact.system_state === "explicit",
+              user_action: null,
+              user_note: null,
+              user_updated_at: null,
+            };
+          }
+          if (payload.action === "mark_unknown") {
+            return {
+              ...fact,
+              value: null,
+              state: "user_marked_unknown",
+              decision_usable: false,
+              user_action: "marked_unknown",
+              user_note: payload.note ?? null,
+              user_updated_at: NOW,
+            };
+          }
+          const value = payload.action === "correct" ? payload.value : fact.system_value;
+          return {
+            ...fact,
+            value,
+            state: payload.action === "correct" ? "user_corrected" : "user_confirmed",
+            decision_usable: true,
+            user_action: payload.action === "correct" ? "corrected" : "confirmed",
+            user_note: payload.note ?? null,
+            user_updated_at: NOW,
+          };
+        }),
+      };
+      if (fieldKey === "monthly_rent" && currentCandidate.extracted_info) {
+        const updatedFact = currentCandidate.field_facts.find((fact) => fact.key === fieldKey)!;
+        currentCandidate = {
+          ...currentCandidate,
+          extracted_info: {
+            ...currentCandidate.extracted_info,
+            monthly_rent: updatedFact.value === null ? null : String(updatedFact.value),
+          },
+        };
+      }
+      await fulfillJson(route, currentCandidate);
+      return;
+    }
+
     if (method === "GET" && path.endsWith(`/candidates/${CANDIDATE_ID}`)) {
       await fulfillJson(route, currentCandidate);
       return;
@@ -205,6 +332,7 @@ async function installApiMock(
 
   return {
     retryCount: () => retryCount,
+    fieldUpdateCount: () => fieldUpdateCount,
   };
 }
 
@@ -265,4 +393,95 @@ test("explicit source-backed over-budget evidence can produce likely reject", as
   await expect(page.getByText("HKD 30,000").first()).toBeVisible();
   await expect(page.getByText("The verified rent is above the user's stated budget.")).toBeVisible();
   await expect(page.getByText("System: not ready")).toHaveCount(0);
+});
+
+test("inferred field can be confirmed and corrected with its source still visible", async ({ page }) => {
+  const candidate = baseCandidate({
+    name: "Field review case",
+    field_facts: unknownFieldFacts().map((fact) =>
+      fact.key === "monthly_rent"
+        ? {
+            ...fact,
+            value: 18000,
+            state: "inferred",
+            confidence: "medium",
+            system_value: 18000,
+            system_state: "inferred",
+            system_confidence: "medium",
+            evidence: [
+              {
+                id: "inferred-rent",
+                source_type: "chat",
+                source_asset_id: null,
+                source_label: "Chat",
+                quote: "Around eighteen thousand, I think",
+                claim_value: 18000,
+                claim_kind: "inferred",
+                confidence: "medium",
+              },
+            ],
+          }
+        : fact
+    ),
+  });
+  const api = await installApiMock(page, candidate);
+
+  await page.goto(`/projects/${PROJECT_ID}/candidates/${CANDIDATE_ID}`);
+  const rentCard = page.locator("article").filter({ hasText: "Monthly rent" }).filter({ hasText: "System inferred" }).first();
+  await expect(page.getByText("System inferred")).toBeVisible();
+  await page.getByText("View 1 source quote").click();
+  await expect(page.getByText("Around eighteen thousand, I think")).toBeVisible();
+  await page.getByRole("button", { name: "Confirm" }).first().click();
+  await expect.poll(api.fieldUpdateCount).toBe(1);
+  await expect(page.getByText("You confirmed")).toBeVisible();
+
+  const confirmedRentCard = page.locator("article").filter({ hasText: "Monthly rent" }).filter({ hasText: "You confirmed" }).first();
+  await confirmedRentCard.getByRole("button", { name: "Correct" }).click();
+  await confirmedRentCard.getByLabel("Correct value").fill("19000");
+  await confirmedRentCard.getByRole("button", { name: "Save correction" }).click();
+  await expect.poll(api.fieldUpdateCount).toBe(2);
+  await expect(page.getByText("You corrected")).toBeVisible();
+  await expect(page.getByText("HKD 19,000")).toBeVisible();
+
+  const correctedRentCard = page.locator("article").filter({ hasText: "Monthly rent" }).filter({ hasText: "You corrected" }).first();
+  await correctedRentCard.getByRole("button", { name: "Mark unknown" }).click();
+  await expect.poll(api.fieldUpdateCount).toBe(3);
+  await expect(page.getByText("You marked unknown")).toBeVisible();
+  await expect(page.getByText("Not confirmed").first()).toBeVisible();
+
+  const unknownRentCard = page.locator("article").filter({ hasText: "Monthly rent" }).filter({ hasText: "You marked unknown" }).first();
+  await unknownRentCard.getByRole("button", { name: "Restore system value" }).click();
+  await expect.poll(api.fieldUpdateCount).toBe(4);
+  await expect(page.getByText("System inferred")).toBeVisible();
+  await expect(page.getByText("HKD 18,000")).toBeVisible();
+});
+
+test("field update error stays on the card and can be retried", async ({ page }) => {
+  const candidate = baseCandidate({
+    name: "Field error recovery case",
+    field_facts: unknownFieldFacts().map((fact) =>
+      fact.key === "monthly_rent"
+        ? {
+            ...fact,
+            value: 18000,
+            state: "inferred",
+            confidence: "medium",
+            system_value: 18000,
+            system_state: "inferred",
+            system_confidence: "medium",
+          }
+        : fact
+    ),
+  });
+  const api = await installApiMock(page, candidate, { failFirstFieldUpdate: true });
+
+  await page.goto(`/projects/${PROJECT_ID}/candidates/${CANDIDATE_ID}`);
+  const rentCard = page.locator("article").filter({ hasText: "Monthly rent" }).first();
+  await rentCard.getByRole("button", { name: "Confirm" }).click();
+  await expect(rentCard.getByText("Temporary field update failure.")).toBeVisible();
+  await expect.poll(api.fieldUpdateCount).toBe(1);
+
+  await rentCard.getByRole("button", { name: "Confirm" }).click();
+  await expect.poll(api.fieldUpdateCount).toBe(2);
+  await expect(page.getByText("You confirmed")).toBeVisible();
 });

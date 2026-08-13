@@ -5,6 +5,7 @@
 import type {
   Candidate,
   CandidateContactPlan,
+  CandidateFieldActionRequest,
   ComparisonResponse,
   CreateProjectRequest,
   Dashboard,
@@ -335,6 +336,25 @@ export async function reassessCandidate(
     },
     "Failed to reassess candidate",
     "reassess the candidate"
+  );
+}
+
+export async function updateCandidateField(
+  token: string,
+  projectId: string,
+  candidateId: string,
+  fieldKey: string,
+  data: CandidateFieldActionRequest
+): Promise<Candidate> {
+  return apiRequest<Candidate>(
+    `/api/v1/projects/${projectId}/candidates/${candidateId}/fields/${fieldKey}`,
+    {
+      method: "PATCH",
+      headers: buildHeaders(token, true),
+      body: JSON.stringify(data),
+    },
+    "Failed to update the field",
+    "update the field"
   );
 }
 

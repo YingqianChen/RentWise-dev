@@ -143,6 +143,49 @@ export interface CandidateSourceAsset {
   updated_at: string;
 }
 
+export type CandidateFieldState =
+  | "explicit"
+  | "inferred"
+  | "conflicted"
+  | "unknown"
+  | "user_confirmed"
+  | "user_corrected"
+  | "user_marked_unknown";
+
+export interface CandidateFieldEvidence {
+  id: string;
+  source_type: "listing" | "chat" | "note" | "image_ocr";
+  source_asset_id: string | null;
+  source_label: string;
+  quote: string;
+  claim_value: unknown;
+  claim_kind: "explicit" | "inferred";
+  confidence: "high" | "medium" | "low";
+}
+
+export interface CandidateFieldFact {
+  key: string;
+  label: string;
+  group: "monthly_cost" | "move_in_and_lease" | "repairs_and_timing" | "location";
+  value: unknown;
+  state: CandidateFieldState;
+  confidence: "high" | "medium" | "low";
+  decision_usable: boolean;
+  system_value: unknown;
+  system_state: "explicit" | "inferred" | "conflicted" | "unknown";
+  system_confidence: "high" | "medium" | "low";
+  user_action: "confirmed" | "corrected" | "marked_unknown" | null;
+  user_note: string | null;
+  user_updated_at: string | null;
+  evidence: CandidateFieldEvidence[];
+}
+
+export interface CandidateFieldActionRequest {
+  action: "confirm" | "correct" | "mark_unknown" | "revert";
+  value?: number | boolean | string;
+  note?: string;
+}
+
 export interface CostAssessment {
   candidate_id: string;
   known_monthly_cost: number | null;
@@ -262,6 +305,7 @@ export interface Candidate {
   benchmark: BenchmarkEvidence | null;
   commute_evidence: CommuteEvidence | null;
   source_assets: CandidateSourceAsset[];
+  field_facts: CandidateFieldFact[];
 }
 
 export interface CandidateContactPlan {
@@ -284,9 +328,6 @@ export interface UpdateCandidateRequest {
   raw_listing_text?: string;
   raw_chat_text?: string;
   raw_note_text?: string;
-  address_text?: string;
-  building_name?: string;
-  nearest_station?: string;
 }
 
 // ============== Dashboard ==============

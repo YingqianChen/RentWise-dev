@@ -36,6 +36,7 @@ import type {
   Project,
 } from "@/lib/types";
 import { Logo } from "@/components/brand/logo";
+import { ProjectPreferencesForm } from "@/components/project-preferences-form";
 
 function cn(...classes: Array<string | false | null | undefined>): string {
   return classes.filter(Boolean).join(" ");
@@ -407,7 +408,7 @@ export default function ProjectDashboardPage() {
     setBudgetError("");
     try {
       const updated = await updateProject(token, projectId, {
-        max_budget: budgetInput.trim() ? parseInt(budgetInput, 10) : undefined,
+        max_budget: budgetInput.trim() ? parseInt(budgetInput, 10) : null,
       });
       setProject(updated);
       setBudgetInput(updated.max_budget ? String(updated.max_budget) : "");
@@ -418,6 +419,12 @@ export default function ProjectDashboardPage() {
     } finally {
       setBudgetSaving(false);
     }
+  };
+
+  const handlePreferencesSaved = (updated: Project) => {
+    setProject(updated);
+    const token = getToken();
+    if (token) void loadData(token);
   };
 
   const handleDeleteCandidate = async () => {
@@ -813,6 +820,10 @@ export default function ProjectDashboardPage() {
             )}
           </Card>
         </section>
+
+        <div className="mt-4">
+          <ProjectPreferencesForm project={project} onSaved={handlePreferencesSaved} />
+        </div>
 
         {processingCandidates.length > 0 && (
           <div className="mt-4 flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">

@@ -4,11 +4,37 @@ from datetime import date, datetime
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 _DEPARTURE_WINDOW_PATTERN = "^(now|peak_morning|peak_evening|peak_both|custom)$"
 _HHMM_PATTERN = "^([01]\\d|2[0-3]):[0-5]\\d$"
+
+
+def _normalize_preference_list(value: object) -> list[str]:
+    """Keep free-form project preferences short, clean, and deterministic."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("Preference lists must be arrays of text values.")
+
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError("Preference lists must contain text values.")
+        normalized = item.strip()
+        if not normalized:
+            continue
+        key = normalized.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(normalized)
+
+    if len(result) > 20:
+        raise ValueError("Each preference list can contain at most 20 items.")
+    return result
 
 
 class ProjectCreate(BaseModel):
@@ -28,6 +54,10 @@ class ProjectCreate(BaseModel):
     commute_departure_window: Optional[str] = Field(None, pattern=_DEPARTURE_WINDOW_PATTERN)
     commute_departure_time: Optional[str] = Field(None, pattern=_HHMM_PATTERN)
 
+    _clean_preference_lists = field_validator(
+        "preferred_districts", "must_have", "deal_breakers", mode="before"
+    )(_normalize_preference_list)
+
 
 class ProjectUpdate(BaseModel):
     """Update project request"""
@@ -46,6 +76,10 @@ class ProjectUpdate(BaseModel):
     max_commute_minutes: Optional[int] = Field(None, ge=1, le=180)
     commute_departure_window: Optional[str] = Field(None, pattern=_DEPARTURE_WINDOW_PATTERN)
     commute_departure_time: Optional[str] = Field(None, pattern=_HHMM_PATTERN)
+
+    _clean_preference_lists = field_validator(
+        "preferred_districts", "must_have", "deal_breakers", mode="before"
+    )(_normalize_preference_list)
 
 
 class ProjectResponse(BaseModel):

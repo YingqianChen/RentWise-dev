@@ -57,16 +57,43 @@ class CandidatePipelineService:
         project: SearchProject,
         candidate: CandidateListing,
     ) -> CandidateListing:
-        """Recalculate budget-sensitive rules without calling extraction or legal enrichment."""
+        """Backward-compatible budget-only name for project preference reassessment."""
+        return await self.reassess_for_project_preferences(
+            db=db,
+            project=project,
+            candidate=candidate,
+            move_in_target_changed=False,
+        )
+
+    async def reassess_for_project_preferences(
+        self,
+        db: AsyncSession,
+        project: SearchProject,
+        candidate: CandidateListing,
+        *,
+        move_in_target_changed: bool,
+    ) -> CandidateListing:
+        """Recalculate personal-fit outputs without extraction or model calls."""
         if candidate.extracted_info is None or candidate.clause_assessment is None:
-            raise ValueError("Budget reassessment requires completed extracted and clause records.")
+            raise ValueError("Preference reassessment requires completed analysis records.")
+
+        clause_assessment = candidate.clause_assessment
+        if move_in_target_changed:
+            previous_legal_references = clause_assessment.legal_references
+            clause_assessment = self.clause_service.assess(
+                candidate.extracted_info,
+                move_in_target=project.move_in_target,
+            )
+            # Preference changes stay deterministic. Keep the existing local
+            # tenancy references rather than invoking another enrichment pass.
+            clause_assessment.legal_references = previous_legal_references
 
         await self._assess_from_extracted(
             db=db,
             project=project,
             candidate=candidate,
             extracted_info=candidate.extracted_info,
-            clause_assessment=candidate.clause_assessment,
+            clause_assessment=clause_assessment,
         )
         return candidate
 

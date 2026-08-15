@@ -77,11 +77,11 @@ export interface CreateProjectRequest {
 export interface UpdateProjectRequest {
   title?: string;
   status?: "active" | "archived" | "completed";
-  max_budget?: number;
+  max_budget?: number | null;
   preferred_districts?: string[];
   must_have?: string[];
   deal_breakers?: string[];
-  move_in_target?: string;
+  move_in_target?: string | null;
   notes?: string;
   commute_destination_label?: string;
   commute_destination_query?: string;

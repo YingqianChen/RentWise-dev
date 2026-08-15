@@ -135,6 +135,8 @@ async def update_project(
         )
 
     previous_budget = project.max_budget
+    previous_preferred_districts = list(project.preferred_districts)
+    previous_move_in_target = project.move_in_target
 
     # Update fields
     update_data = project_data.model_dump(exclude_unset=True)
@@ -183,7 +185,18 @@ async def update_project(
                 )
             )
 
-    if "max_budget" in update_data and update_data["max_budget"] != previous_budget:
+    preference_changed = (
+        ("max_budget" in update_data and project.max_budget != previous_budget)
+        or (
+            "preferred_districts" in update_data
+            and previous_preferred_districts != update_data["preferred_districts"]
+        )
+        or (
+            "move_in_target" in update_data
+            and project.move_in_target != previous_move_in_target
+        )
+    )
+    if preference_changed:
         candidate_result = await db.execute(
             select(CandidateListing)
             .options(
@@ -203,7 +216,15 @@ async def update_project(
         for candidate in candidates:
             if not has_usable_analysis(candidate):
                 continue
-            await pipeline_service.reassess_for_budget(db=db, project=project, candidate=candidate)
+            await pipeline_service.reassess_for_project_preferences(
+                db=db,
+                project=project,
+                candidate=candidate,
+                move_in_target_changed=(
+                    "move_in_target" in update_data
+                    and update_data["move_in_target"] != previous_move_in_target
+                ),
+            )
 
     await db.flush()
     await db.refresh(project)

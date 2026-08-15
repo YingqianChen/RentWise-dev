@@ -409,7 +409,12 @@ class DashboardService:
         for task in grouped_tasks.values():
             ordered_candidates = self._unique_candidates(task.candidates)
             candidate_names = [candidate.name for candidate in ordered_candidates]
-            item_id = self._make_group_item_id(task.category, task.slug, candidate_names)
+            item_id = self._make_group_item_id(
+                ordered_candidates[0].project_id,
+                task.category,
+                task.slug,
+                candidate_names,
+            )
             items.append(
                 InvestigationItemSummary(
                     id=item_id,
@@ -448,9 +453,15 @@ class DashboardService:
             unique.append(candidate)
         return unique
 
-    def _make_group_item_id(self, category: str, slug: str, candidate_names: list[str]) -> UUID:
+    def _make_group_item_id(
+        self,
+        project_id: UUID,
+        category: str,
+        slug: str,
+        candidate_names: list[str],
+    ) -> UUID:
         joined = "|".join(candidate_names)
-        return uuid5(NAMESPACE_URL, f"grouped:{category}:{slug}:{joined}")
+        return uuid5(NAMESPACE_URL, f"grouped:{project_id}:{category}:{slug}:{joined}")
 
     def _build_priority_reason(self, candidate: CandidateListing) -> str:
         assessment = candidate.candidate_assessment

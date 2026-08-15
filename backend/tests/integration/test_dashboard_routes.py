@@ -79,10 +79,12 @@ class DashboardRouteTests(IsolatedAsyncioTestCase):
                 "open_items": [],
             }
         )
+        sync_mock = AsyncMock(return_value=([], []))
 
         with (
             patch.object(dashboard_api, "get_project_for_user", fake_get_project_for_user),
             patch.object(dashboard_api.investigation_service, "run", run_mock),
+            patch.object(dashboard_api.investigation_service, "sync_items", sync_mock),
         ):
             response = await dashboard_api.get_dashboard(
                 project_id=project.id,
@@ -94,6 +96,12 @@ class DashboardRouteTests(IsolatedAsyncioTestCase):
         self.assertEqual(response.stats.follow_up, 1)
         self.assertEqual(response.current_advice, "Candidate A is ready for follow-up.")
         self.assertEqual(response.priority_candidates[0].id, candidate.id)
+        self.assertEqual(response.closed_investigation_items, [])
         self.assertIsInstance(response.generated_at, datetime)
         self.assertEqual(response.generated_at.tzinfo, timezone.utc)
         run_mock.assert_awaited_once_with(project=project, candidates=[candidate])
+        sync_mock.assert_awaited_once_with(
+            db=db,
+            project=project,
+            generated_items=[],
+        )

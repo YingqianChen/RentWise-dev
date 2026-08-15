@@ -9,10 +9,12 @@ import type {
   ComparisonResponse,
   CreateProjectRequest,
   Dashboard,
+  InvestigationItem,
   InvestigationResponse,
   Project,
   Token,
   UpdateCandidateRequest,
+  UpdateInvestigationItemRequest,
   UpdateProjectRequest,
   User,
 } from "@/lib/types";
@@ -450,6 +452,24 @@ export async function runInvestigation(
     },
     "Failed to run investigation",
     "run investigation"
+  );
+}
+
+export async function updateInvestigationItem(
+  token: string,
+  projectId: string,
+  itemId: string,
+  data: UpdateInvestigationItemRequest
+): Promise<InvestigationItem> {
+  return apiRequest<InvestigationItem>(
+    `/api/v1/projects/${projectId}/investigation/items/${itemId}`,
+    {
+      method: "PATCH",
+      headers: buildHeaders(token, true),
+      body: JSON.stringify(data),
+    },
+    "Failed to update investigation item",
+    "update the investigation item"
   );
 }
 

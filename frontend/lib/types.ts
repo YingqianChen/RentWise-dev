@@ -366,6 +366,12 @@ export interface InvestigationItem {
   question: string;
   priority: "high" | "medium" | "low";
   status: "open" | "resolved" | "dismissed";
+  note: string | null;
+}
+
+export interface UpdateInvestigationItemRequest {
+  status?: InvestigationItem["status"];
+  note?: string | null;
 }
 
 export interface SuggestedComparePreview {
@@ -382,6 +388,7 @@ export interface Dashboard {
   current_advice: string;
   priority_candidates: PriorityCandidate[];
   open_investigation_items: InvestigationItem[];
+  closed_investigation_items: InvestigationItem[];
   compare_preview: SuggestedComparePreview | null;
   generated_at: string;
 }
@@ -393,6 +400,7 @@ export interface InvestigationResponse {
   current_advice: string;
   priority_candidates: PriorityCandidate[];
   open_items: InvestigationItem[];
+  closed_items: InvestigationItem[];
   generated_at: string;
 }
 

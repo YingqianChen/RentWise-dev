@@ -50,12 +50,18 @@ async def get_dashboard(
     candidates = result.scalars().all()
 
     graph_state = await investigation_service.run(project=project, candidates=candidates)
+    open_items, closed_items = await investigation_service.sync_items(
+        db=db,
+        project=project,
+        generated_items=graph_state["open_items"],
+    )
     return DashboardResponse(
         project_id=project.id,
         stats=graph_state["stats"],
         current_advice=graph_state["current_advice"],
         priority_candidates=graph_state["priority_candidates"],
-        open_investigation_items=graph_state["open_items"],
+        open_investigation_items=open_items,
+        closed_investigation_items=closed_items,
         compare_preview=comparison_service.build_compare_preview(project=project, candidates=candidates),
         generated_at=datetime.now(timezone.utc),
     )

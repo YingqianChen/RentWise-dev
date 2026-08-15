@@ -45,6 +45,7 @@ const dashboard: Dashboard = {
   current_advice: "",
   priority_candidates: [],
   open_investigation_items: [],
+  closed_investigation_items: [],
   compare_preview: null,
   generated_at: "2026-08-15T12:00:00Z",
 };

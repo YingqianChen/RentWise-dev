@@ -1,10 +1,10 @@
 """Investigation schemas"""
 
 from datetime import datetime
-from typing import List
+from typing import List, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .dashboard import InvestigationItemSummary, PriorityCandidate
 
@@ -26,4 +26,12 @@ class InvestigationResponse(BaseModel):
     current_advice: str
     priority_candidates: List[PriorityCandidate]
     open_items: List[InvestigationItemSummary]
+    closed_items: List[InvestigationItemSummary] = Field(default_factory=list)
     generated_at: datetime
+
+
+class InvestigationItemUpdate(BaseModel):
+    """User-controlled status and note for an investigation item."""
+
+    status: Optional[Literal["open", "resolved", "dismissed"]] = None
+    note: Optional[str] = Field(default=None, max_length=2000)

@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from .comparison import SuggestedComparePreview
 
@@ -50,6 +50,7 @@ class InvestigationItemSummary(BaseModel):
     question: str
     priority: str
     status: str
+    note: Optional[str] = None
 
 
 class DashboardResponse(BaseModel):
@@ -59,5 +60,6 @@ class DashboardResponse(BaseModel):
     current_advice: str
     priority_candidates: List[PriorityCandidate]
     open_investigation_items: List[InvestigationItemSummary]
+    closed_investigation_items: List[InvestigationItemSummary] = Field(default_factory=list)
     compare_preview: Optional[SuggestedComparePreview] = None
     generated_at: datetime

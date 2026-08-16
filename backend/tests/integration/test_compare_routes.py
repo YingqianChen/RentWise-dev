@@ -111,6 +111,29 @@ class CompareRouteTests(IsolatedAsyncioTestCase):
         self.assertEqual(exc_info.exception.status_code, 409)
         self.assertIn("analysis", exc_info.exception.detail.lower())
 
+    async def test_compare_route_rejects_more_than_five_unique_candidates(self):
+        user = build_user()
+        project = build_project(user)
+        candidates = [build_candidate(project, name=f"Candidate {index}") for index in range(6)]
+        db = FakeAsyncSession(_ListResult(candidates))
+
+        async def fake_get_project_for_user(*_args, **_kwargs):
+            return project
+
+        with patch.object(comparison_api, "get_project_for_user", fake_get_project_for_user):
+            with self.assertRaises(HTTPException) as exc_info:
+                await comparison_api.compare_candidates(
+                    project_id=project.id,
+                    request=comparison_api.ComparisonRequest(
+                        candidate_ids=[candidate.id for candidate in candidates]
+                    ),
+                    current_user=user,
+                    db=db,
+                )
+
+        self.assertEqual(exc_info.exception.status_code, 400)
+        self.assertIn("between 2 and 5", exc_info.exception.detail)
+
     async def test_compare_route_rejects_legacy_candidate_without_field_contract(self):
         user = build_user()
         project = build_project(user)

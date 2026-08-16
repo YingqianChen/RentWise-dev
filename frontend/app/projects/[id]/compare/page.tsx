@@ -33,6 +33,8 @@ import type {
   Project,
 } from "@/lib/types";
 
+const MAX_COMPARE_CANDIDATES = 5;
+
 function cn(...classes: Array<string | false | null | undefined>): string {
   return classes.filter(Boolean).join(" ");
 }
@@ -673,7 +675,9 @@ export default function ComparePage() {
         ) : (
           <>
             <section className="mt-4 flex flex-wrap items-center gap-2">
-              <span className="text-xs text-gray-500">Compare set:</span>
+              <span className="text-xs text-gray-500">
+                Compare set: {candidateIds.length} / {MAX_COMPARE_CANDIDATES}
+              </span>
               {orderedCards.map((card) => (
                 <div
                   key={card.candidate_id}

@@ -24,6 +24,7 @@ router = APIRouter()
 comparison_service = ComparisonService()
 comparison_briefing_service = ComparisonBriefingService()
 commute_service = CommuteService()
+MAX_COMPARE_CANDIDATES = 5
 
 
 def _candidate_query(project_id: UUID, candidate_ids: list[UUID]):
@@ -66,6 +67,14 @@ async def compare_candidates(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Select at least two candidates to compare.",
+        )
+    if len(unique_ids) > MAX_COMPARE_CANDIDATES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Compare between 2 and {MAX_COMPARE_CANDIDATES} candidates. "
+                "Remove one candidate before adding another."
+            ),
         )
 
     result = await db.execute(_candidate_query(project.id, unique_ids))

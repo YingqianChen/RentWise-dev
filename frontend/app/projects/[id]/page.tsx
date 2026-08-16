@@ -40,6 +40,8 @@ import type {
 import { Logo } from "@/components/brand/logo";
 import { ProjectPreferencesForm } from "@/components/project-preferences-form";
 
+const MAX_COMPARE_CANDIDATES = 5;
+
 function cn(...classes: Array<string | false | null | undefined>): string {
   return classes.filter(Boolean).join(" ");
 }
@@ -418,14 +420,16 @@ export default function ProjectDashboardPage() {
     if (selectedCandidateIds.length === 1) {
       return "Pick at least one more";
     }
-    return `${selectedCandidateIds.length} selected`;
+    return `${selectedCandidateIds.length} / ${MAX_COMPARE_CANDIDATES} selected`;
   }, [selectedCandidateIds]);
 
   const toggleCandidateSelection = (candidateId: string) => {
     setSelectedCandidateIds((current) =>
       current.includes(candidateId)
         ? current.filter((id) => id !== candidateId)
-        : [...current, candidateId]
+        : current.length >= MAX_COMPARE_CANDIDATES
+          ? current
+          : [...current, candidateId]
     );
   };
 
@@ -932,6 +936,11 @@ export default function ProjectDashboardPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-500">{compareSelectionLabel}</span>
+                  {selectedCandidateIds.length >= MAX_COMPARE_CANDIDATES && (
+                    <span className="text-xs text-amber-700">
+                      Maximum 5 candidates — remove one before adding another.
+                    </span>
+                  )}
                   {selectedCandidateIds.length > 0 && (
                     <Button
                       variant="ghost"
@@ -970,6 +979,8 @@ export default function ProjectDashboardPage() {
                     const isProcessing = isProcessingStage(candidate.processing_stage);
                     const analysisFailed = candidate.processing_stage === "failed";
                     const isUnavailable = isProcessing || analysisFailed;
+                    const compareLimitReached =
+                      selectedCandidateIds.length >= MAX_COMPARE_CANDIDATES && !selected;
                     const rent = candidate.extracted_info?.monthly_rent;
                     const district = candidate.extracted_info?.district;
                     return (
@@ -985,7 +996,7 @@ export default function ProjectDashboardPage() {
                             type="checkbox"
                             checked={selected}
                             onChange={() => toggleCandidateSelection(candidate.id)}
-                            disabled={isUnavailable}
+                            disabled={isUnavailable || compareLimitReached}
                             className="mt-1 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                             aria-label={`Select ${candidate.name} for comparison`}
                           />

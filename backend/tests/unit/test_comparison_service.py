@@ -41,10 +41,12 @@ class ComparisonServiceTests(TestCase):
         result = ComparisonService().compare(project, [lead, viable, not_ready, drop])
 
         self.assertEqual(result["groups"].best_current_option.name, "Stable Lead")
+        self.assertEqual(result["groups"].best_current_option.decision_confidence, "high")
         self.assertEqual(len(result["groups"].viable_alternatives), 1)
         self.assertEqual(result["groups"].viable_alternatives[0].name, "Still Viable")
         self.assertEqual(len(result["groups"].not_ready_for_fair_comparison), 1)
         self.assertEqual(result["groups"].not_ready_for_fair_comparison[0].name, "Needs Cost Check")
+        self.assertEqual(result["groups"].not_ready_for_fair_comparison[0].decision_confidence, "low")
         self.assertEqual(len(result["groups"].likely_drop), 1)
         self.assertEqual(result["groups"].likely_drop[0].name, "Weak Option")
         self.assertIsNone(result["groups"].best_current_option.benchmark)

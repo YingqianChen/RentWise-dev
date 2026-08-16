@@ -163,6 +163,36 @@ function recommendationTone(value: string) {
   }
 }
 
+function decisionConfidenceLabel(value: string) {
+  switch (value) {
+    case "high":
+      return "High";
+    case "medium":
+      return "Medium";
+    default:
+      return "Low";
+  }
+}
+
+function decisionConfidenceTone(value: string) {
+  switch (value) {
+    case "high":
+      return "emerald" as const;
+    case "medium":
+      return "amber" as const;
+    default:
+      return "neutral" as const;
+  }
+}
+
+function DecisionConfidenceBadge({ value }: { value: string }) {
+  return (
+    <Badge tone={decisionConfidenceTone(value)}>
+      Decision confidence: {decisionConfidenceLabel(value)}
+    </Badge>
+  );
+}
+
 function differenceIcon(category: string) {
   const key = category.toLowerCase();
   if (key.includes("cost") || key.includes("rent") || key.includes("budget")) return DollarSign;
@@ -396,6 +426,7 @@ function BestOptionHero({
             <Badge tone={recommendationTone(candidate.top_recommendation)}>
               {recommendationLabel(candidate.top_recommendation)}
             </Badge>
+            <DecisionConfidenceBadge value={candidate.decision_confidence} />
             {userDecisionLabel(candidate.user_decision) && (
               <Badge tone={userDecisionTone(candidate.user_decision)}>
                 {userDecisionLabel(candidate.user_decision)}
@@ -464,6 +495,7 @@ function AlternativeCard({
           <Badge tone={recommendationTone(candidate.top_recommendation)}>
             {recommendationLabel(candidate.top_recommendation)}
           </Badge>
+          <DecisionConfidenceBadge value={candidate.decision_confidence} />
           {userDecisionLabel(candidate.user_decision) && (
             <Badge tone={userDecisionTone(candidate.user_decision)}>
               {userDecisionLabel(candidate.user_decision)}
@@ -525,6 +557,7 @@ function TertiaryCard({
             <Badge tone={recommendationTone(candidate.top_recommendation)}>
               {recommendationLabel(candidate.top_recommendation)}
             </Badge>
+            <DecisionConfidenceBadge value={candidate.decision_confidence} />
             {userDecisionLabel(candidate.user_decision) && (
               <Badge tone={userDecisionTone(candidate.user_decision)}>
                 {userDecisionLabel(candidate.user_decision)}

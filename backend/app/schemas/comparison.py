@@ -42,6 +42,7 @@ class CompareCandidateCard(BaseModel):
     name: str
     compare_group: str
     top_recommendation: str
+    decision_confidence: str
     decision_explanation: str
     main_tradeoff: str
     open_blocker: Optional[str]

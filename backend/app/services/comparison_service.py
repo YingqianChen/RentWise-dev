@@ -224,6 +224,7 @@ class ComparisonService:
             name=candidate.name,
             compare_group=group,
             top_recommendation=assessment.top_level_recommendation if assessment else "not_ready",
+            decision_confidence=assessment.recommendation_confidence if assessment else "low",
             decision_explanation=self._decision_explanation(candidate, group, best_candidate),
             main_tradeoff=self._main_tradeoff(candidate, best_candidate),
             open_blocker=self._open_blocker(candidate),

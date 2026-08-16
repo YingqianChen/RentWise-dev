@@ -427,6 +427,7 @@ export interface CompareCandidateCard {
   name: string;
   compare_group: "best_current_option" | "viable_alternative" | "not_ready" | "likely_drop";
   top_recommendation: "shortlist_recommendation" | "not_ready" | "likely_reject";
+  decision_confidence: "high" | "medium" | "low";
   decision_explanation: string;
   main_tradeoff: string;
   open_blocker: string | null;

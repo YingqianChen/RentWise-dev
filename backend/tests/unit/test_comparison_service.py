@@ -3,9 +3,11 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from unittest import TestCase
+import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from app.db.models import CandidateFieldEvidence
 from app.services.comparison_service import ComparisonService
 from tests.helpers import build_candidate, build_project, build_user
 
@@ -90,6 +92,47 @@ class ComparisonServiceTests(TestCase):
         card = result["groups"].not_ready_for_fair_comparison[0]
 
         self.assertIn("promising", (card.open_blocker or "").lower())
+
+    def test_compare_surfaces_evidence_coverage_and_source_types(self):
+        project = build_project(build_user())
+        candidate = build_candidate(project, name="Evidence Summary")
+        facts = {fact.field_key: fact for fact in candidate.field_facts}
+        facts["management_fee_amount"].system_state = "inferred"
+        facts["management_fee_amount"].system_value = 800
+        facts["rates_amount"].system_state = "conflicted"
+        facts["rates_amount"].system_value = None
+        facts["monthly_rent"].user_action = "confirmed"
+        facts["monthly_rent"].evidence = [
+            CandidateFieldEvidence(
+                id=uuid.uuid4(),
+                candidate_id=candidate.id,
+                field_key="monthly_rent",
+                source_type="listing",
+                source_asset_id=None,
+                quote="Rent 18000",
+                claim_value=18000,
+                claim_kind="explicit",
+                confidence="high",
+            )
+        ]
+
+        result = ComparisonService().compare(project, [candidate, build_candidate(project, name="Peer")])
+        summary = next(
+            card.evidence_summary
+            for card in [
+                result["groups"].best_current_option,
+                *result["groups"].viable_alternatives,
+                *result["groups"].not_ready_for_fair_comparison,
+                *result["groups"].likely_drop,
+            ]
+            if card and card.name == "Evidence Summary"
+        )
+
+        self.assertEqual(summary.explicit_count, 5)
+        self.assertEqual(summary.inferred_count, 1)
+        self.assertEqual(summary.conflicted_count, 1)
+        self.assertEqual(summary.unresolved_count, 7)
+        self.assertEqual(summary.source_labels, ["Listing text", "User update"])
 
     def test_compare_preview_surfaces_suggested_workspace(self):
         user = build_user()

@@ -72,6 +72,13 @@ function compareCard(
     compare_group: compareGroup,
     top_recommendation: "shortlist_recommendation",
     decision_confidence: decisionConfidence,
+    evidence_summary: {
+      explicit_count: 8,
+      inferred_count: 1,
+      unresolved_count: 5,
+      conflicted_count: 0,
+      source_labels: ["Listing text"],
+    },
     decision_explanation: `${name} has a clear compare explanation.`,
     main_tradeoff: "One tradeoff still needs attention.",
     open_blocker: null,

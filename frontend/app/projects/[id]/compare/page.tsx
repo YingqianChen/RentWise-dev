@@ -193,6 +193,39 @@ function DecisionConfidenceBadge({ value }: { value: string }) {
   );
 }
 
+function EvidenceSummary({
+  summary,
+}: {
+  summary: CompareCandidateCard["evidence_summary"];
+}) {
+  const sourceText = summary.source_labels.length
+    ? summary.source_labels.join(" · ")
+    : "No direct source attached";
+
+  return (
+    <details className="mt-3 rounded-lg border border-gray-200 bg-gray-50">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs">
+        <span className="font-semibold text-gray-700">Evidence coverage</span>
+        <span className="text-gray-500">
+          {summary.explicit_count} clear · {summary.unresolved_count} not confirmed
+        </span>
+      </summary>
+      <div className="space-y-2 border-t border-gray-200 px-3 py-3 text-xs text-gray-600">
+        <div className="flex flex-wrap gap-x-3 gap-y-1">
+          <span>Clear: {summary.explicit_count}</span>
+          <span>Inferred: {summary.inferred_count}</span>
+          <span>Not confirmed: {summary.unresolved_count}</span>
+          <span>Conflicted: {summary.conflicted_count}</span>
+        </div>
+        <p>Source types: {sourceText}</p>
+        <p className="text-gray-500">
+          Open candidate detail to review the exact fields and evidence quotes.
+        </p>
+      </div>
+    </details>
+  );
+}
+
 function differenceIcon(category: string) {
   const key = category.toLowerCase();
   if (key.includes("cost") || key.includes("rent") || key.includes("budget")) return DollarSign;
@@ -438,6 +471,8 @@ function BestOptionHero({
 
         <p className="mt-3 text-sm leading-6 text-gray-700">{candidate.decision_explanation}</p>
 
+        <EvidenceSummary summary={candidate.evidence_summary} />
+
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           {candidate.commute_evidence?.status === "ready" && (
             <CommutePanel commute={candidate.commute_evidence} />
@@ -508,6 +543,8 @@ function AlternativeCard({
         {candidate.decision_explanation}
       </p>
 
+      <EvidenceSummary summary={candidate.evidence_summary} />
+
       <div className="mt-2 space-y-1.5 text-xs text-gray-700">
         {candidate.commute_evidence?.status === "ready" && (
           <div className="flex items-center gap-1.5">
@@ -566,6 +603,7 @@ function TertiaryCard({
           </div>
         </div>
         <p className="mt-1 line-clamp-2 text-xs text-gray-600">{candidate.decision_explanation}</p>
+        <EvidenceSummary summary={candidate.evidence_summary} />
         {candidate.open_blocker && (
           <p className="mt-1 text-xs text-amber-700">
             <AlertTriangle className="inline h-3 w-3 mr-0.5" />

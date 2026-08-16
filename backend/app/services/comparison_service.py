@@ -11,6 +11,7 @@ from ..schemas.comparison import (
     CompareCandidateCard,
     CompareDecisionGroups,
     CompareDifference,
+    CompareEvidenceSummary,
     CompareRecommendedActions,
     CompareSummary,
     SuggestedComparePreview,
@@ -28,6 +29,13 @@ class _ComparableCandidate:
 
 class ComparisonService:
     """Build grouped shortlist comparisons with explanation-first output."""
+
+    _SOURCE_LABELS = {
+        "listing": "Listing text",
+        "chat": "Chat",
+        "note": "Note",
+        "image_ocr": "Image OCR",
+    }
 
     def __init__(self) -> None:
         self.dashboard_service = DashboardService()
@@ -225,6 +233,7 @@ class ComparisonService:
             compare_group=group,
             top_recommendation=assessment.top_level_recommendation if assessment else "not_ready",
             decision_confidence=assessment.recommendation_confidence if assessment else "low",
+            evidence_summary=self._build_evidence_summary(candidate),
             decision_explanation=self._decision_explanation(candidate, group, best_candidate),
             main_tradeoff=self._main_tradeoff(candidate, best_candidate),
             open_blocker=self._open_blocker(candidate),
@@ -235,6 +244,39 @@ class ComparisonService:
             user_decision=candidate.user_decision,
             benchmark=None,
         )
+
+    def _build_evidence_summary(self, candidate: CandidateListing) -> CompareEvidenceSummary:
+        counts = {
+            "explicit_count": 0,
+            "inferred_count": 0,
+            "unresolved_count": 0,
+            "conflicted_count": 0,
+        }
+        source_types: set[str] = set()
+
+        for fact in candidate.field_facts:
+            state = candidate_field_state(candidate, fact.field_key) or "unknown"
+            if state in {"explicit", "user_confirmed", "user_corrected"}:
+                counts["explicit_count"] += 1
+            elif state == "inferred":
+                counts["inferred_count"] += 1
+            elif state == "conflicted":
+                counts["conflicted_count"] += 1
+            else:
+                counts["unresolved_count"] += 1
+
+            for evidence in fact.evidence:
+                source_types.add(evidence.source_type)
+            if fact.user_action in {"confirmed", "corrected", "marked_unknown"}:
+                source_types.add("user_update")
+
+        source_order = ("listing", "chat", "note", "image_ocr", "user_update")
+        source_labels = [
+            self._SOURCE_LABELS.get(source_type, "User update" if source_type == "user_update" else source_type)
+            for source_type in source_order
+            if source_type in source_types
+        ]
+        return CompareEvidenceSummary(**counts, source_labels=source_labels)
 
     def _decision_explanation(
         self,

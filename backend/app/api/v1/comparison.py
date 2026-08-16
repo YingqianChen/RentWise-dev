@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ...db.database import get_db
-from ...db.models import CandidateListing, User
+from ...db.models import CandidateFieldFact, CandidateListing, User
 from ...schemas.comparison import ComparisonRequest, ComparisonResponse
 from ...services.commute_service import CommuteService
 from ...services.comparison_briefing_service import ComparisonBriefingService
@@ -35,7 +35,7 @@ def _candidate_query(project_id: UUID, candidate_ids: list[UUID]):
             selectinload(CandidateListing.cost_assessment),
             selectinload(CandidateListing.clause_assessment),
             selectinload(CandidateListing.candidate_assessment),
-            selectinload(CandidateListing.field_facts),
+            selectinload(CandidateListing.field_facts).selectinload(CandidateFieldFact.evidence),
         )
         .where(
             CandidateListing.project_id == project_id,

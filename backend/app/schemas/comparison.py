@@ -35,6 +35,16 @@ class CompareAgentBriefing(BaseModel):
     confidence_note: str
 
 
+class CompareEvidenceSummary(BaseModel):
+    """Compact evidence coverage shown on a comparison card."""
+
+    explicit_count: int
+    inferred_count: int
+    unresolved_count: int
+    conflicted_count: int
+    source_labels: List[str] = Field(default_factory=list)
+
+
 class CompareCandidateCard(BaseModel):
     """Decision-oriented candidate card shown in compare groups."""
 
@@ -43,6 +53,7 @@ class CompareCandidateCard(BaseModel):
     compare_group: str
     top_recommendation: str
     decision_confidence: str
+    evidence_summary: CompareEvidenceSummary
     decision_explanation: str
     main_tradeoff: str
     open_blocker: Optional[str]

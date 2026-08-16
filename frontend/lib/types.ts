@@ -422,12 +422,21 @@ export interface CompareAgentBriefing {
   confidence_note: string;
 }
 
+export interface CompareEvidenceSummary {
+  explicit_count: number;
+  inferred_count: number;
+  unresolved_count: number;
+  conflicted_count: number;
+  source_labels: string[];
+}
+
 export interface CompareCandidateCard {
   candidate_id: string;
   name: string;
   compare_group: "best_current_option" | "viable_alternative" | "not_ready" | "likely_drop";
   top_recommendation: "shortlist_recommendation" | "not_ready" | "likely_reject";
   decision_confidence: "high" | "medium" | "low";
+  evidence_summary: CompareEvidenceSummary;
   decision_explanation: string;
   main_tradeoff: string;
   open_blocker: string | null;

@@ -230,6 +230,17 @@ function processingStageLabel(stage?: Candidate["processing_stage"]) {
   }
 }
 
+const PROCESSING_STAGE_VALUES: Candidate["processing_stage"][] = [
+  "queued",
+  "running_ocr",
+  "extracting",
+  "assessing",
+];
+
+function isProcessingStage(stage: Candidate["processing_stage"]): boolean {
+  return stage !== null && PROCESSING_STAGE_VALUES.includes(stage);
+}
+
 function processingStageDescription(candidate: Candidate) {
   switch (candidate.processing_stage) {
     case "queued":
@@ -352,10 +363,7 @@ export default function ProjectDashboardPage() {
     if (
       !token ||
       !candidates.some(
-        (candidate) =>
-          candidate.processing_stage &&
-          candidate.processing_stage !== "completed" &&
-          candidate.processing_stage !== "failed"
+        (candidate) => isProcessingStage(candidate.processing_stage)
       )
     ) {
       return;
@@ -534,10 +542,7 @@ export default function ProjectDashboardPage() {
     analysis_failed: 0,
   };
   const processingCandidates = candidates.filter(
-    (candidate) =>
-      candidate.processing_stage &&
-      candidate.processing_stage !== "completed" &&
-      candidate.processing_stage !== "failed"
+    (candidate) => isProcessingStage(candidate.processing_stage)
   );
   const totalBlockers = (dashboard?.open_investigation_items ?? []).length;
   const closedItems = dashboard?.closed_investigation_items ?? [];
@@ -962,8 +967,9 @@ export default function ProjectDashboardPage() {
                 <div className="space-y-2">
                   {candidates.map((candidate) => {
                     const selected = selectedCandidateIds.includes(candidate.id);
-                    const isProcessing =
-                      candidate.processing_stage && candidate.processing_stage !== "completed";
+                    const isProcessing = isProcessingStage(candidate.processing_stage);
+                    const analysisFailed = candidate.processing_stage === "failed";
+                    const isUnavailable = isProcessing || analysisFailed;
                     const rent = candidate.extracted_info?.monthly_rent;
                     const district = candidate.extracted_info?.district;
                     return (
@@ -979,7 +985,7 @@ export default function ProjectDashboardPage() {
                             type="checkbox"
                             checked={selected}
                             onChange={() => toggleCandidateSelection(candidate.id)}
-                            disabled={Boolean(isProcessing)}
+                            disabled={isUnavailable}
                             className="mt-1 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                             aria-label={`Select ${candidate.name} for comparison`}
                           />
@@ -994,6 +1000,10 @@ export default function ProjectDashboardPage() {
                                 </Link>
                                 {isProcessing ? (
                                   <p className="mt-0.5 text-xs text-gray-500 truncate">
+                                    {processingStageDescription(candidate)}
+                                  </p>
+                                ) : analysisFailed ? (
+                                  <p className="mt-0.5 text-xs text-red-600 truncate">
                                     {processingStageDescription(candidate)}
                                   </p>
                                 ) : (
@@ -1057,6 +1067,12 @@ export default function ProjectDashboardPage() {
                                   <Badge tone="blue">
                                     <Clock className="h-3 w-3" />
                                     {processingStageLabel(candidate.processing_stage)}
+                                  </Badge>
+                                )}
+                                {analysisFailed && (
+                                  <Badge tone="red">
+                                    <AlertTriangle className="h-3 w-3" />
+                                    Needs attention
                                   </Badge>
                                 )}
                                 {candidate.candidate_assessment?.top_level_recommendation && (

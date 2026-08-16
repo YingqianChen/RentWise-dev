@@ -187,11 +187,13 @@ class CandidateUpdate(BaseModel):
 
 
 class CandidateContactPlanResponse(BaseModel):
-    """LLM-assisted outreach plan for the next landlord/agent message."""
+    """Outreach plan for the next landlord/agent message."""
 
     contact_goal: str
     questions: List[str]
     message_draft: str
+    questions_zh: List[str]
+    message_draft_zh: str
 
 
 class CandidateResponse(BaseModel):

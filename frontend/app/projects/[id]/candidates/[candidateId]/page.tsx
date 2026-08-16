@@ -635,6 +635,7 @@ export default function CandidateDetailPage() {
   const [contactPlanLoading, setContactPlanLoading] = useState(false);
   const [contactPlanError, setContactPlanError] = useState("");
   const [contactPlanCopied, setContactPlanCopied] = useState(false);
+  const [contactLanguage, setContactLanguage] = useState<"en" | "zh">("en");
   const [compareContext, setCompareContext] = useState<{
     comparison: ComparisonResponse;
     card: CompareCandidateCard;
@@ -668,6 +669,7 @@ export default function CandidateDetailPage() {
         setContactPlan(null);
         setContactPlanError("");
         setContactPlanCopied(false);
+        setContactLanguage("en");
         if (hasUsableAnalysis(data)) {
           const compareIds = buildSuggestedCompareIds(candidatesData.candidates, data.id);
           try {
@@ -855,10 +857,15 @@ export default function CandidateDetailPage() {
   };
 
   const handleCopyContactDraft = async () => {
-    if (!contactPlan?.message_draft) return;
+    if (!contactPlan) return;
+    const message =
+      contactLanguage === "zh" && contactPlan.message_draft_zh
+        ? contactPlan.message_draft_zh
+        : contactPlan.message_draft;
+    if (!message) return;
 
     try {
-      await navigator.clipboard.writeText(contactPlan.message_draft);
+      await navigator.clipboard.writeText(message);
       setContactPlanCopied(true);
       window.setTimeout(() => setContactPlanCopied(false), 1800);
     } catch (err) {
@@ -1424,19 +1431,49 @@ export default function CandidateDetailPage() {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {contactPlan && (
-                      <Button variant="outline" size="sm" onClick={handleCopyContactDraft}>
-                        {contactPlanCopied ? (
-                          <>
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                            Copied
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="h-3.5 w-3.5" />
-                            Copy message
-                          </>
-                        )}
-                      </Button>
+                      <>
+                        <div className="flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+                          <button
+                            type="button"
+                            aria-pressed={contactLanguage === "en"}
+                            onClick={() => setContactLanguage("en")}
+                            className={cn(
+                              "rounded-md px-2.5 py-1.5 text-xs font-medium",
+                              contactLanguage === "en"
+                                ? "bg-white text-gray-900 shadow-sm"
+                                : "text-gray-500 hover:text-gray-800"
+                            )}
+                          >
+                            English
+                          </button>
+                          <button
+                            type="button"
+                            aria-pressed={contactLanguage === "zh"}
+                            onClick={() => setContactLanguage("zh")}
+                            className={cn(
+                              "rounded-md px-2.5 py-1.5 text-xs font-medium",
+                              contactLanguage === "zh"
+                                ? "bg-white text-gray-900 shadow-sm"
+                                : "text-gray-500 hover:text-gray-800"
+                            )}
+                          >
+                            繁體中文
+                          </button>
+                        </div>
+                        <Button variant="outline" size="sm" onClick={handleCopyContactDraft}>
+                          {contactPlanCopied ? (
+                            <>
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              Copied
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="h-3.5 w-3.5" />
+                              Copy message
+                            </>
+                          )}
+                        </Button>
+                      </>
                     )}
                     <Button
                       size="sm"
@@ -1470,10 +1507,13 @@ export default function CandidateDetailPage() {
                         {contactPlan.contact_goal}
                       </p>
                       <p className="mt-4 text-[11px] font-medium uppercase tracking-wider text-gray-500">
-                        Best questions to ask
+                        {contactLanguage === "zh" ? "要确认的问题" : "Best questions to ask"}
                       </p>
                       <ol className="mt-2 space-y-2.5 text-sm text-gray-700">
-                        {contactPlan.questions.map((question, index) => (
+                        {(contactLanguage === "zh" && contactPlan.questions_zh.length > 0
+                          ? contactPlan.questions_zh
+                          : contactPlan.questions
+                        ).map((question, index) => (
                           <li key={question} className="flex gap-2">
                             <span className="shrink-0 text-xs font-semibold text-gray-400">
                               {index + 1}.
@@ -1485,13 +1525,17 @@ export default function CandidateDetailPage() {
                     </div>
                     <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
                       <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500">
-                        English message draft
+                        {contactLanguage === "zh"
+                          ? "繁體中文訊息草稿"
+                          : "English message draft"}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
                         Keep it lightweight; edit tone before sending.
                       </p>
                       <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-gray-700">
-                        {contactPlan.message_draft}
+                        {contactLanguage === "zh" && contactPlan.message_draft_zh
+                          ? contactPlan.message_draft_zh
+                          : contactPlan.message_draft}
                       </p>
                     </div>
                   </div>

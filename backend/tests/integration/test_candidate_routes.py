@@ -477,6 +477,8 @@ class CandidateRouteTests(IsolatedAsyncioTestCase):
                 "Could you clarify which repairs are covered by the landlord?",
             ],
             message_draft="Hi, I am interested in this listing and would like to confirm a couple of practical points before deciding my next step.",
+            questions_zh=["請確認管理費是否已包含？", "請說明哪些維修由業主負責？"],
+            message_draft_zh="你好，我對這個房源有興趣，想確認幾個實際事項。謝謝！",
         )
 
         async def fake_get_candidate_for_project_user(project_id, candidate_id, current_user, session):
@@ -504,4 +506,6 @@ class CandidateRouteTests(IsolatedAsyncioTestCase):
         self.assertEqual(response.contact_goal, plan.contact_goal)
         self.assertEqual(response.questions, plan.questions)
         self.assertEqual(response.message_draft, plan.message_draft)
+        self.assertEqual(response.questions_zh, plan.questions_zh)
+        self.assertEqual(response.message_draft_zh, plan.message_draft_zh)
         build_mock.assert_awaited_once_with(project=project, candidate=candidate)

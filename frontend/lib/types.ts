@@ -312,6 +312,8 @@ export interface CandidateContactPlan {
   contact_goal: string;
   questions: string[];
   message_draft: string;
+  questions_zh: string[];
+  message_draft_zh: string;
 }
 
 export interface ImportCandidateRequest {

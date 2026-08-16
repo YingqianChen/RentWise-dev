@@ -13,7 +13,8 @@ from tests.helpers import build_candidate, build_project, build_user
 class CandidateContactPlanServiceTests(TestCase):
     def setUp(self) -> None:
         self.service = CandidateContactPlanService()
-        self.candidate = build_candidate(build_project(build_user()))
+        self.project = build_project(build_user())
+        self.candidate = build_candidate(self.project)
 
     def test_fallback_never_reasks_explicit_core_fields(self):
         fallback = self.service._fallback(candidate=self.candidate)
@@ -49,3 +50,32 @@ class CandidateContactPlanServiceTests(TestCase):
         )
 
         self.assertEqual(questions, fallback.questions)
+
+    def test_fallback_uses_project_preferences_as_questions(self):
+        fallback = self.service._fallback(project=self.project, candidate=self.candidate)
+
+        self.assertTrue(
+            any(
+                "must-have conditions" in question or "conditions apply" in question
+                for question in fallback.questions
+            )
+        )
+        preference_questions = self.service._preference_questions(self.project)
+        self.assertEqual(len(preference_questions), 2)
+
+    def test_chinese_and_english_drafts_cover_the_same_questions(self):
+        fallback = self.service._fallback(project=self.project, candidate=self.candidate)
+
+        self.assertEqual(len(fallback.questions), len(fallback.questions_zh))
+        self.assertIn("Hi, I am interested", fallback.message_draft)
+        self.assertIn("你好", fallback.message_draft_zh)
+
+    def test_question_deduplication_normalizes_spacing_case_and_punctuation(self):
+        questions = self.service._dedupe(
+            [
+                "  Could you confirm the exact monthly rent? ",
+                "could you confirm the exact monthly rent???",
+            ]
+        )
+
+        self.assertEqual(questions, ["  Could you confirm the exact monthly rent? "])

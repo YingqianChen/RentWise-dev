@@ -22,7 +22,7 @@ class CandidateContactPlanService:
         project: SearchProject,
         candidate: CandidateListing,
     ) -> CandidateContactPlanResponse:
-        fallback = self._fallback(candidate=candidate)
+        fallback = self._fallback(project=project, candidate=candidate)
 
         prompt = CONTACT_PLAN_PROMPT.format(
             project_context=self._project_context(project),
@@ -42,15 +42,28 @@ class CandidateContactPlanService:
                 contact_goal=self._clean_line(data.get("contact_goal"), fallback.contact_goal),
                 questions=questions,
                 message_draft=self._build_message(candidate, questions),
+                questions_zh=self._translate_questions(questions),
+                message_draft_zh=self._build_message_zh(candidate, questions),
             )
         except Exception as exc:
             logger.error("Candidate contact plan generation failed: %s", exc)
             return fallback
 
-    def _fallback(self, *, candidate: CandidateListing) -> CandidateContactPlanResponse:
+    def _fallback(
+        self,
+        *,
+        candidate: CandidateListing,
+        project: SearchProject | None = None,
+    ) -> CandidateContactPlanResponse:
         assessment = candidate.candidate_assessment
         next_action = assessment.next_best_action if assessment is not None else "keep_warm"
-        deduped_questions = self._dedupe(self._unresolved_questions(candidate))[:3]
+        unresolved_questions = self._dedupe(self._unresolved_questions(candidate))
+        preference_questions = self._preference_questions(project)
+        if preference_questions:
+            deduped_questions = unresolved_questions[:2]
+            deduped_questions.extend(preference_questions[: max(0, 3 - len(deduped_questions))])
+        else:
+            deduped_questions = unresolved_questions[:3]
         supplemental_questions = [
             "Could you confirm whether the property is offered as a whole unit and whether the bathroom is private?",
             "Could you let me know what furniture or appliances will remain in the property?",
@@ -74,7 +87,30 @@ class CandidateContactPlanService:
             contact_goal=contact_goal,
             questions=deduped_questions,
             message_draft=self._build_message(candidate, deduped_questions),
+            questions_zh=self._translate_questions(deduped_questions),
+            message_draft_zh=self._build_message_zh(candidate, deduped_questions),
         )
+
+    def _preference_questions(self, project: SearchProject | None) -> list[str]:
+        if project is None:
+            return []
+
+        questions: list[str] = []
+        must_have = [value.strip() for value in project.must_have if value.strip()][:3]
+        deal_breakers = [value.strip() for value in project.deal_breakers if value.strip()][:3]
+        if must_have:
+            questions.append(
+                "Could you confirm whether these must-have conditions are met: "
+                + ", ".join(must_have)
+                + "?"
+            )
+        if deal_breakers:
+            questions.append(
+                "Could you confirm whether any of these conditions apply: "
+                + ", ".join(deal_breakers)
+                + "?"
+            )
+        return questions
 
     def _unresolved_questions(self, candidate: CandidateListing) -> list[str]:
         cost_questions: list[str] = []
@@ -205,12 +241,11 @@ class CandidateContactPlanService:
     def _clean_questions(self, value: object, fallback: list[str]) -> list[str]:
         if not isinstance(value, list):
             return fallback
-        allowed = {" ".join(question.split()).lower(): question for question in fallback}
+        allowed = {self._question_key(question): question for question in fallback}
         cleaned: list[str] = []
         for item in value:
             if isinstance(item, str):
-                normalized = " ".join(item.split())
-                allowed_question = allowed.get(normalized.lower())
+                allowed_question = allowed.get(self._question_key(item))
                 if allowed_question:
                     cleaned.append(allowed_question)
         deduped = self._dedupe(cleaned)
@@ -220,22 +255,59 @@ class CandidateContactPlanService:
         seen: set[str] = set()
         result: list[str] = []
         for item in items:
-            key = item.strip().lower()
+            key = self._question_key(item)
             if key and key not in seen:
                 seen.add(key)
                 result.append(item)
         return result
 
-    def _join_questions_for_message(self, questions: list[str]) -> str:
-        if len(questions) == 1:
-            return questions[0]
-        if len(questions) == 2:
-            return f"{questions[0]} Also, {questions[1].lower()}"
-        return f"{questions[0]} Also, {questions[1].lower()} Finally, {questions[2].lower()}"
+    def _question_key(self, value: str) -> str:
+        normalized = " ".join(value.split()).casefold()
+        return normalized.rstrip("?.!。！？")
+
+    def _translate_questions(self, questions: list[str]) -> list[str]:
+        translations = {
+            "Could you confirm the exact monthly rent?": "請確認每月實際租金是多少？",
+            "Could you confirm whether the management fee is included and, if not, how much it is per month?": "請確認管理費是否已包含；如未包含，每月金額是多少？",
+            "Could you confirm whether government rates are included and what the amount is if they are separate?": "請確認差餉是否已包含；如需另付，金額是多少？",
+            "Could you confirm the amount of the separate government rates?": "請確認需要另付的差餉金額是多少？",
+            "Could you confirm the monthly management fee amount?": "請確認每月管理費金額是多少？",
+            "Could you confirm the required deposit?": "請確認需要支付多少個月的押金？",
+            "Could you confirm whether an agent fee applies and how much it is?": "請確認是否需要支付代理佣金，以及金額是多少？",
+            "Could you confirm the lease term, break clause, and early termination conditions?": "請確認租期、免租約條款和提前終止租約的條件？",
+            "Could you confirm the earliest realistic move-in date?": "請確認最早實際可以入住的日期？",
+            "Could you clarify which repairs are covered by the landlord and whether that is stated in the agreement?": "請說明哪些維修由業主負責，並確認租約是否有明確寫明？",
+            "Could you confirm the building name or exact location?": "請確認大廈名稱或準確位置？",
+            "Could you confirm whether the property is offered as a whole unit and whether the bathroom is private?": "請確認這是整套出租，而且衛生間是否為私人使用？",
+            "Could you let me know what furniture or appliances will remain in the property?": "請告知房內會保留哪些家具或電器？",
+            "Could you share the available viewing times?": "請告知可以看房的時間？",
+        }
+        return [translations.get(question, self._translate_dynamic_question(question)) for question in questions]
+
+    def _translate_dynamic_question(self, question: str) -> str:
+        prefix = "Could you confirm whether these must-have conditions are met: "
+        if question.startswith(prefix):
+            conditions = question[len(prefix) :].rstrip("?")
+            return f"請確認房源是否符合以下必要條件：{conditions}。"
+        prefix = "Could you confirm whether any of these conditions apply: "
+        if question.startswith(prefix):
+            conditions = question[len(prefix) :].rstrip("?")
+            return f"請確認房源是否存在以下不能接受的情況：{conditions}。"
+        return f"請協助確認：{question.rstrip('?')}。"
 
     def _build_message(self, candidate: CandidateListing, questions: list[str]) -> str:
+        question_lines = "\n".join(f"{index}. {question}" for index, question in enumerate(questions, 1))
         return (
-            f"Hi, I am interested in {candidate.name} and would like to clarify a few practical points before deciding my next step. "
-            f"Could you please help with the following: {self._join_questions_for_message(questions)} "
-            "Thanks in advance."
+            f"Hi, I am interested in {candidate.name}. Before deciding my next step, "
+            f"could you please help confirm the following?\n{question_lines}\nThanks in advance."
+        )
+
+    def _build_message_zh(self, candidate: CandidateListing, questions: list[str]) -> str:
+        question_lines = "\n".join(
+            f"{index}. {question}"
+            for index, question in enumerate(self._translate_questions(questions), 1)
+        )
+        return (
+            f"你好，我对「{candidate.name}」有兴趣。想决定下一步前，麻烦协助确认以下事项：\n"
+            f"{question_lines}\n谢谢！"
         )

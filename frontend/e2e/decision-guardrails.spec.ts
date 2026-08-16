@@ -1,6 +1,6 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
-import type { Candidate, CandidateFieldFact } from "../lib/types";
+import type { Candidate, CandidateContactPlan, CandidateFieldFact } from "../lib/types";
 
 const PROJECT_ID = "project-e2e";
 const CANDIDATE_ID = "candidate-e2e";
@@ -221,6 +221,7 @@ async function installApiMock(
     importedCandidate?: Candidate;
     failFirstFieldUpdate?: boolean;
     reassessResult?: (candidate: Candidate) => Candidate;
+    contactPlan?: CandidateContactPlan;
   } = {}
 ) {
   let currentCandidate = initialCandidate;
@@ -332,6 +333,20 @@ async function installApiMock(
       return;
     }
 
+    if (method === "POST" && path.endsWith(`/candidates/${CANDIDATE_ID}/contact-plan`)) {
+      await fulfillJson(
+        route,
+        options.contactPlan ?? {
+          contact_goal: "Clarify the remaining questions before deciding.",
+          questions: ["Could you confirm the exact monthly rent?"],
+          message_draft: "Hi, could you confirm the exact monthly rent?",
+          questions_zh: ["請確認每月實際租金是多少？"],
+          message_draft_zh: "你好，請確認每月實際租金是多少？謝謝！",
+        }
+      );
+      return;
+    }
+
     if (method === "GET" && path.endsWith("/candidates")) {
       await fulfillJson(route, { candidates: [currentCandidate], total: 1 });
       return;
@@ -390,6 +405,29 @@ test("all unknown evidence stays not ready and is never presented as a rejection
   await expect(page.getByText("System: likely reject")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Shortlist" })).toBeEnabled();
   await expect(page.getByRole("button", { name: "Reject" })).toBeEnabled();
+});
+
+test("contact draft can switch between English and Traditional Chinese", async ({ page }) => {
+  const candidate = baseCandidate({ name: "Bilingual contact case" });
+  await installApiMock(page, candidate, {
+    contactPlan: {
+      contact_goal: "Clarify the remaining questions before deciding.",
+      questions: ["Could you confirm the exact monthly rent?"],
+      message_draft: "Hi, could you confirm the exact monthly rent?",
+      questions_zh: ["請確認每月實際租金是多少？"],
+      message_draft_zh: "你好，請確認每月實際租金是多少？謝謝！",
+    },
+  });
+
+  await page.goto(`/projects/${PROJECT_ID}/candidates/${CANDIDATE_ID}`);
+  await expect(page.getByText("Outreach draft")).toBeVisible();
+  await page.getByRole("button", { name: "Draft outreach" }).click();
+  await expect(page.getByText("Hi, could you confirm the exact monthly rent?")).toBeVisible();
+
+  await page.getByRole("button", { name: "繁體中文" }).click();
+  await expect(page.getByText("繁體中文訊息草稿")).toBeVisible();
+  await expect(page.getByText("你好，請確認每月實際租金是多少？謝謝！")).toBeVisible();
+  await expect(page.getByText("請確認每月實際租金是多少？", { exact: true })).toBeVisible();
 });
 
 test("explicit source-backed over-budget evidence can produce likely reject", async ({ page }) => {

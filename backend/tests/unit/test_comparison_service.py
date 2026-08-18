@@ -218,6 +218,38 @@ class ComparisonServiceTests(TestCase):
             service._project_fit_score(project, unfurnished),
         )
 
+    def test_compare_does_not_claim_project_fit_without_saved_fit_criteria(self):
+        project = build_project(build_user())
+        project.max_budget = None
+        project.preferred_districts = []
+
+        result = ComparisonService().compare(
+            project,
+            [build_candidate(project, name="Candidate A"), build_candidate(project, name="Candidate B")],
+        )
+
+        self.assertNotIn(
+            "project_fit",
+            [difference.category for difference in result["key_differences"]],
+        )
+
+    def test_compare_describes_only_the_fit_criteria_that_exist(self):
+        service = ComparisonService()
+        user = build_user()
+        project = build_project(user)
+        project.preferred_districts = []
+
+        result = service.compare(
+            project,
+            [build_candidate(project, name="Candidate A"), build_candidate(project, name="Candidate B")],
+        )
+        fit_difference = next(
+            difference for difference in result["key_differences"] if difference.category == "project_fit"
+        )
+
+        self.assertIn("budget", fit_difference.summary.lower())
+        self.assertNotIn("district", fit_difference.summary.lower())
+
 
 if __name__ == "__main__":
     import unittest

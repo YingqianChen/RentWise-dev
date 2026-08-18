@@ -531,15 +531,22 @@ class ComparisonService:
                 )
             )
 
+        fit_criteria: list[str] = []
+        if project.max_budget is not None:
+            fit_criteria.append("your budget")
+        if project.preferred_districts:
+            fit_criteria.append("preferred districts")
+
         fit_sorted = sorted(candidates, key=lambda candidate: self._project_fit_score(project, candidate), reverse=True)
-        if fit_sorted:
+        if fit_sorted and fit_criteria:
             fit_lead = fit_sorted[0].name
+            criteria_text = " and ".join(fit_criteria)
             differences.append(
                 CompareDifference(
                     category="project_fit",
-                    title="Project fit still matters as much as price",
+                    title="Personal fit differs across the shortlist",
                     summary=(
-                        f"{fit_lead} currently fits the comparable project constraints best based on personal budget and preferred district."
+                        f"{fit_lead} currently fits {criteria_text} best based on the information saved in this project."
                     ),
                 )
             )

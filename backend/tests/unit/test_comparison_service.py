@@ -55,6 +55,12 @@ class ComparisonServiceTests(TestCase):
         self.assertIn("strongest current option", result["summary"].headline.lower())
         self.assertTrue(result["recommended_next_actions"].questions_to_ask)
         self.assertIsNotNone(result["recommended_next_actions"].contact_first)
+        self.assertTrue(
+            any(
+                "Stable Lead" in question or "Still Viable" in question
+                for question in result["recommended_next_actions"].questions_to_ask
+            )
+        )
 
     def test_not_ready_candidate_surfaces_specific_blocker(self):
         user = build_user()

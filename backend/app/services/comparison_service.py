@@ -578,7 +578,7 @@ class ComparisonService:
         groups: CompareDecisionGroups,
     ) -> CompareRecommendedActions:
         questions = [
-            item.question
+            f"{item.title}: {item.question}"
             for item in self.dashboard_service.build_investigation_items(candidates)
         ]
         deduped_questions: list[str] = []

@@ -193,6 +193,38 @@ function DecisionConfidenceBadge({ value }: { value: string }) {
   );
 }
 
+function evidenceStatusTone(value: string) {
+  switch (value) {
+    case "supported":
+      return "emerald" as const;
+    case "mixed":
+      return "amber" as const;
+    default:
+      return "red" as const;
+  }
+}
+
+function evidenceStatusLabel(value: string) {
+  switch (value) {
+    case "supported":
+      return "Supported";
+    case "mixed":
+      return "Mixed";
+    case "needs_confirmation":
+      return "Needs confirmation";
+    default:
+      return value;
+  }
+}
+
+function EvidenceStatusBadge({ value }: { value: string }) {
+  return (
+    <Badge tone={evidenceStatusTone(value)}>
+      Evidence: {evidenceStatusLabel(value)}
+    </Badge>
+  );
+}
+
 function EvidenceSummary({
   summary,
 }: {
@@ -941,9 +973,12 @@ export default function ComparePage() {
                               <Icon className="h-3.5 w-3.5" />
                             </div>
                             <div className="min-w-0">
-                              <p className="text-sm font-medium text-gray-900">
-                                {difference.title}
-                              </p>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="text-sm font-medium text-gray-900">
+                                  {difference.title}
+                                </p>
+                                <EvidenceStatusBadge value={difference.evidence_status} />
+                              </div>
                               <p className="mt-0.5 text-sm leading-6 text-gray-600">
                                 {difference.summary}
                               </p>

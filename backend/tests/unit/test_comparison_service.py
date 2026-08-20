@@ -172,6 +172,52 @@ class ComparisonServiceTests(TestCase):
         self.assertEqual(summary.unresolved_count, 7)
         self.assertEqual(summary.source_labels, ["Listing text", "User update"])
 
+    def test_compare_differences_show_evidence_status(self):
+        project = build_project(build_user())
+        clear_candidate = build_candidate(project, name="Clear Candidate", next_best_action="keep_warm")
+        uncertain_candidate = build_candidate(
+            project,
+            name="Uncertain Candidate",
+            next_best_action="keep_warm",
+        )
+
+        for candidate in (clear_candidate, uncertain_candidate):
+            candidate.candidate_assessment.critical_uncertainty_level = "medium"
+            candidate.candidate_assessment.recommendation_confidence = "medium"
+            for fact in candidate.field_facts:
+                fact.system_state = "explicit"
+
+        facts = {fact.field_key: fact for fact in uncertain_candidate.field_facts}
+        facts["rates_amount"].system_state = "inferred"
+        facts["repair_responsibility"].system_state = "conflicted"
+
+        result = ComparisonService().compare(project, [clear_candidate, uncertain_candidate])
+        statuses = {difference.category: difference.evidence_status for difference in result["key_differences"]}
+
+        self.assertEqual(statuses["cost_clarity"], "mixed")
+        self.assertEqual(statuses["clause_stability"], "needs_confirmation")
+        self.assertEqual(statuses["project_fit"], "mixed")
+        self.assertEqual(statuses["decision_confidence"], "needs_confirmation")
+
+    def test_compare_differences_are_supported_when_relevant_fields_are_clear(self):
+        project = build_project(build_user())
+        candidates = [
+            build_candidate(project, name="Clear A", next_best_action="keep_warm"),
+            build_candidate(project, name="Clear B", next_best_action="keep_warm"),
+        ]
+        for candidate in candidates:
+            candidate.candidate_assessment.critical_uncertainty_level = "medium"
+            candidate.candidate_assessment.recommendation_confidence = "medium"
+            for fact in candidate.field_facts:
+                fact.system_state = "explicit"
+
+        result = ComparisonService().compare(project, candidates)
+
+        self.assertTrue(result["key_differences"])
+        self.assertTrue(
+            all(difference.evidence_status == "supported" for difference in result["key_differences"])
+        )
+
     def test_compare_preview_surfaces_suggested_workspace(self):
         user = build_user()
         project = build_project(user)

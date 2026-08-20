@@ -18,6 +18,7 @@ from ..schemas.comparison import (
 )
 from .dashboard_service import DashboardService
 from .candidate_analysis_state import has_usable_analysis
+from .candidate_field_registry import CANDIDATE_FIELD_KEYS
 from .candidate_field_read_service import candidate_field_state
 
 
@@ -30,6 +31,18 @@ class _ComparableCandidate:
 class ComparisonService:
     """Build grouped shortlist comparisons with explanation-first output."""
 
+    _COST_COMPARISON_FIELDS = (
+        "monthly_rent",
+        "management_fee_amount",
+        "management_fee_included",
+        "rates_amount",
+        "rates_included",
+    )
+    _CLAUSE_COMPARISON_FIELDS = (
+        "lease_term",
+        "move_in_date",
+        "repair_responsibility",
+    )
     _SOURCE_LABELS = {
         "listing": "Listing text",
         "chat": "Chat",
@@ -500,6 +513,10 @@ class ComparisonService:
                 CompareDifference(
                     category="cost_clarity",
                     title="Cost clarity is not evenly distributed",
+                    evidence_status=self._evidence_status_for_fields(
+                        candidates,
+                        self._COST_COMPARISON_FIELDS,
+                    ),
                     summary=(
                         f"{clearest} currently has the clearest cost picture. "
                         + (f"{', '.join(unclear[:2])} still carry hidden-cost uncertainty." if unclear else "The rest are comparatively easier to price.")
@@ -527,6 +544,10 @@ class ComparisonService:
                 CompareDifference(
                     category="clause_stability",
                     title="Lease stability separates the shortlist",
+                    evidence_status=self._evidence_status_for_fields(
+                        candidates,
+                        self._CLAUSE_COMPARISON_FIELDS,
+                    ),
                     summary=(
                         f"{steadiest} looks steadier on lease terms today. "
                         + (f"{', '.join(fragile[:2])} still need more clause confirmation." if fragile else "The rest are not showing major clause friction.")
@@ -535,10 +556,13 @@ class ComparisonService:
             )
 
         fit_criteria: list[str] = []
+        fit_field_keys: list[str] = []
         if project.max_budget is not None:
             fit_criteria.append("your budget")
+            fit_field_keys.extend(self._COST_COMPARISON_FIELDS)
         if project.preferred_districts:
             fit_criteria.append("preferred districts")
+            fit_field_keys.append("district")
 
         fit_sorted = sorted(candidates, key=lambda candidate: self._project_fit_score(project, candidate), reverse=True)
         if fit_sorted and fit_criteria:
@@ -548,6 +572,7 @@ class ComparisonService:
                 CompareDifference(
                     category="project_fit",
                     title="Personal fit differs across the shortlist",
+                    evidence_status=self._evidence_status_for_fields(candidates, fit_field_keys),
                     summary=(
                         f"{fit_lead} currently fits {criteria_text} best based on the information saved in this project."
                     ),
@@ -566,6 +591,7 @@ class ComparisonService:
                 CompareDifference(
                     category="decision_confidence",
                     title="Some candidates still look weaker because they are harder to trust",
+                    evidence_status=self._evidence_status_for_fields(candidates, CANDIDATE_FIELD_KEYS),
                     summary=(
                         f"{best_card.name} is not just the strongest on paper; it is also easier to trust today. "
                         + (f"{', '.join(low_conf[:2])} would benefit most from more evidence." if low_conf else "The rest are relatively close on confidence.")
@@ -574,6 +600,25 @@ class ComparisonService:
             )
 
         return differences[:4]
+
+    def _evidence_status_for_fields(
+        self,
+        candidates: list[CandidateListing],
+        field_keys: Iterable[str],
+    ) -> str:
+        states = [
+            candidate_field_state(candidate, field_key)
+            for candidate in candidates
+            for field_key in field_keys
+        ]
+        if not states or any(
+            state is None or state in {"unknown", "conflicted", "user_marked_unknown"}
+            for state in states
+        ):
+            return "needs_confirmation"
+        if any(state == "inferred" for state in states):
+            return "mixed"
+        return "supported"
 
     def _build_actions(
         self,

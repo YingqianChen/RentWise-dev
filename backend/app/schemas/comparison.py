@@ -81,6 +81,7 @@ class CompareDifference(BaseModel):
     category: str
     title: str
     summary: str
+    evidence_status: str = "needs_confirmation"
 
 
 class CompareActionTarget(BaseModel):

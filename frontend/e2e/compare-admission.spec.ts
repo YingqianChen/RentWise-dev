@@ -125,7 +125,14 @@ const comparison = {
     not_ready_for_fair_comparison: [],
     likely_drop: [],
   },
-  key_differences: [],
+  key_differences: [
+    {
+      category: "cost_clarity",
+      title: "Cost clarity is not evenly distributed",
+      summary: "One candidate still has an unresolved fee detail.",
+      evidence_status: "mixed",
+    },
+  ],
   recommended_next_actions: {
     contact_first: null,
     questions_to_ask: [],
@@ -212,4 +219,5 @@ test("Compare workspace shows decision confidence", async ({ page }) => {
 
   await expect(page.getByText("Decision confidence: High", { exact: true })).toBeVisible();
   await expect(page.getByText("Decision confidence: Medium", { exact: true })).toBeVisible();
+  await expect(page.getByText("Evidence: Mixed", { exact: true })).toBeVisible();
 });

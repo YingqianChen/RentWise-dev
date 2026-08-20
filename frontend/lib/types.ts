@@ -460,6 +460,7 @@ export interface CompareDifference {
   category: string;
   title: string;
   summary: string;
+  evidence_status: "supported" | "mixed" | "needs_confirmation";
 }
 
 export interface CompareActionTarget {

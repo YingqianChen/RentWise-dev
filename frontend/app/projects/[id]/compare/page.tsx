@@ -861,6 +861,29 @@ export default function ComparePage() {
               )}
             </Card>
 
+            <Card className="mt-4 border-gray-200 bg-gray-50 p-5">
+              <h2 className="text-sm font-semibold text-gray-900">
+                How to read this comparison
+              </h2>
+              <p className="mt-1 text-xs leading-5 text-gray-600">
+                This is a working snapshot, not a final verdict. Unknown information is not treated as a negative.
+              </p>
+              <div className="mt-3 grid gap-3 text-xs leading-5 text-gray-700 sm:grid-cols-3">
+                <div>
+                  <p className="font-semibold text-gray-900">Current lead</p>
+                  <p>Strongest option with the evidence available today, not a final decision.</p>
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900">Decision confidence</p>
+                  <p>How much to trust the current assessment, not how good the home is.</p>
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900">Evidence status</p>
+                  <p>Supported is clear, Mixed includes inference, and Needs confirmation means unknown or conflicting information.</p>
+                </div>
+              </div>
+            </Card>
+
             <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
               <div className="min-w-0 space-y-6">
                 {comparison.groups.best_current_option && (

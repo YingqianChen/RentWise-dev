@@ -220,4 +220,13 @@ test("Compare workspace shows decision confidence", async ({ page }) => {
   await expect(page.getByText("Decision confidence: High", { exact: true })).toBeVisible();
   await expect(page.getByText("Decision confidence: Medium", { exact: true })).toBeVisible();
   await expect(page.getByText("Evidence: Mixed", { exact: true })).toBeVisible();
+  await expect(page.getByText("How to read this comparison", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Unknown information is not treated as a negative.", { exact: false })
+  ).toBeVisible();
+  await expect(
+    page.getByText("How much to trust the current assessment, not how good the home is.", {
+      exact: true,
+    })
+  ).toBeVisible();
 });

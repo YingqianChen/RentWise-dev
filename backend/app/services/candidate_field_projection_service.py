@@ -38,6 +38,28 @@ def _as_legacy_column_value(field_key: str, value: object | None) -> object | No
 class CandidateFieldProjectionService:
     """Update only the 14 core columns while preserving supplemental extraction data."""
 
+    def project_user_overrides(
+        self,
+        *,
+        extracted_info: CandidateExtractedInfo,
+        facts: Iterable[CandidateFieldFact],
+    ) -> CandidateExtractedInfo:
+        """Apply existing user actions without blanking fresh system unknowns."""
+        facts_by_key = {fact.field_key: fact for fact in facts}
+        if set(facts_by_key) != set(CANDIDATE_FIELD_KEYS):
+            raise ValueError("User override projection requires all 14 core facts.")
+
+        location_changed = False
+        for field_key, fact in facts_by_key.items():
+            if fact.user_action is None:
+                continue
+            setattr(extracted_info, field_key, _as_legacy_column_value(field_key, _legacy_value(fact)))
+            location_changed = location_changed or field_key in _LOCATION_FIELDS
+
+        if location_changed:
+            self._project_location_metadata(extracted_info, facts_by_key)
+        return extracted_info
+
     def project(
         self,
         *,

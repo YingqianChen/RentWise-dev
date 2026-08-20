@@ -12,10 +12,22 @@ from app.services.candidate_pipeline_service import CandidatePipelineService
 from tests.helpers import build_candidate, build_project, build_user
 
 
+class _FakeScalarResult:
+    def __init__(self, records):
+        self.records = records
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return self.records
+
+
 class _FakeSession:
-    def __init__(self):
+    def __init__(self, field_facts=None):
         self.flush = AsyncMock()
         self.commit = AsyncMock()
+        self.execute = AsyncMock(return_value=_FakeScalarResult(field_facts or []))
 
 
 class CandidatePipelineServiceTests(IsolatedAsyncioTestCase):
@@ -54,6 +66,37 @@ class CandidatePipelineServiceTests(IsolatedAsyncioTestCase):
             candidate_id=candidate.id,
             facts=(),
         )
+
+    async def test_reanalysis_assessment_uses_user_field_actions(self):
+        project = build_project(build_user())
+
+        for action, user_value, expected_rent, expected_cost in (
+            ("corrected", 20000, "20000", 20000),
+            ("marked_unknown", None, None, None),
+        ):
+            with self.subTest(action=action):
+                candidate = build_candidate(project)
+                rent_fact = next(
+                    fact for fact in candidate.field_facts if fact.field_key == "monthly_rent"
+                )
+                rent_fact.user_action = action
+                rent_fact.user_value = user_value
+                candidate.extracted_info.monthly_rent = "18000"
+
+                service = CandidatePipelineService()
+                service.extraction_service.extract_with_evidence = AsyncMock(
+                    return_value=SimpleNamespace(
+                        extracted_info=candidate.extracted_info,
+                        field_facts=(),
+                    )
+                )
+                service.field_evidence_service.replace_system_results = AsyncMock()
+                db = _FakeSession(candidate.field_facts)
+
+                await service.assess_candidate(db=db, project=project, candidate=candidate)
+
+                self.assertEqual(candidate.extracted_info.monthly_rent, expected_rent)
+                self.assertEqual(candidate.cost_assessment.known_monthly_cost, expected_cost)
 
     async def test_reassessment_preserves_user_decision_without_overwriting_system_status(self):
         project = build_project(build_user())

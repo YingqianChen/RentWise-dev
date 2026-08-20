@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import CandidateAssessment, CandidateExtractedInfo, CandidateListing, ClauseAssessment, CostAssessment, SearchProject
+from ..db.models import (
+    CandidateAssessment,
+    CandidateExtractedInfo,
+    CandidateFieldFact,
+    CandidateListing,
+    ClauseAssessment,
+    CostAssessment,
+    SearchProject,
+)
 from .candidate_assessment_service import CandidateAssessmentService
 from .candidate_field_evidence_service import CandidateFieldEvidenceService
+from .candidate_field_projection_service import CandidateFieldProjectionService
 from .clause_assessment_service import ClauseAssessmentService
 from .cost_assessment_service import CostAssessmentService
 from .extraction_service import ExtractionService
@@ -18,6 +28,7 @@ class CandidatePipelineService:
     def __init__(self) -> None:
         self.extraction_service = ExtractionService()
         self.field_evidence_service = CandidateFieldEvidenceService()
+        self.field_projection_service = CandidateFieldProjectionService()
         self.cost_service = CostAssessmentService()
         self.clause_service = ClauseAssessmentService()
         self.candidate_service = CandidateAssessmentService()
@@ -41,6 +52,15 @@ class CandidatePipelineService:
             candidate_id=candidate.id,
             facts=extraction_result.field_facts,
         )
+        current_facts_result = await db.execute(
+            select(CandidateFieldFact).where(CandidateFieldFact.candidate_id == candidate.id)
+        )
+        current_facts = list(current_facts_result.scalars().all())
+        if current_facts:
+            self.field_projection_service.project_user_overrides(
+                extracted_info=extracted_info,
+                facts=current_facts,
+            )
 
         await self._assess_from_extracted(
             db=db,

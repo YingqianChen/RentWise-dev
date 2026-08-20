@@ -210,6 +210,34 @@ class DatabaseFlowTests(TestCase):
             (14, 4),
         )
 
+        field_url = f"/api/v1/projects/{project_id}/candidates/{candidate_id}/fields"
+        corrected_response = self.client.patch(
+            f"{field_url}/monthly_rent",
+            headers=headers,
+            json={"action": "correct", "value": 20000, "note": "Confirmed with landlord"},
+        )
+        self.assertEqual(corrected_response.status_code, 200, corrected_response.text)
+        self.assertEqual(corrected_response.json()["extracted_info"]["monthly_rent"], "20000")
+        self.assertEqual(corrected_response.json()["cost_assessment"]["known_monthly_cost"], 20000)
+
+        with patch(
+            "app.services.extraction_service.chat_completion_json",
+            AsyncMock(return_value=_valid_extraction_payload()),
+        ):
+            reanalysis_with_override = self.client.post(
+                f"/api/v1/projects/{project_id}/candidates/{candidate_id}/reassess",
+                headers=headers,
+            )
+
+        self.assertEqual(
+            reanalysis_with_override.status_code,
+            200,
+            reanalysis_with_override.text,
+        )
+        reanalysis_payload = reanalysis_with_override.json()
+        self.assertEqual(reanalysis_payload["extracted_info"]["monthly_rent"], "20000")
+        self.assertEqual(reanalysis_payload["cost_assessment"]["known_monthly_cost"], 20000)
+
         dashboard_response = self.client.get(
             f"/api/v1/projects/{project_id}/dashboard",
             headers=headers,

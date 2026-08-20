@@ -152,12 +152,15 @@ class ComparisonService:
         clause_blocked = clause is not None and clause.clause_risk_flag == "high_risk"
 
         if (
-            assessment.recommendation_confidence == "low"
-            and assessment.critical_uncertainty_level == "high"
+            # Treat an explicit high-stakes verification action as the source of truth
+            # when a stale confidence field disagrees with the rest of the assessment.
+            assessment.critical_uncertainty_level == "high"
             and (
                 assessment.next_best_action in {"verify_cost", "verify_clause"}
-                or cost_missing >= 2
-                or clause_blocked
+                or (
+                    assessment.recommendation_confidence == "low"
+                    and (cost_missing >= 2 or clause_blocked)
+                )
             )
         ):
             return "not_ready"

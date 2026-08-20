@@ -76,6 +76,38 @@ class ComparisonServiceTests(TestCase):
         self.assertIn("management fee", (card.open_blocker or "").lower())
         self.assertIn("cannot be compared fairly", card.decision_explanation.lower())
 
+    def test_high_uncertainty_is_not_ranked_even_if_confidence_is_inconsistent(self):
+        project = build_project(build_user())
+
+        for next_action in ("verify_cost", "verify_clause"):
+            with self.subTest(next_action=next_action):
+                candidate = build_candidate(
+                    project,
+                    name=f"Inconsistent {next_action}",
+                    next_best_action=next_action,
+                )
+                candidate.candidate_assessment.recommendation_confidence = "high"
+                candidate.candidate_assessment.critical_uncertainty_level = "high"
+
+                result = ComparisonService().compare(project, [candidate])
+
+                self.assertIsNone(result["groups"].best_current_option)
+                self.assertEqual(
+                    [card.name for card in result["groups"].not_ready_for_fair_comparison],
+                    [f"Inconsistent {next_action}"],
+                )
+
+    def test_medium_uncertainty_can_still_be_compared(self):
+        project = build_project(build_user())
+        candidate = build_candidate(project, name="Medium Uncertainty")
+        candidate.candidate_assessment.recommendation_confidence = "medium"
+        candidate.candidate_assessment.critical_uncertainty_level = "medium"
+
+        result = ComparisonService().compare(project, [candidate])
+
+        self.assertEqual(result["groups"].best_current_option.name, "Medium Uncertainty")
+        self.assertEqual(result["groups"].not_ready_for_fair_comparison, [])
+
     def test_compare_uses_softer_repair_blocker_for_supported_signal(self):
         user = build_user()
         project = build_project(user)

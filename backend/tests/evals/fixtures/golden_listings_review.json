@@ -1,0 +1,18 @@
+{
+  "dataset": "synthetic_hk_rental_v1",
+  "review_status": "manually_checked",
+  "review_note": "All samples are synthetic and anonymised. Review checks scenario meaning, expected field types, and whether each expected value is supported by the text; this is not a measured LLM accuracy result.",
+  "reviewed_sample_ids": [
+    "mk_01", "tst_01", "stn_01", "cwb_01", "kwn_01", "tm_01", "sp_01", "wan_01",
+    "kt_chat_01", "ym_sdu_01", "tw_bilingual_01", "ssp_tonglau_01", "cwb_serviced_01", "tp_conflict_01"
+  ],
+  "coverage": {
+    "existing_baseline": ["mk_01", "tst_01", "stn_01", "cwb_01", "kwn_01", "tm_01", "sp_01", "wan_01"],
+    "cantonese_english_mixed": ["kt_chat_01", "tw_bilingual_01", "tp_conflict_01"],
+    "separate_fees_and_quarterly_rates": ["kt_chat_01", "tw_bilingual_01", "ssp_tonglau_01"],
+    "sdu_or_shared_bathroom": ["ym_sdu_01"],
+    "tong_lau_and_repair_wording": ["ssp_tonglau_01"],
+    "serviced_apartment_all_inclusive": ["cwb_serviced_01"],
+    "conflicting_fee_sources": ["tp_conflict_01"]
+  }
+}

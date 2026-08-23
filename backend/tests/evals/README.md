@@ -18,6 +18,9 @@ additionally need `AMAP_API_KEY`.
 
 - `fixtures/golden_listings.jsonl` — raw HK listing text + expected extracted
   fields. Expected values may be strings or lists (any-of accept).
+- `fixtures/golden_listings_review.json` — review status and coverage map for
+  the synthetic, anonymised listing samples. This records sample review, not
+  real-model accuracy.
 - `fixtures/golden_commutes.jsonl` — candidate location signals + expected
   origin station / mode / minute range.
 - `scoring.py` — `fuzzy_field_match`, `numeric_in_range`, `aggregate_report`.
@@ -50,6 +53,13 @@ with some subset of `origin_station_any_of`, `mode_any_of`, `minutes_range`.
 
 Anonymise real data: strip phone numbers and the first part of street
 numbers. Fixtures are committed — treat them like test code.
+
+The listing set currently has 14 synthetic samples. Six newer samples cover
+Cantonese/English mixed wording, separate fees, quarterly rates, subdivided or
+shared-bathroom units, tong lau repair wording, serviced apartments, and
+conflicting fee sources. The default quality test checks the fixture contract;
+the real LLM extraction eval remains optional and still requires
+`GROQ_API_KEY`.
 
 ## Thresholds
 

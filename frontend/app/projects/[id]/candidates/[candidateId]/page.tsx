@@ -292,28 +292,28 @@ function TabsContent({
 function actionLabel(action?: string | null) {
   switch (action) {
     case "verify_cost":
-      return "Verify cost";
+      return "Confirm the real monthly cost";
     case "verify_clause":
-      return "Verify clauses";
+      return "Confirm the key lease terms";
     case "schedule_viewing":
-      return "Schedule viewing";
+      return "Decide whether to book a viewing";
     case "keep_warm":
-      return "Keep warm";
+      return "Keep it in the pool for now";
     case "reject":
-      return "Reject";
+      return "Set this candidate aside for now";
     default:
-      return "Needs review";
+      return "Review the missing information";
   }
 }
 
 function recommendationLabel(value?: string | null) {
   switch (value) {
     case "shortlist_recommendation":
-      return "System: shortlist recommendation";
+      return "Current read: worth serious follow-up";
     case "likely_reject":
-      return "System: likely reject";
+      return "Current read: likely not a fit";
     default:
-      return "System: not ready";
+      return "Current read: needs confirmation";
   }
 }
 
@@ -382,6 +382,17 @@ function confidenceLabel(level?: string | null) {
       return "Medium";
     default:
       return "Low";
+  }
+}
+
+function uncertaintyDescription(level?: string | null) {
+  switch (level) {
+    case "high":
+      return "Important facts can still change this read.";
+    case "medium":
+      return "Some details could still change this read.";
+    default:
+      return "No major unresolved issue is visible in the current evidence.";
   }
 }
 
@@ -1086,7 +1097,7 @@ export default function CandidateDetailPage() {
                         {recommendationLabel(assessment.top_level_recommendation)}
                       </span>
                       <Badge variant="outline">
-                        Next: {actionLabel(assessment.next_best_action)}
+                        Next step: {actionLabel(assessment.next_best_action)}
                       </Badge>
                     </div>
                     <p className="mt-4 text-[11px] font-medium uppercase tracking-wider text-gray-500">
@@ -1094,6 +1105,13 @@ export default function CandidateDetailPage() {
                     </p>
                     <h2 className="mt-1 text-xl font-semibold text-gray-900">What matters now</h2>
                     <p className="mt-2 text-sm leading-relaxed text-gray-700">{assessment.summary}</p>
+                    <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs leading-relaxed text-gray-600">
+                      <p className="font-semibold text-gray-800">How to read this</p>
+                      <p className="mt-1">
+                        This is a working read from the evidence available today, not a final decision.
+                        Unknown information is something to confirm, not negative evidence.
+                      </p>
+                    </div>
                     {assessment.labels.length > 0 && (
                       <div className="mt-4 flex flex-wrap gap-1.5">
                         {assessment.labels.map((label) => (
@@ -1118,7 +1136,7 @@ export default function CandidateDetailPage() {
                     <div>
                       <div className="flex items-center justify-between">
                         <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500">
-                          Confidence
+                          How much to trust this read
                         </p>
                         <span className="text-xs font-medium text-gray-900">
                           {confidenceLabel(assessment.recommendation_confidence)}
@@ -1127,16 +1145,22 @@ export default function CandidateDetailPage() {
                       <div className="mt-1.5">
                         <ConfidenceBar level={assessment.recommendation_confidence} />
                       </div>
+                      <p className="mt-1.5 text-xs leading-relaxed text-gray-500">
+                        This measures how stable the evidence and rules are, not the quality of the home.
+                      </p>
                     </div>
                     <div>
                       <div className="flex items-center justify-between">
                         <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500">
-                          Decision risk
+                          What could still change
                         </p>
                         <span className="text-xs font-medium text-gray-900">
                           {confidenceLabel(assessment.decision_risk_level)}
                         </span>
                       </div>
+                      <p className="mt-1.5 text-xs leading-relaxed text-gray-500">
+                        {uncertaintyDescription(assessment.critical_uncertainty_level)}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -1191,7 +1215,7 @@ export default function CandidateDetailPage() {
                         <p className="mt-1 text-lg font-semibold text-gray-900">{monthlyCostDisplay}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-gray-500">Confidence</p>
+                        <p className="text-xs text-gray-500">How clear is the cost</p>
                         <p className="mt-1 text-lg font-semibold text-gray-900">
                           {confidenceLabel(cost?.monthly_cost_confidence)}
                         </p>
@@ -1386,27 +1410,39 @@ export default function CandidateDetailPage() {
                     {assessment && (
                       <div className="grid grid-cols-2 gap-3">
                         <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                          <p className="text-xs text-gray-500">Potential value</p>
+                          <p className="text-xs text-gray-500">Potential fit</p>
                           <p className="mt-1 text-sm font-medium text-gray-900">
                             {confidenceLabel(assessment.potential_value_level)}
                           </p>
+                          <p className="mt-1 text-xs leading-relaxed text-gray-500">
+                            Based on your saved conditions and the evidence available today.
+                          </p>
                         </div>
                         <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                          <p className="text-xs text-gray-500">Completeness</p>
+                          <p className="text-xs text-gray-500">Information coverage</p>
                           <p className="mt-1 text-sm font-medium text-gray-900">
                             {confidenceLabel(assessment.completeness_level)}
                           </p>
-                        </div>
-                        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                          <p className="text-xs text-gray-500">Critical uncertainty</p>
-                          <p className="mt-1 text-sm font-medium text-gray-900">
-                            {confidenceLabel(assessment.critical_uncertainty_level)}
+                          <p className="mt-1 text-xs leading-relaxed text-gray-500">
+                            How much of the information needed for a decision is available.
                           </p>
                         </div>
                         <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                          <p className="text-xs text-gray-500">Information gain</p>
+                          <p className="text-xs text-gray-500">What is still uncertain</p>
+                          <p className="mt-1 text-sm font-medium text-gray-900">
+                            {confidenceLabel(assessment.critical_uncertainty_level)}
+                          </p>
+                          <p className="mt-1 text-xs leading-relaxed text-gray-500">
+                            The importance of the facts that still need confirmation.
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                          <p className="text-xs text-gray-500">Value of checking</p>
                           <p className="mt-1 text-sm font-medium text-gray-900">
                             {confidenceLabel(assessment.information_gain_level)}
+                          </p>
+                          <p className="mt-1 text-xs leading-relaxed text-gray-500">
+                            How much a clear answer could improve the decision.
                           </p>
                         </div>
                       </div>

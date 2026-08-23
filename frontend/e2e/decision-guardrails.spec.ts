@@ -400,9 +400,12 @@ test("all unknown evidence stays not ready and is never presented as a rejection
   await page.goto(`/projects/${PROJECT_ID}/candidates/${CANDIDATE_ID}`);
 
   await expect(page.getByRole("heading", { name: "All unknown case" })).toBeVisible();
-  await expect(page.getByText("System: not ready")).toBeVisible();
+  await expect(page.getByText("Current read: needs confirmation")).toBeVisible();
   await expect(page.getByText("There is not enough verified information to make a decision.")).toBeVisible();
-  await expect(page.getByText("System: likely reject")).toHaveCount(0);
+  await expect(page.getByText("This is a working read from the evidence available today, not a final decision.")).toBeVisible();
+  await expect(page.getByText("Unknown information is something to confirm, not negative evidence.")).toBeVisible();
+  await expect(page.getByText("How much to trust this read")).toBeVisible();
+  await expect(page.getByText("Current read: likely not a fit")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Shortlist" })).toBeEnabled();
   await expect(page.getByRole("button", { name: "Reject" })).toBeEnabled();
 });
@@ -437,10 +440,10 @@ test("explicit source-backed over-budget evidence can produce likely reject", as
   await page.goto(`/projects/${PROJECT_ID}/candidates/${CANDIDATE_ID}`);
 
   await expect(page.getByRole("heading", { name: "Source-backed over-budget case" })).toBeVisible();
-  await expect(page.getByText("System: likely reject")).toBeVisible();
+  await expect(page.getByText("Current read: likely not a fit")).toBeVisible();
   await expect(page.getByText("HKD 30,000").first()).toBeVisible();
   await expect(page.getByText("The verified rent is above the user's stated budget.")).toBeVisible();
-  await expect(page.getByText("System: not ready")).toHaveCount(0);
+  await expect(page.getByText("Current read: needs confirmation")).toHaveCount(0);
   const rentCard = page.locator("article").filter({ hasText: "Monthly rent" }).first();
   await rentCard.getByText("View 1 source quote").click();
   await expect(rentCard.getByText("HKD 30,000 per month")).toBeVisible();

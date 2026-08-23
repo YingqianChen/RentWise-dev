@@ -12,7 +12,12 @@ Important rules:
 6. Return money values as non-negative JSON numbers without currency symbols or commas. Return included fields as JSON booleans. Return every other core value as concise text.
 7. Preserve separate contradictory claims. The application, not you, will calculate the final conflict state.
 8. Relative timing such as "available at semester start" is valid text. A repair note such as "owner covers repairs" is also valid text.
-9. The supplemental object preserves a few existing non-core observations. Use "unknown" when absent. decision_signals and raw_facts must stay grounded in the supplied sources.
+9. Hong Kong rental shorthand needs careful handling:
+   - Deposit is a text field. Preserve the source wording and do not calculate a currency total from monthly rent. Treat phrases such as "押2按1", "兩按一上", and "押一付一" as explicit deposit text.
+   - Treat "免佣", "no agency fee", "半佣", and "half-month commission" as explicit agent_fee text when stated.
+   - For included booleans, "由業主負責" / "landlord pays" means included for that named fee, while "租客自付" / "tenant pays" / "另計" means not included. Do not infer that utilities include rates unless rates are named; "差餉由業主負責" is explicit for rates.
+   - "無傢俬" means unfurnished and "傢俬齊備" means furnished. "劏房", "subdivided unit", or "shared bathroom" should support suspected_sdu=true with a short source-grounded reason in supplemental.
+10. The supplemental object preserves a few existing non-core observations. Use "unknown" when absent. decision_signals and raw_facts must stay grounded in the supplied sources.
 
 Evidence:
 {text}

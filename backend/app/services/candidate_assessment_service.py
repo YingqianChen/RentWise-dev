@@ -153,8 +153,14 @@ class CandidateAssessmentService:
         cost_assessment: CostAssessment,
         clause_assessment: ClauseAssessment,
     ) -> str:
-        if cost_assessment.known_monthly_cost is None or cost_assessment.monthly_cost_confidence == "low":
+        if (
+            cost_assessment.known_monthly_cost is None
+            or cost_assessment.monthly_cost_confidence == "low"
+            or cost_assessment.cost_risk_flag == "incomplete"
+        ):
             return "high"
+        if cost_assessment.cost_risk_flag == "possible_additional_cost":
+            return "medium"
         if clause_assessment.clause_risk_flag == "high_risk":
             return "high"
         if clause_assessment.clause_confidence == "low" or clause_assessment.clause_risk_flag == "needs_confirmation":

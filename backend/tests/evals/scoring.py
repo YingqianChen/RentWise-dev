@@ -67,6 +67,7 @@ class FieldResult:
 class CaseResult:
     case_id: str
     fields: list[FieldResult] = field(default_factory=list)
+    error: str | None = None
 
     def field_passed(self, name: str) -> Optional[bool]:
         for fr in self.fields:
@@ -93,8 +94,11 @@ def aggregate_report(cases: list[CaseResult]) -> dict:
                 case_failures.append(
                     {"field": fr.field, "expected": fr.expected, "actual": fr.actual}
                 )
-        if case_failures:
-            failed_cases.append({"case_id": case.case_id, "failures": case_failures})
+        if case_failures or case.error:
+            failed_case = {"case_id": case.case_id, "failures": case_failures}
+            if case.error:
+                failed_case["error"] = case.error
+            failed_cases.append(failed_case)
 
     per_field = {
         name: {
@@ -108,6 +112,7 @@ def aggregate_report(cases: list[CaseResult]) -> dict:
         "overall_pass_rate": round(total_passes / max(1, total_checks), 3),
         "total_cases": len(cases),
         "total_checks": total_checks,
+        "case_error_count": sum(1 for case in cases if case.error),
         "per_field": per_field,
         "failed_cases": failed_cases,
     }

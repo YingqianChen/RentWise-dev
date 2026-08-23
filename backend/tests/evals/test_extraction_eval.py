@@ -19,6 +19,7 @@ if not os.getenv("GROQ_API_KEY"):
     pytest.skip("GROQ_API_KEY not set; eval suite skipped", allow_module_level=True)
 
 from app.db.models import CandidateListing  # noqa: E402
+from app.services.analysis_errors import AnalysisError  # noqa: E402
 from app.services.extraction_service import ExtractionService  # noqa: E402
 
 from .scoring import CaseResult, FieldResult, aggregate_report, fuzzy_field_match  # noqa: E402
@@ -66,8 +67,44 @@ async def test_extraction_golden_set(golden_listings, eval_report_writer):
 
     for sample in golden_listings:
         candidate = _build_candidate(sample["raw_listing_text"])
-        info = await service.extract(candidate)
         expected = sample.get("expected", {})
+
+        try:
+            info = await service.extract(candidate)
+        except AnalysisError as exc:
+            results.append(
+                CaseResult(
+                    case_id=sample["id"],
+                    fields=[
+                        FieldResult(
+                            field=field_name,
+                            passed=False,
+                            expected=expected_value,
+                            actual=None,
+                        )
+                        for field_name, expected_value in expected.items()
+                    ],
+                    error=exc.code,
+                )
+            )
+            continue
+        except Exception as exc:  # pragma: no cover - defensive eval reporting
+            results.append(
+                CaseResult(
+                    case_id=sample["id"],
+                    fields=[
+                        FieldResult(
+                            field=field_name,
+                            passed=False,
+                            expected=expected_value,
+                            actual=None,
+                        )
+                        for field_name, expected_value in expected.items()
+                    ],
+                    error=f"unexpected_{type(exc).__name__}",
+                )
+            )
+            continue
 
         field_results: list[FieldResult] = []
         for field_name, expected_value in expected.items():
@@ -93,5 +130,7 @@ async def test_extraction_golden_set(golden_listings, eval_report_writer):
         violations.append(
             f"overall: {report['overall_pass_rate']:.2f} < floor {_OVERALL_FLOOR:.2f}"
         )
+    if report["case_error_count"]:
+        violations.append(f"case_errors: {report['case_error_count']}")
 
     assert not violations, "eval regressions:\n" + "\n".join(violations)

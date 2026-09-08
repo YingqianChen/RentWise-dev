@@ -45,6 +45,11 @@ export default function ImportCandidatePage() {
       return;
     }
 
+    if (listingText.length + chatText.length + noteText.length > 30000) {
+      setError("Keep listing, chat and notes within 30,000 characters in total.");
+      return;
+    }
+
     const token = getToken();
     if (!token) {
       router.push("/login");
@@ -53,14 +58,6 @@ export default function ImportCandidatePage() {
 
     setLoading(true);
     setLoadingMessage(uploadedImages.length > 0 ? "Uploading images..." : "Saving source information...");
-    const stageOneTimer =
-      uploadedImages.length > 0
-        ? window.setTimeout(() => setLoadingMessage("Running OCR on uploaded images..."), 800)
-        : null;
-    const stageTwoTimer = window.setTimeout(
-      () => setLoadingMessage(uploadedImages.length > 0 ? "Starting OCR and analysis..." : "Starting analysis..."),
-      uploadedImages.length > 0 ? 2200 : 1000
-    );
     try {
       const candidate = await importCandidate(token, projectId, {
         source_type:
@@ -82,11 +79,22 @@ export default function ImportCandidatePage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to import candidate.");
     } finally {
-      if (stageOneTimer) window.clearTimeout(stageOneTimer);
-      window.clearTimeout(stageTwoTimer);
       setLoading(false);
       setLoadingMessage("");
     }
+  };
+
+  const addImages = (files: File[]) => {
+    const merged = [...uploadedImages];
+    for (const file of files) {
+      if (!merged.some((item) => item.name === file.name && item.size === file.size)) merged.push(file);
+    }
+    if (merged.length > 8 || merged.some((file) => file.size > 10 * 1024 * 1024) || merged.reduce((total, file) => total + file.size, 0) > 30 * 1024 * 1024) {
+      setError("Choose up to 8 images, at most 10 MB each and 30 MB in total.");
+      return;
+    }
+    setError("");
+    setUploadedImages(merged);
   };
 
   const removeImage = (name: string, size: number) => {
@@ -120,6 +128,13 @@ export default function ImportCandidatePage() {
           Web links are treated as text; RentWise does not open or read listing URLs.
         </p>
 
+        <p className="mb-6 rounded-lg border border-gray-200 bg-white p-3 text-xs leading-5 text-gray-600">
+          Remove names, phone numbers, ID numbers and bank details before importing.
+          Source text and extracted image text are sent to the configured AI service for analysis.
+          If a cloud OCR service is configured, it also receives uploaded images.
+          Saved sources remain until you delete the candidate or project.
+        </p>
+
         {error && (
           <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
             <AlertTriangle className="h-4 w-4 flex-none text-red-600" />
@@ -141,8 +156,10 @@ export default function ImportCandidatePage() {
             </div>
             <div className="space-y-4">
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-gray-700">Listing text</label>
+                <label htmlFor="listing-text" className="mb-1.5 block text-sm font-medium text-gray-700">Listing text</label>
                 <textarea
+                  id="listing-text"
+                  maxLength={30000}
                   value={listingText}
                   onChange={(e) => setListingText(e.target.value)}
                   rows={6}
@@ -151,10 +168,12 @@ export default function ImportCandidatePage() {
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                <label htmlFor="chat-text" className="mb-1.5 block text-sm font-medium text-gray-700">
                   Agent or landlord chat <span className="text-gray-400">(optional)</span>
                 </label>
                 <textarea
+                  id="chat-text"
+                  maxLength={30000}
                   value={chatText}
                   onChange={(e) => setChatText(e.target.value)}
                   rows={4}
@@ -163,10 +182,12 @@ export default function ImportCandidatePage() {
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                <label htmlFor="note-text" className="mb-1.5 block text-sm font-medium text-gray-700">
                   Your notes <span className="text-gray-400">(optional)</span>
                 </label>
                 <textarea
+                  id="note-text"
+                  maxLength={30000}
                   value={noteText}
                   onChange={(e) => setNoteText(e.target.value)}
                   rows={3}
@@ -177,6 +198,7 @@ export default function ImportCandidatePage() {
             </div>
           </section>
 
+          <p className="text-xs text-gray-500">{listingText.length + chatText.length + noteText.length} / 30,000 characters across all text fields</p>
           <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-gray-900">
               <ImageIcon className="h-4 w-4 text-gray-500" />
@@ -188,7 +210,7 @@ export default function ImportCandidatePage() {
               type="file"
               multiple
               accept="image/png,image/jpeg,image/webp,image/bmp"
-              onChange={(e) => setUploadedImages(Array.from(e.target.files || []))}
+              onChange={(e) => { addImages(Array.from(e.target.files || [])); e.target.value = ""; }}
               className="hidden"
             />
             <div className="flex flex-wrap items-center gap-3">
@@ -227,7 +249,7 @@ export default function ImportCandidatePage() {
               </ul>
             )}
             <p className="mt-3 text-xs text-gray-500">
-              After your files are saved, OCR and analysis continue in the background. The candidate page shows progress and keeps your original information if analysis fails.
+              Up to 8 images, 10 MB each, 30 MB total. Choose images again to add more. After your files are saved, OCR and analysis continue in the background. The candidate page shows progress and keeps your original information if analysis fails.
             </p>
           </section>
 

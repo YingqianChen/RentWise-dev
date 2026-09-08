@@ -309,3 +309,24 @@ class ExtractionServiceTests(IsolatedAsyncioTestCase):
     def test_normalize_raw_facts_rejects_non_list(self):
         self.assertEqual(normalize_raw_facts("a single string"), [])
         self.assertEqual(normalize_raw_facts(None), [])
+
+
+async def test_ocr_text_cannot_bypass_the_analysis_input_limit():
+    from unittest.mock import AsyncMock
+    from types import SimpleNamespace
+    import pytest
+    candidate = build_candidate(build_project(build_user()))
+    candidate.raw_listing_text = 'short listing'
+    candidate.raw_chat_text = None
+    candidate.raw_note_text = None
+    candidate.source_assets = []
+    # A source bundle including OCR is bounded before making any paid request.
+    sources = (SimpleNamespace(text='x' * 30001),)
+    with (
+        patch.object(ExtractionService, '_collect_sources', return_value=sources),
+        patch('app.services.extraction_service.chat_completion_json', AsyncMock()) as completion,
+    ):
+        with pytest.raises(AnalysisError) as exc:
+            await ExtractionService().extract_with_evidence(candidate)
+    assert exc.value.code == 'source_too_long'
+    completion.assert_not_awaited()

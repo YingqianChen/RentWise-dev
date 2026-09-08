@@ -121,6 +121,8 @@ class CandidateImportBackgroundService:
 
     async def _run_ocr(self, source_assets: list[CandidateSourceAsset]) -> None:
         for asset in source_assets:
+            if asset.ocr_status == "succeeded" and asset.ocr_text:
+                continue
             image_path = self.storage.resolve_path(asset.storage_key)
             ocr_result = await self.ocr.extract_text(image_path)
             asset.ocr_status = ocr_result.status

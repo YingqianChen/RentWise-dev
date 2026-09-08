@@ -23,6 +23,7 @@ async def run_candidate_analysis(
     pipeline: CandidatePipelineService,
 ) -> bool:
     """Run analysis and persist a completed or safely classified failed state."""
+    candidate_id = candidate.id
     candidate.processing_stage = "extracting"
     candidate.processing_error = None
     candidate.processing_error_code = None
@@ -33,13 +34,13 @@ async def run_candidate_analysis(
     except AnalysisError as exc:
         logger.warning("Candidate analysis failed with code %s", exc.code)
         await db.rollback()
-        await _persist_failed_state(db=db, candidate_id=candidate.id, failure=exc)
+        await _persist_failed_state(db=db, candidate_id=candidate_id, failure=exc)
         return False
     except Exception as exc:  # pragma: no cover - defensive classification boundary
         logger.exception("Candidate analysis failed unexpectedly", exc_info=exc)
         await db.rollback()
         failure = analysis_error("analysis_internal_error", retryable=True)
-        await _persist_failed_state(db=db, candidate_id=candidate.id, failure=failure)
+        await _persist_failed_state(db=db, candidate_id=candidate_id, failure=failure)
         return False
 
     candidate.processing_stage = "completed"

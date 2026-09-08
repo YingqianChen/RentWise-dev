@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.params import Form as FormParam
 from fastapi.params import File as FileParam
-from sqlalchemy import func, select
+from sqlalchemy import func, inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.orm import selectinload
@@ -30,7 +30,7 @@ from ...schemas.candidate import (
 from ...services.candidate_contact_plan_service import CandidateContactPlanService
 from ...services.candidate_analysis_state import has_usable_analysis
 from ...services.candidate_import_background_service import CandidateImportBackgroundService
-from ...services.candidate_import_service import CandidateImportService, build_combined_text, infer_source_type
+from ...services.candidate_import_service import CandidateImportService, build_combined_text, infer_source_type, validate_source_text, validate_uploaded_images
 from ...services.candidate_analysis_runner import run_candidate_analysis
 from ...services.candidate_field_correction_service import (
     CandidateFieldAction,
@@ -54,10 +54,14 @@ candidate_field_correction_service = CandidateFieldCorrectionService()
 
 async def get_project_for_user(project_id: UUID, user: User, db: AsyncSession) -> SearchProject:
     """Get a project owned by the current user."""
+    # A failed analysis rolls back the shared session, expiring ORM attributes.
+    # The authenticated identity remains available without implicit async IO.
+    identity = inspect(user).identity
+    user_id = identity[0] if identity else user.id
     result = await db.execute(
         select(SearchProject).where(
             SearchProject.id == project_id,
-            SearchProject.user_id == user.id,
+            SearchProject.user_id == user_id,
         )
     )
     project = result.scalar_one_or_none()
@@ -190,6 +194,8 @@ async def import_candidate(
     raw_chat_text = _coerce_optional_text(raw_chat_text)
     raw_note_text = _coerce_optional_text(raw_note_text)
     uploaded_images = _coerce_uploaded_images(uploaded_images)
+    validate_source_text(raw_listing_text, raw_chat_text, raw_note_text)
+    validate_uploaded_images(uploaded_images)
 
     inferred_source_type = infer_source_type(
         source_type=source_type,
@@ -238,8 +244,16 @@ async def import_candidate(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Please provide text or upload at least one image.")
         candidate.processing_error = "Waiting for OCR to read the uploaded images."
 
-    await db.flush()
-    await db.commit()
+    saved_assets = [(asset.storage_provider, asset.storage_key) for asset in source_assets]
+    try:
+        await db.flush()
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        for provider, key in saved_assets:
+            if provider == "local":
+                candidate_import_service.storage.delete_file(key)
+        raise
     background_tasks.add_task(
         candidate_import_background_service.process_candidate_import,
         project_id=project.id,
@@ -311,12 +325,14 @@ async def update_candidate(
             setattr(candidate, field, value)
 
     if should_reassess:
+        validate_source_text(candidate.raw_listing_text, candidate.raw_chat_text, candidate.raw_note_text)
         candidate.combined_text = "\n".join(
             part.strip()
             for part in [
                 candidate.raw_listing_text or "",
                 candidate.raw_chat_text or "",
                 candidate.raw_note_text or "",
+                *[asset.ocr_text or "" for asset in candidate.source_assets],
             ]
             if part and part.strip()
         ) or None
@@ -332,9 +348,9 @@ async def update_candidate(
             pipeline=pipeline_service,
         )
         if analysis_succeeded:
-            _, candidate = await get_candidate_for_project_user(
-                project.id,
-                candidate.id,
+            project, candidate = await get_candidate_for_project_user(
+                project_id,
+                candidate_id,
                 current_user,
                 db,
             )
@@ -366,7 +382,7 @@ async def update_candidate(
 
     if not should_reassess and not location_updates:
         await db.flush()
-    _, candidate = await get_candidate_for_project_user(project.id, candidate.id, current_user, db)
+    project, candidate = await get_candidate_for_project_user(project_id, candidate_id, current_user, db)
     return await _serialize_candidate(
         candidate,
         project=project,
@@ -384,13 +400,17 @@ async def reassess_candidate(
 ):
     """Rerun assessments for a candidate."""
     project, candidate = await get_candidate_for_project_user(project_id, candidate_id, current_user, db)
-    await run_candidate_analysis(
-        db=db,
-        project=project,
-        candidate=candidate,
-        pipeline=pipeline_service,
-    )
-    _, candidate = await get_candidate_for_project_user(project.id, candidate.id, current_user, db)
+    if candidate.source_assets:
+        # The import runner retries OCR as well as extraction. Calling only the
+        # extraction pipeline made image-only failures impossible to recover.
+        await candidate_import_background_service.process_candidate_import(
+            project_id=project_id, candidate_id=candidate_id, should_autoname=False,
+        )
+    else:
+        await run_candidate_analysis(
+            db=db, project=project, candidate=candidate, pipeline=pipeline_service,
+        )
+    project, candidate = await get_candidate_for_project_user(project_id, candidate_id, current_user, db)
     return await _serialize_candidate(candidate, project=project, compute_commute=True, db=db)
 
 
@@ -501,5 +521,10 @@ async def delete_candidate(
 ):
     """Delete a candidate from a project owned by the current user."""
     _, candidate = await get_candidate_for_project_user(project_id, candidate_id, current_user, db)
+    assets = [(asset.storage_provider, asset.storage_key) for asset in candidate.source_assets]
     await db.delete(candidate)
     await db.flush()
+    await db.commit()
+    for provider, key in assets:
+        if provider == "local":
+            candidate_import_service.storage.delete_file(key)

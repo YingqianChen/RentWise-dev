@@ -18,6 +18,8 @@ from .candidate_field_evidence_service import (
     verify_field_claims,
 )
 
+from .upload_limits import MAX_SOURCE_TEXT_CHARS
+
 logger = logging.getLogger(__name__)
 
 REQUIRED_SUPPLEMENTAL_KEYS = {
@@ -264,6 +266,8 @@ class ExtractionService:
     async def extract_with_evidence(self, candidate: CandidateListing) -> CandidateExtractionResult:
         """Extract, verify, and merge source-backed field claims."""
         sources = self._collect_sources(candidate)
+        if sum(len(source.text) for source in sources) > MAX_SOURCE_TEXT_CHARS:
+            raise analysis_error("source_too_long", retryable=False)
         context = self._build_extraction_context(sources)
         if not context:
             raise analysis_error("no_usable_text", retryable=True)

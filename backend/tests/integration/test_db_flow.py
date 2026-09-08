@@ -326,6 +326,21 @@ class DatabaseFlowTests(TestCase):
         self.assertEqual(retried["user_decision"], "rejected")
         self.assertEqual(retried["status"], retried["candidate_assessment"]["status"])
 
+    def test_source_edit_failure_returns_saved_sources_after_rollback(self) -> None:
+        auth = self.client.post('/api/v1/auth/register', json={'email': self.email, 'password': 'db-flow-password'})
+        headers = {'Authorization': 'Bearer ' + auth.json()['access_token']}
+        project = self.client.post('/api/v1/projects', headers=headers, json={'title': 'Failed source edit'}).json()
+        with patch('app.services.extraction_service.chat_completion_json', AsyncMock(return_value=_valid_extraction_payload())):
+            imported = self.client.post(f"/api/v1/projects/{project['id']}/candidates/import", headers=headers, data={'name': 'Saved source', 'raw_listing_text': 'Wan Chai flat, rent 18000, deposit 2 months, lease 2 years.'})
+        self.assertEqual(imported.status_code, 201, imported.text)
+        url = f"/api/v1/projects/{project['id']}/candidates/{imported.json()['id']}"
+        with patch('app.services.extraction_service.chat_completion_json', AsyncMock(side_effect=TimeoutError('provider timed out'))):
+            edited = self.client.put(url, headers=headers, json={'raw_listing_text': 'Wan Chai updated rent 19000'})
+        self.assertEqual(edited.status_code, 200, edited.text)
+        self.assertEqual(edited.json()['raw_listing_text'], 'Wan Chai updated rent 19000')
+        self.assertEqual(edited.json()['processing_error_code'], 'llm_unavailable')
+        self.assertIsNone(edited.json()['cost_assessment'])
+
     def test_missing_llm_configuration_persists_safe_failed_state(self) -> None:
         register_response = self.client.post(
             "/api/v1/auth/register",
@@ -909,3 +924,57 @@ class DatabaseFlowTests(TestCase):
                 return set(result.scalars())
         finally:
             await engine.dispose()
+
+    def test_image_only_failure_retry_and_delete_remove_source_file(self):
+        from io import BytesIO
+        from PIL import Image
+        from app.services.file_storage_service import LocalFileStorageService
+        from app.services.ocr_service import OCRResult
+
+        auth = self.client.post('/api/v1/auth/register', json={'email': self.email, 'password': 'db-flow-password'})
+        headers = {'Authorization': 'Bearer ' + auth.json()['access_token']}
+        project = self.client.post('/api/v1/projects', headers=headers, json={'title': 'Image recovery'}).json()
+        stream = BytesIO()
+        Image.new('RGB', (8, 8), 'white').save(stream, format='PNG')
+        with patch('app.services.ocr_service.OCRService.extract_text', AsyncMock(return_value=OCRResult(status='failed', text=None))):
+            response = self.client.post(f"/api/v1/projects/{project['id']}/candidates/import", headers=headers, data={'name': 'Screenshot'}, files={'uploaded_images': ('listing.png', stream.getvalue(), 'image/png')})
+        self.assertEqual(response.status_code, 201, response.text)
+        url = f"/api/v1/projects/{project['id']}/candidates/{response.json()['id']}"
+        failed = self.client.get(url, headers=headers).json()
+        self.assertEqual(failed['processing_stage'], 'failed')
+        file_path = LocalFileStorageService().resolve_path(failed['source_assets'][0]['storage_key'])
+        self.assertTrue(file_path.exists())
+        with (
+            patch('app.services.ocr_service.OCRService.extract_text', AsyncMock(return_value=OCRResult(status='succeeded', text='Wan Chai flat, rent 18000, deposit 2 months, lease 2 years.'))),
+            patch('app.services.extraction_service.chat_completion_json', AsyncMock(return_value={'field_claims': [], 'supplemental': _valid_extraction_payload()['supplemental']})),
+        ):
+            retried = self.client.post(url + '/reassess', headers=headers)
+        self.assertEqual(retried.status_code, 200, retried.text)
+        self.assertEqual(retried.json()['processing_stage'], 'completed')
+        self.assertIn('Wan Chai', retried.json()['source_assets'][0]['ocr_text'])
+        deleted = self.client.delete(url, headers=headers)
+        self.assertEqual(deleted.status_code, 204, deleted.text)
+        self.assertFalse(file_path.exists())
+
+    def test_rates_period_changes_are_used_after_reanalysis(self):
+        auth = self.client.post('/api/v1/auth/register', json={'email': self.email, 'password': 'db-flow-password'})
+        headers = {'Authorization': 'Bearer ' + auth.json()['access_token']}
+        project = self.client.post('/api/v1/projects', headers=headers, json={'title': 'Rates period', 'max_budget': 18500}).json()
+        base_text = 'Wan Chai flat, rent 18000, deposit 2 months, lease 2 years. Management fees included; '
+        def payload(period):
+            result = _valid_extraction_payload()
+            for key, value, quote in [('management_fee_included', True, 'Management fees included'), ('rates_amount', 900, f'rates 900/{period} extra'), ('rates_included', False, f'rates 900/{period} extra')]:
+                result['field_claims'].append(dict(field_key=key, value=value, source_type='listing', source_asset_id=None, quote=quote, claim_kind='explicit', confidence='high'))
+            return result
+        with patch('app.services.extraction_service.chat_completion_json', AsyncMock(return_value=payload('quarter'))):
+            response = self.client.post(f"/api/v1/projects/{project['id']}/candidates/import", headers=headers, data={'name': 'Quarterly rates', 'raw_listing_text': base_text + 'rates 900/quarter extra'})
+        self.assertEqual(response.status_code, 201, response.text)
+        url = f"/api/v1/projects/{project['id']}/candidates/{response.json()['id']}"
+        detail = self.client.get(url, headers=headers).json()
+        self.assertEqual(detail['cost_assessment']['known_monthly_cost'], 18300)
+        self.assertNotEqual(detail['cost_assessment']['cost_risk_flag'], 'over_budget')
+        with patch('app.services.extraction_service.chat_completion_json', AsyncMock(return_value=payload('month'))):
+            changed = self.client.put(url, headers=headers, json={'raw_listing_text': base_text + 'rates 900/month extra'})
+        self.assertEqual(changed.status_code, 200, changed.text)
+        self.assertEqual(changed.json()['cost_assessment']['known_monthly_cost'], 18900)
+        self.assertEqual(changed.json()['cost_assessment']['cost_risk_flag'], 'over_budget')

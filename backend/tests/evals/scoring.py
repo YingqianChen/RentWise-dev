@@ -26,16 +26,25 @@ def _norm(text: str) -> str:
 
 def fuzzy_field_match(expected: Any, actual: Any) -> bool:
     """True when *actual* matches any value in *expected* (normalised)."""
-    if actual is None:
-        return expected is None
-    actual_s = _norm(str(actual))
-    if not actual_s or actual_s in {"unknown", "none", "n/a"}:
-        return expected is None
     accept = expected if isinstance(expected, (list, tuple)) else [expected]
     for candidate in accept:
         if candidate is None:
+            if actual is None or (isinstance(actual, str) and _norm(actual) in {"", "unknown", "n/a"}):
+                return True
             continue
-        if _norm(str(candidate)) in actual_s or actual_s in _norm(str(candidate)):
+        if actual is None:
+            continue
+        if isinstance(candidate, bool) or isinstance(actual, bool):
+            if type(candidate) is bool and type(actual) is bool and candidate == actual:
+                return True
+            continue
+        # Accept spelling/currency formatting only, never substrings: furnished
+        # must not match unfurnished, and 1800 must not match 18000.
+        def canonical(value):
+            text = _norm(str(value))
+            money = re.fullmatch(r"(?:hkd?\s*|\$\s*)?([\d,]+(?:\.\d+)?)", text)
+            return float(money.group(1).replace(",", "")) if money else text
+        if canonical(candidate) == canonical(actual):
             return True
     return False
 
@@ -68,6 +77,7 @@ class CaseResult:
     case_id: str
     fields: list[FieldResult] = field(default_factory=list)
     error: str | None = None
+    attempted: bool = True
 
     def field_passed(self, name: str) -> Optional[bool]:
         for fr in self.fields:
@@ -111,6 +121,8 @@ def aggregate_report(cases: list[CaseResult]) -> dict:
     return {
         "overall_pass_rate": round(total_passes / max(1, total_checks), 3),
         "total_cases": len(cases),
+        "attempted_cases": sum(case.attempted for case in cases),
+        "not_run_cases": sum(not case.attempted for case in cases),
         "total_checks": total_checks,
         "case_error_count": sum(1 for case in cases if case.error),
         "per_field": per_field,

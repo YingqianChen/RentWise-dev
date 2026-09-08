@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from sqlalchemy.orm import selectinload
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,7 +19,7 @@ from .candidate_assessment_service import CandidateAssessmentService
 from .candidate_field_evidence_service import CandidateFieldEvidenceService
 from .candidate_field_projection_service import CandidateFieldProjectionService
 from .clause_assessment_service import ClauseAssessmentService
-from .cost_assessment_service import CostAssessmentService
+from .cost_assessment_service import CostAssessmentService, rates_billing_period
 from .extraction_service import ExtractionService
 
 
@@ -52,8 +53,10 @@ class CandidatePipelineService:
             candidate_id=candidate.id,
             facts=extraction_result.field_facts,
         )
+        # Sessions disable autoflush; make the new quotes visible before cost calculation.
+        await db.flush()
         current_facts_result = await db.execute(
-            select(CandidateFieldFact).where(CandidateFieldFact.candidate_id == candidate.id)
+            select(CandidateFieldFact).options(selectinload(CandidateFieldFact.evidence)).where(CandidateFieldFact.candidate_id == candidate.id).execution_options(populate_existing=True)
         )
         current_facts = list(current_facts_result.scalars().all())
         if current_facts:
@@ -68,6 +71,7 @@ class CandidatePipelineService:
             candidate=candidate,
             extracted_info=extracted_info,
             clause_assessment=None,
+            field_facts=current_facts,
         )
         return candidate
 
@@ -148,10 +152,12 @@ class CandidatePipelineService:
         candidate: CandidateListing,
         extracted_info: CandidateExtractedInfo,
         clause_assessment: ClauseAssessment | None,
+        field_facts=None,
     ) -> None:
         cost_assessment = self.cost_service.assess(
             extracted_info,
             max_budget=project.max_budget,
+            rates_period=rates_billing_period(field_facts if field_facts is not None else candidate.field_facts),
         )
         if clause_assessment is None:
             clause_assessment = self.clause_service.assess(

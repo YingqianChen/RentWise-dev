@@ -133,6 +133,7 @@ function CorrectionEditor({
     <form onSubmit={submit} className="mt-4 space-y-3 rounded-lg border border-violet-200 bg-violet-50/50 p-3">
       <div>
         <label htmlFor={`correct-${fact.key}`} className="mb-1 block text-xs font-medium text-gray-700">Correct value</label>
+        {fact.key === "rates_amount" && <p className="mb-2 text-xs text-gray-600">Enter the monthly equivalent in HKD. For example, HKD 900 per quarter is HKD 300 per month. Leave it unknown if the billing period is unclear.</p>}
         {BOOLEAN_FIELDS.has(fact.key) ? (
           <select
             id={`correct-${fact.key}`}
@@ -233,7 +234,7 @@ export function CandidateFieldFacts({
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="text-xs font-medium text-gray-500">{fact.label}</p>
-                        <p className="mt-1 break-words text-base font-semibold text-gray-900">{displayValue(fact)}</p>
+                        <p className="mt-1 break-words text-base font-semibold text-gray-900">{displayValue(fact)}{fact.key === "rates_amount" && fact.user_action === "corrected" ? " / month" : ""}</p>
                       </div>
                       <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${state.tone}`}>
                         {state.label}

@@ -8,7 +8,8 @@ from pathlib import Path
 from uuid import uuid4
 import re
 
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile
+from .upload_limits import MAX_IMAGE_BYTES, MAX_IMAGE_PIXELS
 
 from ..core.config import settings
 
@@ -40,7 +41,22 @@ class LocalFileStorageService:
 
     def resolve_path(self, storage_key: str) -> Path:
         """Resolve a stored relative key back to an absolute local path."""
-        return self.root / Path(storage_key)
+        root = self.root.resolve()
+        target = (root / storage_key).resolve()
+        if not target.is_relative_to(root) or target == root:
+            raise ValueError("Storage key must stay inside the upload directory")
+        return target
+
+    def delete_file(self, storage_key: str) -> None:
+        """Remove only the named asset, never an arbitrary directory."""
+        self.resolve_path(storage_key).unlink(missing_ok=True)
+
+    def delete_project_files(self, project_id: str) -> None:
+        from uuid import UUID
+        import shutil
+        directory = self.resolve_path(f"candidate_uploads/{UUID(project_id)}")
+        if directory.exists():
+            shutil.rmtree(directory)
 
     async def save_candidate_image(
         self,
@@ -59,7 +75,17 @@ class LocalFileStorageService:
         relative_key = relative_dir / storage_name
         absolute_path = self.root / relative_key
 
-        content = await upload.read()
+        content = await upload.read(MAX_IMAGE_BYTES + 1)
+        if len(content) > MAX_IMAGE_BYTES:
+            raise HTTPException(status_code=413, detail="Each image must be 10 MB or smaller.")
+        try:
+            from PIL import Image
+            with Image.open(BytesIO(content)) as image:
+                if image.format not in {"PNG", "JPEG", "WEBP", "BMP"} or image.width * image.height > MAX_IMAGE_PIXELS:
+                    raise ValueError("Unsupported or oversized image")
+                image.verify()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Use a valid PNG, JPEG, WebP or BMP image of at most 25 megapixels.") from exc
         content = self._prepare_image_bytes(content=content, suffix=Path(safe_name).suffix.lower())
         absolute_path.write_bytes(content)
 

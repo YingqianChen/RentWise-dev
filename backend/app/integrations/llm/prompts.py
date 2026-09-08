@@ -17,7 +17,14 @@ Important rules:
    - Treat "免佣", "no agency fee", "半佣", and "half-month commission" as explicit agent_fee text when stated.
    - For included booleans, "由業主負責" / "landlord pays" means included for that named fee, while "租客自付" / "tenant pays" / "另計" means not included. Do not infer that utilities include rates unless rates are named; "差餉由業主負責" is explicit for rates.
    - "無傢俬" means unfurnished and "傢俬齊備" means furnished. "劏房", "subdivided unit", or "shared bathroom" should support suspected_sdu=true with a short source-grounded reason in supplemental.
-10. The supplemental object preserves a few existing non-core observations. Use "unknown" when absent. decision_signals and raw_facts must stay grounded in the supplied sources.
+10. Fee responsibility examples (keep the exact named fee and every conflicting quote):
+   - "差餉由業主負責" and "rates paid by landlord" => rates_included true, explicit. They mean the tenant has no additional rates payment; do not require the word "included".
+   - "差餉租客自付", "rates paid separately by tenant", "rates not included" => rates_included false, explicit.
+   - "包水電" / "utilities included" alone says NOTHING about rates. Omit rates_included when rates are not mentioned.
+   - "all-inclusive" alone is ambiguous: omit rates_included. "all-inclusive (management + rates + wifi)" explicitly includes rates.
+   - "rates included" in a listing and "rates extra" in a chat are TWO explicit claims with opposite values. Keep both; never pick a winner.
+   - Copy the complete fee clause, including any /month, /quarter, /year or 每季 billing period, into the amount quote. Do not drop the period. Keep the quoted amount; the application handles cost calculations.
+11. The supplemental object preserves a few existing non-core observations. Use "unknown" when absent. decision_signals and raw_facts must stay grounded in the supplied sources.
 
 Evidence:
 {text}

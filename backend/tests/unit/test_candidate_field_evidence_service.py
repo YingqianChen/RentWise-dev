@@ -165,3 +165,22 @@ class CandidateFieldEvidenceServiceTests(TestCase):
         )
         self.assertEqual(len(verified), 1)
         self.assertEqual(verified[0].source_asset_id, asset_id)
+
+
+def test_real_quote_does_not_prove_an_invented_amount_or_unnamed_fee():
+    from app.services.candidate_field_evidence_service import CandidateEvidenceSource, merge_field_claims, verify_field_claims
+    source = CandidateEvidenceSource(source_type='listing', text='Rent $18000. 包水電。')
+    raw = [
+        dict(field_key='monthly_rent', value=28000, source_type='listing', source_asset_id=None, quote='Rent $18000', claim_kind='explicit', confidence='high'),
+        dict(field_key='rates_included', value=True, source_type='listing', source_asset_id=None, quote='包水電', claim_kind='explicit', confidence='high'),
+    ]
+    facts = {f.field_key: f for f in merge_field_claims(verify_field_claims(raw, (source,)))}
+    assert facts['monthly_rent'].system_state == 'inferred'
+    assert facts['rates_included'].system_state == 'inferred'
+
+
+def test_money_quote_accepts_thousands_shorthand_without_partial_number_match():
+    from app.services.candidate_field_evidence_service import _quote_supports_amount
+    assert _quote_supports_amount(18500, 'Rent $18.5k')
+    assert _quote_supports_amount(18000, '月租1.8萬')
+    assert not _quote_supports_amount(1800, 'Rent 18000')

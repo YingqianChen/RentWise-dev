@@ -26,6 +26,7 @@ from .scoring import CaseResult, FieldResult, aggregate_report, fuzzy_field_matc
 
 # Per-field pass-rate floors. Start generous and tighten as quality improves.
 _FLOORS = {
+    "rates_included": 0.90,
     "monthly_rent": 0.70,
     "district": 0.70,
     "deposit": 0.50,
@@ -33,7 +34,7 @@ _FLOORS = {
     "furnished": 0.50,
     "lease_term": 0.50,
 }
-_OVERALL_FLOOR = 0.55
+_OVERALL_FLOOR = 0.80
 
 pytestmark = pytest.mark.eval
 
@@ -64,14 +65,24 @@ async def test_extraction_golden_set(golden_listings, eval_report_writer):
 
     service = ExtractionService()
     results: list[CaseResult] = []
+    consecutive_unavailable = 0
 
     for sample in golden_listings:
         candidate = _build_candidate(sample["raw_listing_text"])
         expected = sample.get("expected", {})
 
+        if consecutive_unavailable >= 2:
+            results.append(CaseResult(
+                case_id=sample["id"],
+                fields=[FieldResult(field_name, False, expected_value, None) for field_name, expected_value in expected.items()],
+                error="not_run_service_unavailable", attempted=False,
+            ))
+            continue
         try:
             info = await service.extract(candidate)
+            consecutive_unavailable = 0
         except AnalysisError as exc:
+            consecutive_unavailable = consecutive_unavailable + 1 if exc.code == "llm_unavailable" else 0
             results.append(
                 CaseResult(
                     case_id=sample["id"],

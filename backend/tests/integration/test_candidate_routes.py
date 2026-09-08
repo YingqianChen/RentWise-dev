@@ -19,6 +19,26 @@ from app.db.models import CandidateSourceAsset
 from tests.helpers import build_candidate, build_project, build_user
 
 
+async def test_failed_import_commit_cleans_uploaded_files():
+    from unittest.mock import Mock
+    import pytest
+    user = build_user()
+    project = build_project(user)
+    db = FakeAsyncSession()
+    db.commit.side_effect = RuntimeError('simulated database failure')
+    asset = CandidateSourceAsset(candidate_id=uuid.uuid4(), storage_provider='local', storage_key='candidate_uploads/test/pending.png', original_filename='pending.png', ocr_status='pending')
+    cleanup = Mock()
+    with (
+        patch.object(candidates_api, 'get_project_for_user', AsyncMock(return_value=project)),
+        patch.object(candidates_api.candidate_import_service, 'prepare_uploaded_images', AsyncMock(return_value=[asset])),
+        patch.object(candidates_api.candidate_import_service.storage, 'delete_file', cleanup),
+    ):
+        with pytest.raises(RuntimeError, match='simulated database failure'):
+            await candidates_api.import_candidate(project.id, BackgroundTasks(), name='Test import', raw_listing_text='Rent 18000', uploaded_images=[UploadFile(filename='pending.png', file=BytesIO(b'fixture'))], current_user=user, db=db)
+    db.rollback.assert_awaited_once()
+    cleanup.assert_called_once_with('candidate_uploads/test/pending.png')
+
+
 class _ScalarResult:
     def __init__(self, value):
         self._value = value

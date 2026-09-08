@@ -1,0 +1,6 @@
+"""Shared server-side bounds for candidate source material."""
+MAX_IMAGE_COUNT = 8
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+MAX_TOTAL_IMAGE_BYTES = 30 * 1024 * 1024
+MAX_SOURCE_TEXT_CHARS = 30000
+MAX_IMAGE_PIXELS = 25_000_000

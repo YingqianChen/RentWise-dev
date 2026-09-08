@@ -95,6 +95,22 @@ def _value_identity(value: object) -> tuple[str, object]:
     return (type(value).__name__, repr(value))
 
 
+
+def _quote_supports_amount(value: object, quote: str) -> bool:
+    text = _normalized_text(quote)
+    for match in re.finditer(r"(?<![\d.])(\d[\d,]*(?:\.\d+)?)\s*([k萬万]?)", text):
+        amount = float(match.group(1).replace(",", ""))
+        amount *= {"k": 1000, "萬": 10000, "万": 10000}.get(match.group(2), 1)
+        if amount == float(value):
+            return True
+    return False
+
+
+def _quote_names_fee(field_key: str, quote: str) -> bool:
+    pattern = r"\brates\b|差[餉饷]" if field_key == "rates_included" else r"management|管理[費费]"
+    return bool(re.search(pattern, quote, re.IGNORECASE))
+
+
 def verify_field_claims(
     raw_claims: list[object],
     sources: tuple[CandidateEvidenceSource, ...],
@@ -144,6 +160,16 @@ def verify_field_claims(
             value = validate_field_value(field_key, raw_claim.get("value"))
         except CandidateFieldValueError:
             continue
+
+        # A real quote is necessary but not sufficient: do not let a made-up
+        # amount or an unnamed fee become a decision-grade fact.
+        if claim_kind == "explicit":
+            if field_key in {"monthly_rent", "management_fee_amount", "rates_amount"} and not _quote_supports_amount(value, quote):
+                claim_kind = "inferred"
+                confidence = "low"
+            if field_key in {"rates_included", "management_fee_included"} and not _quote_names_fee(field_key, quote):
+                claim_kind = "inferred"
+                confidence = "low"
 
         identity = (
             field_key,

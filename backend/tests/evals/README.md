@@ -54,7 +54,7 @@ with some subset of `origin_station_any_of`, `mode_any_of`, `minutes_range`.
 Anonymise real data: strip phone numbers and the first part of street
 numbers. Fixtures are committed — treat them like test code.
 
-The listing set currently has 14 synthetic samples. Six newer samples cover
+The listing set currently has 20 synthetic samples. Six newer samples cover
 Cantonese/English mixed wording, separate fees, quarterly rates, subdivided or
 shared-bathroom units, tong lau repair wording, serviced apartments, and
 conflicting fee sources. The default quality test checks the fixture contract;
@@ -78,3 +78,31 @@ Rationale for current floors:
 - Tenancy RAG: top-3 recall against expected page ranges — 0.60 floor.
   Low ceiling because the source PDF is scanned; OCR sometimes emits
   garbled glyphs that knock out otherwise-relevant chunks.
+
+## 2026-09-09 quality review
+
+Six additional rates-responsibility cases cover landlord payment, tenant payment,
+utilities without rates, ambiguous all-inclusive wording, named inclusion and
+conflicting claims. Null expectations deliberately mean unknown/conflicted.
+These six samples were checked by the coding assistant; independent human review
+is still needed. The fixture metadata records that distinction.
+
+The matcher now requires a normalized full value or an explicit acceptable
+variant. It does not accept substrings (`furnished` / `unfurnished`, `1800` /
+`18000`). Booleans must be booleans. This breaks comparability with old scores.
+Full source wording in deposit, lease and station fields may require additional
+human-checked aliases; do not loosen matching just to turn a run green.
+
+Rates inclusion now has a 0.90 release floor and the overall floor is 0.80.
+These are targets, not claimed results. A run with any service errors fails even
+when its successful examples score well. Use
+`python -m scripts.report_extraction_eval` to summarize a saved result offline.
+
+The 2026-09-09 live run made 20 requests with SDK retries disabled: 3 completed,
+17 returned `llm_unavailable`. No further requests were made. The run is
+incomplete and does not establish model accuracy or prove the new prompt.
+The later local amount/fee evidence guards have not been re-evaluated live.
+Future runs should be paced to the account's provider limits, log safe HTTP
+status categories, and use a bounded request allowance. The harness now stops sending new
+requests after two consecutive service-unavailable results; untouched samples
+are recorded as not run, and the batch still fails. Never print keys or provider exception bodies.

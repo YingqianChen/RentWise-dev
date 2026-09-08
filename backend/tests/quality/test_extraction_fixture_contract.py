@@ -55,9 +55,9 @@ def test_golden_listing_fixture_matches_review_contract() -> None:
     listings = _load_jsonl(_LISTINGS_PATH)
     review = json.loads(_REVIEW_PATH.read_text(encoding="utf-8"))
 
-    assert len(listings) == 14
+    assert len(listings) == 20
     assert review["dataset"] == "synthetic_hk_rental_v1"
-    assert review["review_status"] == "manually_checked"
+    assert review["review_status"] == "assistant_extended"
 
     ids = [listing.get("id") for listing in listings]
     assert all(isinstance(sample_id, str) and sample_id.strip() for sample_id in ids)
@@ -72,7 +72,7 @@ def test_golden_listing_fixture_matches_review_contract() -> None:
         unsupported = set(expected) - _SUPPORTED_EXPECTED_FIELDS
         assert not unsupported, f"{listing['id']} uses unsupported fields: {sorted(unsupported)}"
         for field_name, expected_value in expected.items():
-            assert _is_non_empty(expected_value), (
+            assert expected_value is None or _is_non_empty(expected_value), (
                 f"{listing['id']} {field_name} has an empty expectation"
             )
         assert not _PHONE_PATTERN.search(raw_text), f"{listing['id']} appears to contain a phone number"

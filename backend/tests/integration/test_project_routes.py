@@ -16,6 +16,7 @@ class FakeAsyncSession:
     def __init__(self):
         self.delete = AsyncMock()
         self.flush = AsyncMock()
+        self.commit = AsyncMock()
         self.refresh = AsyncMock()
 
 

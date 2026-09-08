@@ -252,5 +252,8 @@ async def delete_project(
             detail="Project not found",
         )
 
+    from ...services.file_storage_service import LocalFileStorageService
     await db.delete(project)
     await db.flush()
+    await db.commit()
+    LocalFileStorageService().delete_project_files(str(project_id))

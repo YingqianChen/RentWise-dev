@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from typing import List, Optional
 
@@ -9,17 +10,15 @@ from ..db.models import CandidateExtractedInfo, CostAssessment
 
 
 def parse_monetary_amount(value: Optional[str]) -> Optional[float]:
-    """Parse monetary amount from free-form text."""
-    if not value or str(value).strip().lower() in {"unknown", "n/a", "none", ""}:
+    """Accept one unambiguous HKD amount; never extract a number from a range."""
+    if value is None or isinstance(value, bool):
         return None
-    cleaned = str(value).replace("$", "").replace("HKD", "").replace(",", "").strip()
-    match = re.search(r"[\d.]+", cleaned)
+    text = str(value).strip().lower()
+    match = re.fullmatch(r"(?:hkd?\s*\$?|\$)?\s*((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)\s*([k萬万]?)\s*(?:港元|元)?", text)
     if not match:
         return None
-    try:
-        return float(match.group())
-    except ValueError:
-        return None
+    amount = float(match.group(1).replace(",", "")) * {"": 1, "k": 1000, "萬": 10000, "万": 10000}[match.group(2)]
+    return amount if math.isfinite(amount) and amount >= 0 else None
 
 
 def parse_months_value(value: Optional[str]) -> Optional[float]:
@@ -27,9 +26,15 @@ def parse_months_value(value: Optional[str]) -> Optional[float]:
     if not value or str(value).strip().lower() in {"unknown", "n/a", "none", ""}:
         return None
     lower = str(value).lower()
+    if re.search(r"-\s*\d|\b(?:or|to|between|up to)\b|[或至~–]", lower):
+        return None
+    fraction = re.search(r"(?:(\d+)\s+)?(\d+)\s*/\s*(\d+)\s*(?:months?\b|個?月)", lower)
+    if fraction:
+        whole, numerator, denominator = fraction.groups()
+        return float(whole or 0) + int(numerator) / int(denominator) if int(denominator) else None
     if re.search(r"(?:half[ -]?(?:a[ -]?)?month|半(?:個)?月|半佣)", lower):
         return 0.5
-    match = re.search(r"(\d+(?:\.\d+)?)\s*(?:months?\b|個?月)", lower)
+    match = re.search(r"(?<![\d.])((?:\d+)?\.\d+|\d+)\s*(?:months?\b|個?月)", lower)
     if match:
         return float(match.group(1))
     numerals = {"一": 1, "二": 2, "兩": 2, "两": 2, "三": 3, "四": 4, "one": 1, "two": 2, "three": 3}
@@ -45,14 +50,18 @@ def parse_upfront_amount(value: Optional[str], monthly_rent: float) -> Optional[
     text = str(value or "").strip().lower()
     if text in {"0", "0.0", "none", "no agency fee", "no agency fees", "no commission", "免佣", "免佣金", "免按金", "no deposit"}:
         return 0.0
-    # Ranges/alternatives are not an agreed amount.
-    if re.search(r"\d\s*[-–~至]\s*\d|\bor\b|或", text):
+    # Reject foreign currencies and qualified/alternative sums rather than
+    # silently treating the first number as a fixed HKD payment.
+    if re.search(r"usd|us\$|cny|rmb|eur|gbp|人民幣|人民币|美元|-\s*(?:hkd?\s*\$?|\$)?\s*\d|\b(?:or|to|between|up to)\b|[或至~–]", text):
         return None
-    currency = re.search(r"(?:hkd?|\$)\s*([\d,]+(?:\.\d+)?)|([\d,]+(?:\.\d+)?)\s*(?:港元|元)", text)
-    if currency:
-        return float(next(group for group in currency.groups() if group).replace(",", ""))
+    currency_pattern = r"(?:hkd?\s*\$?|\$)\s*[\d,]+(?:\.\d+)?\s*[k萬万]?|[\d,]+(?:\.\d+)?\s*[k萬万]?\s*(?:港元|元)"
+    amounts = [parse_monetary_amount(item.group()) for item in re.finditer(currency_pattern, text)]
+    if amounts:
+        if None in amounts or len(set(amounts)) != 1:
+            return None
+        return amounts[0]
     months = parse_months_value(value)
-    return monthly_rent * months if months is not None else None
+    return round(monthly_rent * months, 2) if months is not None and math.isfinite(monthly_rent * months) else None
 
 
 def rates_billing_period(facts) -> str:

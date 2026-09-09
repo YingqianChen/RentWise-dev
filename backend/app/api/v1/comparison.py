@@ -98,13 +98,11 @@ async def compare_candidates(
 
     comparison = comparison_service.compare(project=project, candidates=candidates)
 
-    # Compute commute evidence for all candidates. Run sequentially because
-    # each call may write to the cache table — concurrent writes against the
-    # same async session would conflict. With caching warm this is still fast.
+    # Page reads only attach compatible cached commute evidence.
     candidates_by_id = {c.id: c for c in candidates}
     commute_results: dict = {}
     for cid, candidate in candidates_by_id.items():
-        commute_results[cid] = await commute_service.build_for_candidate(
+        commute_results[cid] = await commute_service.cached_for_candidate(
             project, candidate, db=db
         )
 

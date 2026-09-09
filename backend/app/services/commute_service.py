@@ -58,6 +58,14 @@ class CommuteService:
             )
         return self._resolver_agent
 
+    async def cached_for_candidate(self, project: SearchProject, candidate: CandidateListing, db: AsyncSession | None = None) -> CommuteEvidence | None:
+        """Read compatible saved evidence without maps, agents, or cache writes."""
+        if not project.commute_enabled or not project.commute_destination_query or not project.commute_mode:
+            return CommuteEvidence(status="not_configured")
+        if db is None:
+            return None
+        return await self._read_cache(db, candidate.id, _compute_config_signature(project, candidate))
+
     async def build_for_candidate(
         self,
         project: SearchProject,

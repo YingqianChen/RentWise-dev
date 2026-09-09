@@ -83,3 +83,19 @@ def test_old_confirmation_does_not_borrow_period_from_new_evidence():
     assert rates_billing_period([fact]) == "unknown"
     fact.user_action = "corrected"
     assert rates_billing_period([fact]) == "month"
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("1/2 month", 9000), ("1 1/2 months", 27000), (".5 months", 9000),
+    ("HKD 9k", 9000), ("HK$9,000", 9000), ("USD 9000", None),
+    ("US$9000", None), ("HKD -9000", None), ("HKD 8000 to HKD 9000", None),
+    ("HKD 8000-HKD 9000", None), ("1/0 month", None), ("-2 months", None),
+])
+def test_upfront_fraction_currency_and_alternative_boundaries(value, expected):
+    assert parse_upfront_amount(value, 18000) == expected
+
+
+@pytest.mark.parametrize("value,expected", [("18.5k", 18500), ("HKD 18,500", 18500), ("USD 18000", None), ("-18000", None), ("18000-20000", None), ("1e309", None), ("0", 0), ("18,00", None)])
+def test_money_parser_does_not_take_the_first_number_from_invalid_amount(value, expected):
+    from app.services.cost_assessment_service import parse_monetary_amount
+    assert parse_monetary_amount(value) == expected

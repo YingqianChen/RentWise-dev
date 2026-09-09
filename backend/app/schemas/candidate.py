@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, List, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .benchmark import BenchmarkEvidence
 from .commute import CommuteEvidence
@@ -43,9 +43,9 @@ class ExtractedInfoResponse(BaseModel):
     bedrooms: Optional[str]
     suspected_sdu: Optional[bool]
     sdu_detection_reason: Optional[str]
-    address_text: Optional[str] = None
-    building_name: Optional[str] = None
-    nearest_station: Optional[str] = None
+    address_text: Optional[str] = Field(None, max_length=500)
+    building_name: Optional[str] = Field(None, max_length=255)
+    nearest_station: Optional[str] = Field(None, max_length=255)
     location_confidence: str = "unknown"
     location_source: str = "unknown"
     decision_signals: List[DecisionSignalResponse] = Field(default_factory=list)
@@ -177,13 +177,20 @@ class CandidateImport(BaseModel):
 
 class CandidateUpdate(BaseModel):
     """Update candidate request"""
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def validate_name(cls, value):
+        if value is None or not isinstance(value, str) or not value.strip():
+            raise ValueError("Candidate name cannot be blank or null")
+        return value.strip()
     name: Optional[str] = Field(None, max_length=255)
     raw_listing_text: Optional[str] = None
     raw_chat_text: Optional[str] = None
     raw_note_text: Optional[str] = None
-    address_text: Optional[str] = None
-    building_name: Optional[str] = None
-    nearest_station: Optional[str] = None
+    address_text: Optional[str] = Field(None, max_length=500)
+    building_name: Optional[str] = Field(None, max_length=255)
+    nearest_station: Optional[str] = Field(None, max_length=255)
 
 
 class CandidateContactPlanResponse(BaseModel):

@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
+from uuid import UUID
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -24,7 +25,7 @@ def get_password_hash(password: str) -> str:
 
 def create_access_token(subject: str | Any, expires_delta: Optional[timedelta] = None) -> str:
     """Create a JWT access token"""
-    if expires_delta:
+    if expires_delta is not None:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(
@@ -38,7 +39,7 @@ def create_access_token(subject: str | Any, expires_delta: Optional[timedelta] =
 def decode_access_token(token: str) -> Optional[str]:
     """Decode a JWT access token and return the subject (user id)"""
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
-        return payload.get("sub")
-    except JWTError:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"], options={"require_exp": True, "require_sub": True})
+        return str(UUID(payload["sub"]))
+    except (JWTError, ValueError, TypeError, AttributeError):
         return None

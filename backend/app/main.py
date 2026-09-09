@@ -2,7 +2,11 @@
 
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+from .core.request_limits import RequestBodyLimitMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api.v1 import api_router
@@ -17,6 +21,17 @@ app = FastAPI(
 )
 
 logger = logging.getLogger(__name__)
+
+# Body bounds run before multipart/JSON parsing, inside the CORS wrapper.
+app.add_middleware(RequestBodyLimitMiddleware)
+
+
+@app.exception_handler(RequestValidationError)
+async def safe_validation_error(request: Request, exc: RequestValidationError):
+    # Do not echo passwords, source text, or unserializable validator contexts.
+    errors = [{key: error[key] for key in ("loc", "msg", "type") if key in error} for error in exc.errors()]
+    return JSONResponse(status_code=422, content={"detail": errors})
+
 
 # CORS middleware
 app.add_middleware(

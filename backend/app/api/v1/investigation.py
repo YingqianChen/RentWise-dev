@@ -18,7 +18,9 @@ from ...services.investigation_service import InvestigationService
 from .auth import get_current_user
 from .candidates import get_project_for_user
 
-router = APIRouter()
+from .work_guards import guard_candidate_import
+
+router = APIRouter(dependencies=[Depends(guard_candidate_import, scope="function")])
 investigation_service = InvestigationService()
 
 

@@ -110,7 +110,7 @@ class DatabaseFlowTests(TestCase):
 
         cls.alembic_cfg = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
         command.upgrade(cls.alembic_cfg, "head")
-        cls.client = TestClient(app)
+        cls.client = TestClient(app, client=(f"db-flow-{uuid.uuid4().hex}", 50000))
         cls.client.__enter__()
 
     @classmethod
@@ -1028,6 +1028,105 @@ class DatabaseFlowTests(TestCase):
                 pass
         finally:
             await engine.dispose()
+
+    def test_failed_logins_consume_shared_budget_even_when_request_rolls_back(self):
+        registered = self.client.post('/api/v1/auth/register', json={'email': self.email, 'password': 'db-flow-password'})
+        self.assertEqual(registered.status_code, 201, registered.text)
+        with patch.object(settings, 'LOGIN_EMAIL_HOURLY_LIMIT', 2):
+            for _ in range(2):
+                failed = self.client.post('/api/v1/auth/login', json={'email': self.email, 'password': 'wrong-password'})
+                self.assertEqual(failed.status_code, 401, failed.text)
+            blocked = self.client.post('/api/v1/auth/login', json={'email': self.email, 'password': 'db-flow-password'})
+        self.assertEqual(blocked.status_code, 429, blocked.text)
+        self.assertGreater(int(blocked.headers['Retry-After']), 0)
+        self.assertNotIn(self.email, blocked.text)
+
+    def test_account_quota_blocks_model_but_allows_rename_and_free_recovery(self):
+        headers, project_id, candidate_id = self._import_named_candidate()
+        url = f'/api/v1/projects/{project_id}/candidates/{candidate_id}'
+        source = self.client.get(url, headers=headers).json()['raw_listing_text']
+        with patch.object(settings, 'AI_OPERATIONS_DAILY_LIMIT', 1), patch('app.services.extraction_service.chat_completion_json', AsyncMock()) as model:
+            blocked = self.client.post(url + '/reassess', headers=headers)
+            self.assertEqual(blocked.status_code, 429, blocked.text)
+            renamed = self.client.put(url, headers=headers, json={'name': 'Renamed', 'raw_listing_text': source})
+            self.assertEqual(renamed.status_code, 200, renamed.text)
+            self.assertEqual(renamed.json()['name'], 'Renamed')
+            self.assertEqual(renamed.json()['processing_stage'], 'completed')
+            self.assertEqual(self.client.post(url + '/recover', headers=headers).status_code, 200)
+            model.assert_not_awaited()
+        # A rejected quota reservation never changes the existing analysis.
+        self.assertEqual(self.client.get(url, headers=headers).json()['processing_stage'], 'completed')
+
+    def test_concurrent_budget_reservations_never_exceed_limit(self):
+        asyncio.run(self._exercise_budget_concurrency())
+
+    async def _exercise_budget_concurrency(self):
+        from app.services.rate_limit_service import Budget, BudgetExceeded, budget_key, consume_budgets
+        from app.db.models import RequestBudget
+        engine = create_async_engine(settings.DATABASE_URL)
+        identity = str(uuid.uuid4())
+        async def reserve():
+            try:
+                await consume_budgets([Budget('test_parallel', identity, 3, 86400)], engine=engine)
+                return True
+            except BudgetExceeded:
+                return False
+        try:
+            results = await asyncio.gather(*(reserve() for _ in range(12)))
+            self.assertEqual(sum(results), 3)
+            async with engine.begin() as conn:
+                used = await conn.scalar(select(RequestBudget.used).where(RequestBudget.scope == 'test_parallel', RequestBudget.identity_hash == budget_key(identity)))
+                self.assertEqual(used, 3)
+                # An expired historical window does not consume today's quota.
+                from datetime import datetime, timedelta, timezone
+                await conn.execute(RequestBudget.__table__.insert().values(scope='test_expiry', identity_hash=budget_key(identity), window_start=datetime.now(timezone.utc)-timedelta(days=2), expires_at=datetime.now(timezone.utc)-timedelta(days=1), used=3))
+            await consume_budgets([Budget('test_expiry', identity, 1, 86400)], engine=engine)
+        finally:
+            async with engine.begin() as conn:
+                await conn.execute(delete(RequestBudget).where(RequestBudget.identity_hash == budget_key(identity)))
+            await engine.dispose()
+
+    def test_parallel_dashboard_reads_preserve_unique_tasks_and_user_notes(self):
+        from concurrent.futures import ThreadPoolExecutor
+        headers, project_id, _ = self._import_named_candidate()
+        url = f'/api/v1/projects/{project_id}/dashboard'
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            responses = list(pool.map(lambda _: self.client.get(url, headers=headers), range(8)))
+        for response in responses:
+            self.assertEqual(response.status_code, 200, response.text)
+        current = self.client.get(f'/api/v1/projects/{project_id}/investigation/current', headers=headers).json()
+        self.assertTrue(current['open_items'])
+        item_id = current['open_items'][0]['id']
+        edited = self.client.patch(f'/api/v1/projects/{project_id}/investigation/items/{item_id}', headers=headers, json={'status': 'resolved', 'note': 'Saved in the concurrency test'})
+        self.assertEqual(edited.status_code, 200, edited.text)
+        refreshed = self.client.get(f'/api/v1/projects/{project_id}/investigation/current', headers=headers).json()
+        closed = next(item for item in refreshed['closed_items'] if item['id'] == item_id)
+        self.assertEqual(closed['note'], 'Saved in the concurrency test')
+
+    def test_reading_candidates_and_comparison_never_computes_commute_or_calls_ai(self):
+        headers, project_id, candidate_id = self._import_named_candidate()
+        with patch('app.services.extraction_service.chat_completion_json', AsyncMock(return_value=_valid_extraction_payload())):
+            other = self.client.post(f'/api/v1/projects/{project_id}/candidates/import', headers=headers, data={'name': 'Other listing', 'raw_listing_text': 'Wan Chai flat, rent 18000, deposit 2 months, lease 2 years.'}).json()
+        self.client.put(f'/api/v1/projects/{project_id}', headers=headers, json={'commute_destination_query': 'Central', 'commute_mode': 'transit'})
+        with patch('app.services.commute_service.CommuteService.build_for_candidate', AsyncMock(side_effect=AssertionError('Read attempted external commute calculation'))) as compute, patch('app.integrations.llm.utils.chat_completion_json', AsyncMock(side_effect=AssertionError('Read attempted AI call'))) as model:
+            for path in [f'/api/v1/projects/{project_id}/candidates', f'/api/v1/projects/{project_id}/candidates/{candidate_id}']:
+                result = self.client.get(path, headers=headers)
+                self.assertEqual(result.status_code, 200, result.text)
+            comparison = self.client.post(f'/api/v1/projects/{project_id}/compare', headers=headers, json={'candidate_ids': [candidate_id, other['id']]})
+            self.assertEqual(comparison.status_code, 200, comparison.text)
+            compute.assert_not_awaited()
+            model.assert_not_awaited()
+
+    def test_http_validation_never_echoes_password_or_returns_db_error_for_bad_patches(self):
+        headers, project_id, candidate_id = self._import_named_candidate()
+        for payload in [{'title': None}, {'title': '   '}, {'status': None}, {'max_budget': 2**40}]:
+            response = self.client.put(f'/api/v1/projects/{project_id}', headers=headers, json=payload)
+            self.assertEqual(response.status_code, 422, response.text)
+        response = self.client.put(f'/api/v1/projects/{project_id}/candidates/{candidate_id}', headers=headers, json={'name': None})
+        self.assertEqual(response.status_code, 422, response.text)
+        bad = self.client.post('/api/v1/auth/register', json={'email': 'bad', 'password': 'must-not-appear'})
+        self.assertEqual(bad.status_code, 422, bad.text)
+        self.assertNotIn('must-not-appear', bad.text)
 
     def test_zz_candidate_field_migration_round_trip(self) -> None:
         expected_tables = {

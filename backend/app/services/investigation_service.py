@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import InvestigationItem, SearchProject
 from ..agent.investigation_graph import investigation_graph
+from .candidate_work_lock import _lock_key
 from ..schemas.dashboard import InvestigationItemSummary
 
 
@@ -31,6 +32,7 @@ class InvestigationService:
         generated_items: list[InvestigationItemSummary],
     ) -> tuple[list[InvestigationItemSummary], list[InvestigationItemSummary]]:
         """Persist current generated tasks while preserving user progress."""
+        await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _lock_key("investigation", project.id)})
         result = await db.execute(
             select(InvestigationItem).where(InvestigationItem.project_id == project.id)
         )

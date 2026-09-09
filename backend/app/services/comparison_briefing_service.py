@@ -1,26 +1,18 @@
-"""LLM-assisted compare briefing with deterministic fallback."""
+"""Compare briefing derived locally from the evaluated candidate groups."""
 
 from __future__ import annotations
 
-import logging
 
 from typing import Iterable
 
 from ..db.models import CandidateListing, SearchProject
-from ..integrations.llm.prompts import COMPARE_BRIEFING_PROMPT
-from ..integrations.llm.utils import chat_completion_json
 from ..schemas.comparison import (
-    CompareActionTarget,
     CompareAgentBriefing,
-    CompareCandidateCard,
     CompareDecisionGroups,
     CompareDifference,
     CompareRecommendedActions,
     CompareSummary,
 )
-
-logger = logging.getLogger(__name__)
-
 
 class ComparisonBriefingService:
     """Build a top-level compare briefing without changing compare outcomes."""
@@ -35,36 +27,9 @@ class ComparisonBriefingService:
         key_differences: list[CompareDifference],
         recommended_actions: CompareRecommendedActions,
     ) -> CompareAgentBriefing:
-        fallback = self._fallback_briefing(
-            summary=summary,
-            groups=groups,
-            recommended_actions=recommended_actions,
-        )
-
-        prompt = COMPARE_BRIEFING_PROMPT.format(
-            project_context=self._project_context(project),
-            compare_summary=self._compare_summary(summary),
-            decision_groups=self._decision_groups(groups),
-            key_differences=self._differences(key_differences),
-            recommended_actions=self._recommended_actions(recommended_actions),
-        )
-
-        try:
-            data = await chat_completion_json(
-                prompt=prompt,
-                temperature=0.2,
-                max_tokens=350,
-            )
-            return CompareAgentBriefing(
-                current_take=self._clean_field(data.get("current_take"), fallback.current_take),
-                why_now=self._clean_field(data.get("why_now"), fallback.why_now),
-                what_could_change=self._clean_field(data.get("what_could_change"), fallback.what_could_change),
-                today_s_move=self._clean_field(data.get("today_s_move"), fallback.today_s_move),
-                confidence_note=self._clean_field(data.get("confidence_note"), fallback.confidence_note),
-            )
-        except Exception as exc:
-            logger.error("Compare briefing generation failed: %s", exc)
-            return fallback
+        # A page refresh must not invoke AI or paraphrase deterministic outcomes
+        # into a stronger recommendation than the evidence supports.
+        return self._fallback_briefing(summary=summary, groups=groups, recommended_actions=recommended_actions)
 
     def _fallback_briefing(
         self,
@@ -130,67 +95,3 @@ class ComparisonBriefingService:
             today_s_move=today_s_move,
             confidence_note=summary.confidence_note,
         )
-
-    def _project_context(self, project: SearchProject) -> str:
-        preferred = ", ".join(project.preferred_districts) if project.preferred_districts else "No preferred districts stated"
-        return (
-            f"Budget cap: {project.max_budget or 'unknown'}\n"
-            f"Preferred districts: {preferred}\n"
-            f"Move-in target: {project.move_in_target or 'unknown'}"
-        )
-
-    def _compare_summary(self, summary: CompareSummary) -> str:
-        return (
-            f"Headline: {summary.headline}\n"
-            f"Summary: {summary.summary}\n"
-            f"Confidence note: {summary.confidence_note}"
-        )
-
-    def _decision_groups(self, groups: CompareDecisionGroups) -> str:
-        lines: list[str] = []
-        if groups.best_current_option is not None:
-            lines.append(self._card_line("Best current option", groups.best_current_option))
-        for card in groups.viable_alternatives:
-            lines.append(self._card_line("Viable alternative", card))
-        for card in groups.not_ready_for_fair_comparison:
-            lines.append(self._card_line("Not ready", card))
-        for card in groups.likely_drop:
-            lines.append(self._card_line("Likely drop", card))
-        return "\n".join(lines) if lines else "No decision groups available"
-
-    def _card_line(self, prefix: str, card: CompareCandidateCard) -> str:
-        blocker = f" | blocker: {card.open_blocker}" if card.open_blocker else ""
-        return (
-            f"{prefix}: {card.name} | recommendation: {card.top_recommendation} | "
-            f"action: {card.next_action} | why: {card.decision_explanation} | "
-            f"tradeoff: {card.main_tradeoff}{blocker}"
-        )
-
-    def _differences(self, differences: list[CompareDifference]) -> str:
-        if not differences:
-            return "No key differences available"
-        return "\n".join(f"- {item.title}: {item.summary}" for item in differences)
-
-    def _recommended_actions(self, actions: CompareRecommendedActions) -> str:
-        parts: list[str] = []
-        if actions.contact_first is not None:
-            parts.append(self._action_target("Contact first", actions.contact_first))
-        if actions.viewing_candidate is not None:
-            parts.append(self._action_target("Viewing candidate", actions.viewing_candidate))
-        if actions.questions_to_ask:
-            parts.append("Questions: " + " | ".join(actions.questions_to_ask))
-        if actions.deprioritize:
-            parts.append(
-                "Deprioritize: "
-                + " | ".join(f"{item.name} ({item.reason})" for item in actions.deprioritize)
-            )
-        return "\n".join(parts) if parts else "No recommended actions available"
-
-    def _action_target(self, label: str, target: CompareActionTarget) -> str:
-        return f"{label}: {target.name} - {target.reason}"
-
-    def _clean_field(self, value: object, fallback: str) -> str:
-        if not isinstance(value, str):
-            return fallback
-        cleaned = " ".join(value.split())
-        return cleaned if cleaned else fallback

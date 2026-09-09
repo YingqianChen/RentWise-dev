@@ -13,7 +13,7 @@ from tests.helpers import build_candidate, build_project, build_user
 
 
 class ComparisonBriefingServiceTests(IsolatedAsyncioTestCase):
-    async def test_falls_back_to_deterministic_briefing_when_llm_fails(self):
+    async def test_briefing_works_without_a_model(self):
         user = build_user()
         project = build_project(user)
         lead = build_candidate(project, name="Stable Lead", status="follow_up", next_best_action="schedule_viewing")
@@ -26,7 +26,7 @@ class ComparisonBriefingServiceTests(IsolatedAsyncioTestCase):
         compare_result = ComparisonService().compare(project, [lead, build_candidate(project, name="Needs Work")])
         service = ComparisonBriefingService()
 
-        with patch("app.services.comparison_briefing_service.chat_completion_json", side_effect=RuntimeError("boom")):
+        with patch("app.integrations.llm.utils.chat_completion_json", side_effect=RuntimeError("boom")):
             briefing = await service.build(
                 project=project,
                 candidates=[lead],
@@ -40,7 +40,7 @@ class ComparisonBriefingServiceTests(IsolatedAsyncioTestCase):
         self.assertTrue(briefing.today_s_move)
         self.assertEqual(briefing.confidence_note, compare_result["summary"].confidence_note)
 
-    async def test_uses_llm_fields_when_available(self):
+    async def test_page_briefing_does_not_call_model_or_override_confidence(self):
         user = build_user()
         project = build_project(user)
         lead = build_candidate(project, name="Stable Lead", status="follow_up", next_best_action="schedule_viewing")
@@ -48,7 +48,7 @@ class ComparisonBriefingServiceTests(IsolatedAsyncioTestCase):
         service = ComparisonBriefingService()
 
         with patch(
-            "app.services.comparison_briefing_service.chat_completion_json",
+            "app.integrations.llm.utils.chat_completion_json",
             return_value={
                 "current_take": "Stable Lead is the easiest option to trust today.",
                 "why_now": "Its cost and lease picture are clearer than the rest.",
@@ -56,7 +56,7 @@ class ComparisonBriefingServiceTests(IsolatedAsyncioTestCase):
                 "today_s_move": "Push Stable Lead first and resolve one fee blocker on Needs Work.",
                 "confidence_note": "The lead is real, but one missing cost detail could still reshape the shortlist.",
             },
-        ):
+        ) as model:
             briefing = await service.build(
                 project=project,
                 candidates=[lead],
@@ -66,9 +66,10 @@ class ComparisonBriefingServiceTests(IsolatedAsyncioTestCase):
                 recommended_actions=compare_result["recommended_next_actions"],
             )
 
-        self.assertIn("trust", briefing.current_take.lower())
-        self.assertIn("clearer", briefing.why_now.lower())
-        self.assertIn("fee", briefing.what_could_change.lower())
+        model.assert_not_called()
+        self.assertTrue(briefing.current_take)
+        self.assertEqual(briefing.confidence_note, compare_result["summary"].confidence_note)
+
 
 
 if __name__ == "__main__":

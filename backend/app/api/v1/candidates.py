@@ -8,6 +8,7 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.params import Form as FormParam
 from fastapi.params import File as FileParam
+from pydantic import ValidationError
 from sqlalchemy import func, inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
@@ -23,6 +24,7 @@ from ...db.models import (
 )
 from ...schemas.candidate import (
     CandidateContactPlanResponse,
+    CandidateImport,
     CandidateFieldActionRequest,
     CandidateListResponse,
     CandidateResponse,
@@ -44,7 +46,8 @@ from ...services.candidate_field_serialization_service import serialize_candidat
 from ...services.candidate_pipeline_service import CandidatePipelineService
 from ...services.commute_service import CommuteService
 from .auth import get_current_user
-from .work_guards import guard_candidate_import, guard_candidate_write
+from .request_budgets import reserve_ai_operation
+from .work_guards import guard_candidate_import, guard_candidate_write, guard_project_write
 
 router = APIRouter()
 pipeline_service = CandidatePipelineService()
@@ -113,7 +116,7 @@ async def _serialize_candidate(
 
     updates: dict = {"benchmark": None}
     if compute_commute and project is not None:
-        updates["commute_evidence"] = await commute_service.build_for_candidate(
+        updates["commute_evidence"] = await commute_service.cached_for_candidate(
             project, candidate, db=db
         )
     return response.model_copy(update=updates)
@@ -193,10 +196,16 @@ async def import_candidate(
     project = await get_project_for_user(project_id, current_user, db)
     name = _coerce_optional_text(name)
     source_type = _coerce_optional_text(source_type)
+    source_type = source_type.strip() or None if source_type else None
     raw_listing_text = _coerce_optional_text(raw_listing_text)
     raw_chat_text = _coerce_optional_text(raw_chat_text)
     raw_note_text = _coerce_optional_text(raw_note_text)
     uploaded_images = _coerce_uploaded_images(uploaded_images)
+    name = name.strip() if name else None
+    try:
+        CandidateImport(name=name or None, source_type=source_type, raw_listing_text=raw_listing_text, raw_chat_text=raw_chat_text, raw_note_text=raw_note_text)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors(include_input=False, include_context=False)) from exc
     validate_source_text(raw_listing_text, raw_chat_text, raw_note_text)
     validate_uploaded_images(uploaded_images)
 
@@ -214,6 +223,7 @@ async def import_candidate(
         count_result = await db.execute(select(func.count()).where(CandidateListing.project_id == project.id))
         candidate_name = f"Candidate {int(count_result.scalar() or 0) + 1}"
 
+    await reserve_ai_operation(current_user.id)
     candidate = CandidateListing(
         project_id=project.id,
         name=candidate_name,
@@ -318,7 +328,7 @@ async def update_candidate(
     update_data = candidate_data.model_dump(exclude_unset=True)
     text_fields = {"raw_listing_text", "raw_chat_text", "raw_note_text"}
     location_fields = {"address_text", "building_name", "nearest_station"}
-    should_reassess = any(field in update_data for field in text_fields)
+    should_reassess = any(field in update_data and update_data[field] != getattr(candidate, field) for field in text_fields)
 
     location_updates = {k: v for k, v in update_data.items() if k in location_fields}
 
@@ -344,6 +354,7 @@ async def update_candidate(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="At least one text field is required",
             )
+        await reserve_ai_operation(current_user.id)
         analysis_succeeded = await run_candidate_analysis(
             db=db,
             project=project,
@@ -403,6 +414,7 @@ async def reassess_candidate(
 ):
     """Rerun assessments for a candidate."""
     project, candidate = await get_candidate_for_project_user(project_id, candidate_id, current_user, db)
+    await reserve_ai_operation(current_user.id)
     if candidate.source_assets:
         # The import runner retries OCR as well as extraction. Calling only the
         # extraction pipeline made image-only failures impossible to recover.
@@ -500,6 +512,7 @@ async def generate_candidate_contact_plan(
             status_code=status.HTTP_409_CONFLICT,
             detail="Candidate analysis must complete successfully before generating a contact plan.",
         )
+    await reserve_ai_operation(current_user.id)
     return await candidate_contact_plan_service.build(project=project, candidate=candidate)
 
 
@@ -533,7 +546,7 @@ async def reject_candidate(
     return await _serialize_candidate(candidate, project=project, compute_commute=True, db=db)
 
 
-@router.delete("/projects/{project_id}/candidates/{candidate_id}", dependencies=[Depends(guard_candidate_write, scope="function")], status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/projects/{project_id}/candidates/{candidate_id}", dependencies=[Depends(guard_project_write, scope="function")], status_code=status.HTTP_204_NO_CONTENT)
 async def delete_candidate(
     project_id: UUID,
     candidate_id: UUID,

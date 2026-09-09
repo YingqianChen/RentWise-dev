@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .dashboard import InvestigationItemSummary, PriorityCandidate
 
@@ -35,3 +35,10 @@ class InvestigationItemUpdate(BaseModel):
 
     status: Optional[Literal["open", "resolved", "dismissed"]] = None
     note: Optional[str] = Field(default=None, max_length=2000)
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def status_cannot_be_null(cls, value):
+        if value is None:
+            raise ValueError("Status cannot be null")
+        return value

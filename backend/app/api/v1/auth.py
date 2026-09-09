@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import ValidationError
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.security import (
@@ -14,6 +15,8 @@ from ...core.security import (
 from ...db.database import get_db
 from ...db.models import User
 from ...schemas.auth import UserCreate, UserLogin, Token, UserResponse
+
+from .request_budgets import guard_registration, guard_login, limit_login_identity
 
 router = APIRouter()
 security = HTTPBearer()
@@ -44,7 +47,7 @@ async def get_current_user(
     return user
 
 
-@router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED, dependencies=[Depends(guard_registration)])
 async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
     """Register a new user"""
     # Check if email already exists
@@ -61,7 +64,11 @@ async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
         password_hash=get_password_hash(user_data.password),
     )
     db.add(user)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Email already registered") from exc
 
     # Create access token
     access_token = create_access_token(subject=str(user.id))
@@ -90,7 +97,7 @@ async def _parse_login_payload(request: Request) -> UserLogin:
                     detail="Empty request body",
                 )
             payload = json.loads(body)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, UnicodeDecodeError):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Invalid JSON body",
@@ -101,17 +108,18 @@ async def _parse_login_payload(request: Request) -> UserLogin:
     except ValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=exc.errors(),
+            detail=exc.errors(include_input=False, include_context=False),
         )
 
 
-@router.post("/login", response_model=Token)
+@router.post("/login", response_model=Token, dependencies=[Depends(guard_login)])
 async def login(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """Login and get access token. Accepts JSON or form-encoded payloads."""
     user_data = await _parse_login_payload(request)
+    await limit_login_identity(user_data.email)
     # Find user
     result = await db.execute(select(User).where(User.email == user_data.email))
     user = result.scalar_one_or_none()

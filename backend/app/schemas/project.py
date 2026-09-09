@@ -4,7 +4,7 @@ from datetime import date, datetime
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 _DEPARTURE_WINDOW_PATTERN = "^(now|peak_morning|peak_evening|peak_both|custom)$"
@@ -40,19 +40,24 @@ def _normalize_preference_list(value: object) -> list[str]:
 class ProjectCreate(BaseModel):
     """Create project request"""
     title: str = Field(..., min_length=1, max_length=255)
-    max_budget: Optional[int] = Field(None, ge=0)
+    max_budget: Optional[int] = Field(None, ge=0, le=2_147_483_647)
     preferred_districts: List[str] = Field(default_factory=list)
     must_have: List[str] = Field(default_factory=list)
     deal_breakers: List[str] = Field(default_factory=list)
     move_in_target: Optional[date] = None
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=10000)
     # Commute configuration
-    commute_destination_label: Optional[str] = None
-    commute_destination_query: Optional[str] = None
+    commute_destination_label: Optional[str] = Field(None, max_length=255)
+    commute_destination_query: Optional[str] = Field(None, max_length=500)
     commute_mode: Optional[str] = Field(None, pattern="^(transit|driving|walking)$")
     max_commute_minutes: Optional[int] = Field(None, ge=1, le=180)
     commute_departure_window: Optional[str] = Field(None, pattern=_DEPARTURE_WINDOW_PATTERN)
     commute_departure_time: Optional[str] = Field(None, pattern=_HHMM_PATTERN)
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def strip_title(cls, value):
+        return value.strip() if isinstance(value, str) else value
 
     _clean_preference_lists = field_validator(
         "preferred_districts", "must_have", "deal_breakers", mode="before"
@@ -61,21 +66,33 @@ class ProjectCreate(BaseModel):
 
 class ProjectUpdate(BaseModel):
     """Update project request"""
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_null_required_fields(cls, data):
+        if isinstance(data, dict) and any(key in data and data[key] is None for key in ("title", "status", "commute_departure_window")):
+            raise ValueError("Title, status and departure window cannot be null")
+        return data
     title: Optional[str] = Field(None, min_length=1, max_length=255)
     status: Optional[str] = Field(None, pattern="^(active|archived|completed)$")
-    max_budget: Optional[int] = Field(None, ge=0)
+    max_budget: Optional[int] = Field(None, ge=0, le=2_147_483_647)
     preferred_districts: Optional[List[str]] = None
     must_have: Optional[List[str]] = None
     deal_breakers: Optional[List[str]] = None
     move_in_target: Optional[date] = None
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=10000)
     # Commute configuration
-    commute_destination_label: Optional[str] = None
-    commute_destination_query: Optional[str] = None
+    commute_destination_label: Optional[str] = Field(None, max_length=255)
+    commute_destination_query: Optional[str] = Field(None, max_length=500)
     commute_mode: Optional[str] = Field(None, pattern="^(transit|driving|walking)$")
     max_commute_minutes: Optional[int] = Field(None, ge=1, le=180)
     commute_departure_window: Optional[str] = Field(None, pattern=_DEPARTURE_WINDOW_PATTERN)
     commute_departure_time: Optional[str] = Field(None, pattern=_HHMM_PATTERN)
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def strip_title(cls, value):
+        return value.strip() if isinstance(value, str) else value
 
     _clean_preference_lists = field_validator(
         "preferred_districts", "must_have", "deal_breakers", mode="before"
@@ -97,8 +114,8 @@ class ProjectResponse(BaseModel):
     move_in_target: Optional[date]
     notes: Optional[str]
     commute_enabled: bool = False
-    commute_destination_label: Optional[str] = None
-    commute_destination_query: Optional[str] = None
+    commute_destination_label: Optional[str] = Field(None, max_length=255)
+    commute_destination_query: Optional[str] = Field(None, max_length=500)
     commute_mode: Optional[str] = None
     max_commute_minutes: Optional[int] = None
     commute_destination_lat: Optional[float] = None

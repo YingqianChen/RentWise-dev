@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     COMMUTE_AGENT_ENABLED: bool = True
     COMMUTE_AGENT_MAX_STEPS: int = 6
 
+    # Shared admission limits. Failed attempts count; UTC day boundaries apply.
+    REGISTRATION_HOURLY_LIMIT: int = Field(default=30, ge=1, le=10000)
+    LOGIN_MINUTE_LIMIT: int = Field(default=20, ge=1, le=10000)
+    LOGIN_EMAIL_HOURLY_LIMIT: int = Field(default=30, ge=1, le=10000)
+    AI_OPERATIONS_MINUTE_LIMIT: int = Field(default=5, ge=1, le=1000)
+    AI_OPERATIONS_DAILY_LIMIT: int = Field(default=50, ge=1, le=10000)
+
     # Application
     APP_ENV: str = "development"  # development | production
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days

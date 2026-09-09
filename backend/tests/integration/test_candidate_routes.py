@@ -8,6 +8,8 @@ from pathlib import Path
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from fastapi import BackgroundTasks
 from fastapi import HTTPException
 from starlette.datastructures import UploadFile
@@ -17,6 +19,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from app.api.v1 import candidates as candidates_api
 from app.db.models import CandidateSourceAsset
 from tests.helpers import build_candidate, build_project, build_user
+
+
+@pytest.fixture(autouse=True)
+def mock_external_budget_storage():
+    # These are handler unit tests with fake sessions. Real budget enforcement
+    # and rollback independence are covered by test_db_flow.
+    with patch.object(candidates_api, "reserve_ai_operation", AsyncMock()):
+        yield
 
 
 async def test_failed_import_commit_cleans_uploaded_files():

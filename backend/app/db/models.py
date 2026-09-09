@@ -626,3 +626,14 @@ Index("ix_candidate_field_revisions_actor_user_id", CandidateFieldRevision.actor
 Index("ix_investigation_items_project_id", InvestigationItem.project_id)
 Index("ix_investigation_items_candidate_id", InvestigationItem.candidate_id)
 Index("ix_investigation_items_status", InvestigationItem.status)
+
+
+class RequestBudget(Base):
+    """Hashed, expiring fixed-window request counters shared by all workers."""
+    __tablename__ = "request_budgets"
+    __table_args__ = (CheckConstraint("used > 0", name="used_positive"),)
+    scope: Mapped[str] = mapped_column(String(32), primary_key=True)
+    identity_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    used: Mapped[int] = mapped_column(Integer, nullable=False)

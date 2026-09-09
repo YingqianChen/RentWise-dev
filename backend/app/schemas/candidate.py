@@ -96,6 +96,8 @@ class CandidateFieldFactResponse(BaseModel):
     system_state: str
     system_confidence: str
     user_action: Optional[str] = None
+    billing_period: Optional[Literal["month", "quarter", "year", "unknown"]] = None
+    system_billing_period: Optional[Literal["month", "quarter", "year", "unknown"]] = None
     user_note: Optional[str] = None
     user_updated_at: Optional[datetime] = None
     evidence: List[CandidateFieldEvidenceResponse] = Field(default_factory=list)
@@ -105,6 +107,7 @@ class CandidateFieldActionRequest(BaseModel):
     """Confirm, correct, clear, or revert one core candidate field."""
 
     action: Literal["confirm", "correct", "mark_unknown", "revert"]
+    billing_period: Optional[Literal["month", "quarter", "year", "unknown"]] = None
     value: Any = None
     note: Optional[str] = Field(default=None, max_length=1000)
 

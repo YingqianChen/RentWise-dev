@@ -163,7 +163,11 @@ export interface CandidateFieldEvidence {
   confidence: "high" | "medium" | "low";
 }
 
+export type BillingPeriod = "month" | "quarter" | "year" | "unknown";
+
 export interface CandidateFieldFact {
+  billing_period?: BillingPeriod | null;
+  system_billing_period?: BillingPeriod | null;
   key: string;
   label: string;
   group: "monthly_cost" | "move_in_and_lease" | "repairs_and_timing" | "location";
@@ -181,6 +185,7 @@ export interface CandidateFieldFact {
 }
 
 export interface CandidateFieldActionRequest {
+  billing_period?: BillingPeriod;
   action: "confirm" | "correct" | "mark_unknown" | "revert";
   value?: number | boolean | string;
   note?: string;

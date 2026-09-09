@@ -93,13 +93,13 @@ async def _parse_login_payload(request: Request) -> UserLogin:
             body = await request.body()
             if not body:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="Empty request body",
                 )
             payload = json.loads(body)
     except (json.JSONDecodeError, UnicodeDecodeError):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Invalid JSON body",
         )
 
@@ -107,7 +107,7 @@ async def _parse_login_payload(request: Request) -> UserLogin:
         return UserLogin.model_validate(payload)
     except ValidationError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=exc.errors(include_input=False, include_context=False),
         )
 

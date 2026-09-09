@@ -19,6 +19,7 @@ from ..db.models import (
     CandidateListing,
     SearchProject,
 )
+from .fee_billing_period import BILLING_PERIODS, FEE_AMOUNT_FIELDS, fee_billing_period, system_billing_period
 from .candidate_analysis_state import has_usable_analysis
 from .candidate_field_projection_service import CandidateFieldProjectionService
 from .candidate_field_registry import (
@@ -42,6 +43,7 @@ class CandidateFieldAction:
     action: str
     value: object | None = None
     note: str | None = None
+    billing_period: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +107,7 @@ class CandidateFieldCorrectionService:
                 action=action.action,
                 value=action.value,
                 note=action.note,
+                billing_period=action.billing_period,
             )
             location_changed = location_changed or action.field_key in _LOCATION_FIELD_KEYS
 
@@ -135,7 +138,13 @@ class CandidateFieldCorrectionService:
         action: str,
         value: object | None,
         note: str | None,
+        billing_period: str | None = None,
     ) -> CandidateFieldFact:
+        is_fee = fact.field_key in FEE_AMOUNT_FIELDS
+        if billing_period is not None and (not is_fee or action != "correct" or billing_period not in BILLING_PERIODS):
+            raise CandidateFieldCorrectionError("Billing period is only accepted when correcting a management fee or rates amount.")
+        previous_period = fee_billing_period([fact], fact.field_key) if is_fee else None
+        confirmed_period = system_billing_period(fact) if is_fee and action == "confirm" else None
         normalized_note = self._normalize_note(note)
         previous_value = self._effective_value(fact)
         now = datetime.now(timezone.utc)
@@ -174,6 +183,13 @@ class CandidateFieldCorrectionService:
         else:
             raise CandidateFieldCorrectionError("Unsupported field action.")
 
+        if is_fee:
+            if action == "confirm":
+                fact.user_billing_period = confirmed_period
+            elif action == "correct":
+                fact.user_billing_period = billing_period or "month"
+            else:
+                fact.user_billing_period = None
         fact.user_note = None if action == "revert" else normalized_note
         fact.user_updated_at = None if action == "revert" else now
         new_value = self._effective_value(fact)
@@ -184,6 +200,8 @@ class CandidateFieldCorrectionService:
                 actor_user_id=actor_user_id,
                 action=action,
                 previous_value=previous_value,
+                previous_billing_period=previous_period,
+                new_billing_period=fee_billing_period([fact], fact.field_key) if is_fee else None,
                 new_value=new_value,
                 note=normalized_note,
             )

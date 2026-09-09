@@ -99,3 +99,22 @@ def test_upfront_fraction_currency_and_alternative_boundaries(value, expected):
 def test_money_parser_does_not_take_the_first_number_from_invalid_amount(value, expected):
     from app.services.cost_assessment_service import parse_monetary_amount
     assert parse_monetary_amount(value) == expected
+
+
+@pytest.mark.parametrize("quote,period", [
+    ("Management fee HKD 1,200/month", "month"),
+    ("Quarterly management fee 600", "quarter"),
+    ("Annual management fee 1200", "year"),
+    ("Management fee 600; rates 900/quarter", "unknown"),
+    ("Rent 18000/month management fee 600", "unknown"),
+])
+def test_management_fee_uses_its_own_period(quote, period):
+    from app.services.fee_billing_period import system_billing_period
+    fact = SimpleNamespace(field_key="management_fee_amount", evidence=[SimpleNamespace(quote=quote, claim_kind="explicit")])
+    assert system_billing_period(fact) == period
+
+
+def test_confirmed_fee_period_is_read_from_saved_user_contract():
+    from app.services.fee_billing_period import fee_billing_period
+    fact = SimpleNamespace(field_key="rates_amount", user_action="confirmed", user_billing_period="quarter", evidence=[SimpleNamespace(quote="rates 900/month", claim_kind="explicit")])
+    assert fee_billing_period([fact], "rates_amount") == "quarter"

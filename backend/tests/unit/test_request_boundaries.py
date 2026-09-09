@@ -109,3 +109,9 @@ def test_valid_token_keeps_compatible_identity():
 def test_invalid_patch_values_fail_before_database_write(schema, payload):
     with pytest.raises(ValidationError):
         schema(**payload)
+
+
+def test_extreme_money_integer_is_validation_error_instead_of_overflow():
+    from app.services.candidate_field_registry import CandidateFieldValueError, validate_field_value
+    with pytest.raises(CandidateFieldValueError):
+        validate_field_value('monthly_rent', 10**2000)

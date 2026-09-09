@@ -19,6 +19,7 @@ from .candidate_assessment_service import CandidateAssessmentService
 from .candidate_field_evidence_service import CandidateFieldEvidenceService
 from .candidate_field_projection_service import CandidateFieldProjectionService
 from .clause_assessment_service import ClauseAssessmentService
+from .fee_billing_period import fee_billing_period
 from .cost_assessment_service import CostAssessmentService, rates_billing_period
 from .extraction_service import ExtractionService
 
@@ -158,6 +159,7 @@ class CandidatePipelineService:
             extracted_info,
             max_budget=project.max_budget,
             rates_period=rates_billing_period(field_facts if field_facts is not None else candidate.field_facts),
+            management_period=fee_billing_period(field_facts if field_facts is not None else candidate.field_facts, "management_fee_amount"),
         )
         if clause_assessment is None:
             clause_assessment = self.clause_service.assess(

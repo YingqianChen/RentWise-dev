@@ -13,6 +13,9 @@ from tests.helpers import build_candidate, build_project, build_user
 
 
 class FakeAsyncSession:
+    def add(self, obj):
+        pass
+
     def __init__(self):
         self.delete = AsyncMock()
         self.flush = AsyncMock()
@@ -221,11 +224,12 @@ class ProjectRouteTests(IsolatedAsyncioTestCase):
 
         db.execute = fake_execute
 
-        response = await projects_api.delete_project(
-            project_id=project.id,
-            current_user=user,
-            db=db,
-        )
+        with patch.object(projects_api, "attempt_cleanup", AsyncMock()):
+            response = await projects_api.delete_project(
+                project_id=project.id,
+                current_user=user,
+                db=db,
+            )
 
         self.assertIsNone(response)
         db.delete.assert_awaited_once_with(project)

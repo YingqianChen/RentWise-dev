@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { AlertTriangle, Check, Pencil, RotateCcw, X } from "lucide-react";
 
 import type {
+  BillingPeriod,
   CandidateFieldActionRequest,
   CandidateFieldFact,
   CandidateFieldState,
@@ -37,6 +38,7 @@ const GROUPS: Array<{
 ];
 
 const MONEY_FIELDS = new Set(["monthly_rent", "management_fee_amount", "rates_amount"]);
+const FEE_FIELDS = new Set(["management_fee_amount", "rates_amount"]);
 const BOOLEAN_FIELDS = new Set(["management_fee_included", "rates_included"]);
 
 const STATE_COPY: Record<CandidateFieldState, { label: string; help: string; tone: string }> = {
@@ -99,6 +101,7 @@ function CorrectionEditor({
 }) {
   const initialValue = fact.value ?? fact.system_value ?? "";
   const [value, setValue] = useState(String(initialValue));
+  const [period, setPeriod] = useState<BillingPeriod>(fact.billing_period ?? "unknown");
   const [note, setNote] = useState(fact.user_note ?? "");
   const [error, setError] = useState("");
 
@@ -126,14 +129,14 @@ function CorrectionEditor({
         return;
       }
     }
-    await onSubmit({ action: "correct", value: normalized, note: note.trim() || undefined });
+    await onSubmit({ action: "correct", value: normalized, note: note.trim() || undefined, ...(FEE_FIELDS.has(fact.key) ? { billing_period: period } : {}) });
   };
 
   return (
     <form onSubmit={submit} className="mt-4 space-y-3 rounded-lg border border-violet-200 bg-violet-50/50 p-3">
       <div>
         <label htmlFor={`correct-${fact.key}`} className="mb-1 block text-xs font-medium text-gray-700">Correct value</label>
-        {fact.key === "rates_amount" && <p className="mb-2 text-xs text-gray-600">Enter the monthly equivalent in HKD. For example, HKD 900 per quarter is HKD 300 per month. Leave it unknown if the billing period is unclear.</p>}
+        {FEE_FIELDS.has(fact.key) && <p className="mb-2 text-xs text-gray-600">Enter the quoted HKD amount and choose its billing period. RentWise calculates the monthly equivalent.</p>}
         {BOOLEAN_FIELDS.has(fact.key) ? (
           <select
             id={`correct-${fact.key}`}
@@ -157,6 +160,17 @@ function CorrectionEditor({
           />
         )}
       </div>
+      {FEE_FIELDS.has(fact.key) && (
+        <div>
+          <label htmlFor={`period-${fact.key}`} className="mb-1 block text-xs font-medium text-gray-700">Billing period</label>
+          <select id={`period-${fact.key}`} value={period} onChange={(event) => setPeriod(event.target.value as BillingPeriod)} className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm">
+            <option value="unknown">Not confirmed</option>
+            <option value="month">Per month</option>
+            <option value="quarter">Per quarter</option>
+            <option value="year">Per year</option>
+          </select>
+        </div>
+      )}
       <div>
         <label htmlFor={`note-${fact.key}`} className="mb-1 block text-xs font-medium text-gray-700">Note (optional)</label>
         <input
@@ -234,7 +248,7 @@ export function CandidateFieldFacts({
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="text-xs font-medium text-gray-500">{fact.label}</p>
-                        <p className="mt-1 break-words text-base font-semibold text-gray-900">{displayValue(fact)}{fact.key === "rates_amount" && fact.user_action === "corrected" ? " / month" : ""}</p>
+                        <p className="mt-1 break-words text-base font-semibold text-gray-900">{displayValue(fact)}{FEE_FIELDS.has(fact.key) && fact.value != null ? (fact.billing_period && fact.billing_period !== "unknown" ? ` / ${fact.billing_period}` : " / period unconfirmed") : ""}</p>
                       </div>
                       <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${state.tone}`}>
                         {state.label}
@@ -261,6 +275,9 @@ export function CandidateFieldFacts({
                       </details>
                     )}
 
+                    {fact.user_action && fact.system_value != null && (fact.value !== fact.system_value || (FEE_FIELDS.has(fact.key) && fact.billing_period !== fact.system_billing_period)) && (
+                      <p className="mt-3 text-xs text-amber-800">Latest source result: {displayValue(fact, fact.system_value)}{FEE_FIELDS.has(fact.key) ? ` / ${fact.system_billing_period && fact.system_billing_period !== "unknown" ? fact.system_billing_period : "period unconfirmed"}` : ""}. Your saved value is still used.</p>
+                    )}
                     {fact.user_note && <p className="mt-3 text-xs text-violet-700">Your note: {fact.user_note}</p>}
                     {errors[fact.key] && (
                       <p className="mt-3 flex items-start gap-1 text-xs text-red-700">

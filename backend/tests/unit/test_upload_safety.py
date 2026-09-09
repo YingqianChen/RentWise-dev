@@ -67,3 +67,13 @@ async def test_delete_upload_removes_file_and_is_repeatable(tmp_path):
     storage.delete_file(saved.storage_key)
     storage.delete_file(saved.storage_key)
     assert not saved.absolute_path.exists()
+
+
+def test_storage_scope_is_shared_by_concurrent_process_clients_and_survives_recreation(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from app.services.file_storage_service import LocalFileStorageService
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        scopes = list(pool.map(lambda _: LocalFileStorageService(root=tmp_path).storage_scope(), range(16)))
+    assert len(set(scopes)) == 1
+    assert LocalFileStorageService(root=tmp_path).storage_scope() == scopes[0]
+    assert LocalFileStorageService(root=tmp_path / 'other-volume').storage_scope() != scopes[0]

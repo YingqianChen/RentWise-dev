@@ -1,5 +1,7 @@
 """FastAPI application entry point."""
 
+import asyncio
+from contextlib import asynccontextmanager
 import logging
 
 from fastapi import FastAPI, Request
@@ -12,9 +14,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from .api.v1 import api_router
 from .core.config import settings
 from .services.ocr_service import OCRService
+from .services.file_cleanup_service import cleanup_forever
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await warmup_services()
+    cleanup_task = asyncio.create_task(cleanup_forever()) if settings.APP_ENV != "test" else None
+    try:
+        yield
+    finally:
+        if cleanup_task is not None:
+            cleanup_task.cancel()
+            await asyncio.gather(cleanup_task, return_exceptions=True)
 
 
 app = FastAPI(
+    lifespan=lifespan,
     title="RentWise API",
     description="API for RentWise - Hong Kong Rental Research Agent",
     version="1.0.0",
@@ -46,7 +62,6 @@ app.add_middleware(
 app.include_router(api_router, prefix="/api/v1")
 
 
-@app.on_event("startup")
 async def warmup_services() -> None:
     """Warm expensive services during startup so the first user request is faster."""
     if settings.effective_ocr_prewarm_on_startup:

@@ -94,8 +94,8 @@ def validate_field_value(field_key: str, value: object, *, allow_none: bool = Fa
     if definition.value_type == "money":
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise CandidateFieldValueError(f"{field_key} must be a number")
-        if not math.isfinite(value) or value < 0:
-            raise CandidateFieldValueError(f"{field_key} must be a finite non-negative number")
+        if value < 0 or value > 1_000_000_000_000 or not math.isfinite(value):
+            raise CandidateFieldValueError(f"{field_key} must be a finite non-negative number no greater than 1 trillion")
         return int(value) if float(value).is_integer() else float(value)
 
     if definition.value_type == "boolean":

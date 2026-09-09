@@ -1128,6 +1128,128 @@ class DatabaseFlowTests(TestCase):
         self.assertEqual(bad.status_code, 422, bad.text)
         self.assertNotIn('must-not-appear', bad.text)
 
+    def test_confirmed_fee_units_survive_reanalysis_and_corrections_are_audited(self):
+        auth = self.client.post('/api/v1/auth/register', json={'email': self.email, 'password': 'db-flow-password'})
+        headers = {'Authorization': 'Bearer ' + auth.json()['access_token']}
+        project = self.client.post('/api/v1/projects', headers=headers, json={'title': 'Fee units', 'max_budget': 18600}).json()
+        prefix = 'Wan Chai flat, rent 18000, deposit 2 months, lease 2 years. '
+        def payload(period):
+            result = _valid_extraction_payload()
+            for key, value, quote in [
+                ('management_fee_amount', 600, f'Management fee 600/{period} separate'),
+                ('management_fee_included', False, f'Management fee 600/{period} separate'),
+                ('rates_amount', 900, f'rates 900/{period} extra'),
+                ('rates_included', False, f'rates 900/{period} extra'),
+            ]:
+                result['field_claims'].append(dict(field_key=key, value=value, source_type='listing', source_asset_id=None, quote=quote, claim_kind='explicit', confidence='high'))
+            return result
+        with patch('app.services.extraction_service.chat_completion_json', AsyncMock(return_value=payload('quarter'))):
+            imported = self.client.post(f"/api/v1/projects/{project['id']}/candidates/import", headers=headers, data={'name': 'Fee units', 'raw_listing_text': prefix + 'Management fee 600/quarter separate; rates 900/quarter extra'})
+        self.assertEqual(imported.status_code, 201, imported.text)
+        url = f"/api/v1/projects/{project['id']}/candidates/{imported.json()['id']}"
+        for key in ['management_fee_amount', 'rates_amount']:
+            confirmed = self.client.patch(url + '/fields/' + key, headers=headers, json={'action': 'confirm'})
+            self.assertEqual(confirmed.status_code, 200, confirmed.text)
+            fact = next(f for f in confirmed.json()['field_facts'] if f['key'] == key)
+            self.assertEqual(fact['billing_period'], 'quarter')
+            self.assertEqual(confirmed.json()['cost_assessment']['known_monthly_cost'], 18500)
+        with patch('app.services.extraction_service.chat_completion_json', AsyncMock(return_value=payload('month'))):
+            changed = self.client.put(url, headers=headers, json={'raw_listing_text': prefix + 'Management fee 600/month separate; rates 900/month extra'})
+        self.assertEqual(changed.status_code, 200, changed.text)
+        self.assertEqual(changed.json()['cost_assessment']['known_monthly_cost'], 18500)
+        for fact in changed.json()['field_facts']:
+            if fact['key'] in ['management_fee_amount', 'rates_amount']:
+                self.assertEqual(fact['billing_period'], 'quarter')
+                self.assertEqual(fact['system_billing_period'], 'month')
+        with patch('app.services.extraction_service.chat_completion_json', AsyncMock()) as model:
+            corrected = self.client.patch(url + '/fields/rates_amount', headers=headers, json={'action': 'correct', 'value': 900, 'billing_period': 'year'})
+            self.assertEqual(corrected.status_code, 200, corrected.text)
+            self.assertEqual(corrected.json()['cost_assessment']['known_monthly_cost'], 18275)
+            invalid = self.client.patch(url + '/fields/monthly_rent', headers=headers, json={'action': 'correct', 'value': 18000, 'billing_period': 'year'})
+            self.assertEqual(invalid.status_code, 422, invalid.text)
+            model.assert_not_awaited()
+        async def read_revision():
+            engine = create_async_engine(settings.DATABASE_URL)
+            try:
+                async with engine.connect() as conn:
+                    return (await conn.execute(select(CandidateFieldRevision.previous_billing_period, CandidateFieldRevision.new_billing_period).where(CandidateFieldRevision.candidate_id == uuid.UUID(imported.json()['id']), CandidateFieldRevision.action == 'correct'))).one()
+            finally:
+                await engine.dispose()
+        self.assertEqual(tuple(asyncio.run(read_revision())), ('quarter', 'year'))
+
+    def test_failed_project_file_cleanup_survives_deletion_and_retries_once(self):
+        from app.services.file_storage_service import LocalFileStorageService
+        headers, project_id, _ = self._import_named_candidate()
+        storage = LocalFileStorageService()
+        path = storage.resolve_path(f'candidate_uploads/{project_id}/synthetic.png')
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b'synthetic cleanup fixture')
+        with patch.object(LocalFileStorageService, 'delete_project_files', side_effect=PermissionError('synthetic filesystem failure')):
+            response = self.client.delete(f'/api/v1/projects/{project_id}', headers=headers)
+        self.assertEqual(response.status_code, 204, response.text)
+        self.assertTrue(path.exists())
+        self.assertEqual(self.client.get(f'/api/v1/projects/{project_id}', headers=headers).status_code, 404)
+        asyncio.run(self._retry_cleanup_from_fresh_worker(project_id))
+        self.assertFalse(path.exists())
+
+    async def _retry_cleanup_from_fresh_worker(self, storage_key):
+        from datetime import datetime, timedelta, timezone
+        from app.db.models import FileCleanupJob
+        from app.services.file_cleanup_service import process_cleanup_jobs
+        from app.services.file_storage_service import LocalFileStorageService
+        engine = create_async_engine(settings.DATABASE_URL)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            async with factory() as session:
+                job = (await session.execute(select(FileCleanupJob).where(FileCleanupJob.storage_key == storage_key))).scalar_one()
+                self.assertEqual(job.attempts, 1)
+                self.assertEqual(job.last_error, 'PermissionError')
+                job_id = job.id
+            waiting = await process_cleanup_jobs(job_ids=[job_id], session_factory=factory)
+            self.assertEqual(waiting, {'removed': 0, 'pending': 0})
+            async with factory() as session:
+                job = await session.get(FileCleanupJob, job_id)
+                job.next_attempt_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+                await session.commit()
+            from tempfile import TemporaryDirectory
+            with TemporaryDirectory() as unrelated_root:
+                other_volume = LocalFileStorageService(root=unrelated_root)
+                with patch.object(other_volume, 'delete_project_files') as wrong_remover:
+                    await process_cleanup_jobs(job_ids=[job_id], session_factory=factory, storage=other_volume)
+                    wrong_remover.assert_not_called()
+            storage = LocalFileStorageService()
+            with patch.object(storage, 'delete_project_files', wraps=storage.delete_project_files) as remover:
+                results = await asyncio.gather(*(process_cleanup_jobs(job_ids=[job_id], session_factory=factory, storage=storage) for _ in range(2)))
+                self.assertEqual(sum(result['removed'] for result in results), 1)
+                remover.assert_called_once()
+            async with factory() as session:
+                self.assertIsNone(await session.get(FileCleanupJob, job_id))
+        finally:
+            await engine.dispose()
+
+    def test_cleanup_intent_rolls_back_with_failed_record_deletion(self):
+        headers, project_id, candidate_id = self._import_named_candidate()
+        asyncio.run(self._rollback_cleanup_intent(candidate_id))
+        self.assertEqual(self.client.get(f'/api/v1/projects/{project_id}/candidates/{candidate_id}', headers=headers).status_code, 200)
+
+    async def _rollback_cleanup_intent(self, candidate_id):
+        from app.db.models import FileCleanupJob
+        from app.services.file_cleanup_service import enqueue_file_cleanup
+        engine = create_async_engine(settings.DATABASE_URL)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            async with factory() as session:
+                candidate = await session.get(CandidateListing, uuid.UUID(candidate_id))
+                ids = enqueue_file_cleanup(session, ['candidate_uploads/synthetic-rollback.png'])
+                await session.delete(candidate)
+                await session.flush()
+                await session.rollback()
+            async with factory() as session:
+                self.assertIsNone(await session.get(FileCleanupJob, ids[0]))
+                self.assertIsNotNone(await session.get(CandidateListing, uuid.UUID(candidate_id)))
+        finally:
+            await engine.dispose()
+
     def test_zz_candidate_field_migration_round_trip(self) -> None:
         expected_tables = {
             "candidate_field_facts",

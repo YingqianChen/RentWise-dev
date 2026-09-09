@@ -184,3 +184,11 @@ def test_money_quote_accepts_thousands_shorthand_without_partial_number_match():
     assert _quote_supports_amount(18500, 'Rent $18.5k')
     assert _quote_supports_amount(18000, '月租1.8萬')
     assert not _quote_supports_amount(1800, 'Rent 18000')
+
+
+def test_quoted_foreign_negative_and_ranged_amounts_are_not_decision_grade():
+    for quote in ['Rent USD 18000', 'Rent US$18000', 'Rent -18000', 'Rent HKD 18000-20000', 'Rent 18000 to 20000']:
+        source = CandidateEvidenceSource(source_type='listing', text=quote)
+        claim = raw_claim('monthly_rent', 18000, quote)
+        verified = verify_field_claims([claim], (source,))
+        assert verified[0].claim_kind == 'inferred'

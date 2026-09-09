@@ -246,6 +246,7 @@ class CandidateFieldFact(Base):
 
     __tablename__ = "candidate_field_facts"
     __table_args__ = (
+        CheckConstraint("user_billing_period IS NULL OR user_billing_period IN ('month', 'quarter', 'year', 'unknown')", name="billing_period_allowed"),
         CheckConstraint(
             "field_key IN ('monthly_rent', 'management_fee_amount', "
             "'management_fee_included', 'rates_amount', 'rates_included', "
@@ -294,6 +295,7 @@ class CandidateFieldFact(Base):
     user_value: Mapped[Optional[Any]] = mapped_column(
         JSONB(none_as_null=True), nullable=True
     )
+    user_billing_period: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     user_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     user_updated_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -399,6 +401,8 @@ class CandidateFieldRevision(Base):
         nullable=True,
     )
     action: Mapped[str] = mapped_column(String(50), nullable=False)
+    previous_billing_period: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    new_billing_period: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     previous_value: Mapped[Optional[Any]] = mapped_column(
         JSONB(none_as_null=True), nullable=True
     )
@@ -637,3 +641,20 @@ class RequestBudget(Base):
     window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     used: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class FileCleanupJob(Base):
+    """Cleanup survives record deletion and process restarts; no cascading FK."""
+    __tablename__ = "file_cleanup_jobs"
+    __table_args__ = (
+        CheckConstraint("kind IN ('file', 'project')", name="kind_allowed"),
+        CheckConstraint("attempts >= 0", name="attempts_nonnegative"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    storage_scope: Mapped[str] = mapped_column(String(36), nullable=False)
+    storage_key: Mapped[str] = mapped_column(Text, nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_error: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)

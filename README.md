@@ -124,6 +124,11 @@ RentWise/
   legacy/                  # archived prototype
 ```
 
+Current quality and release boundaries are recorded in
+[the September review](docs/reviews/2026-09-09-fees-and-cleanup-review.md)
+and [validation results](docs/reviews/2026-09-09-validation.md). Historical phase
+completion below describes implementation scope, not production acceptance.
+
 ## Core fact API contract
 
 - `GET /api/v1/projects/{project_id}/candidates/{candidate_id}` returns
@@ -132,6 +137,10 @@ RentWise/
 - `PATCH /api/v1/projects/{project_id}/candidates/{candidate_id}/fields/{field_key}`
   accepts `confirm`, `correct`, `mark_unknown`, or `revert`. `correct` requires
   a type-valid `value`; all actions may include a short `note` where relevant.
+  For management fees and rates, corrections also accept `billing_period`
+  (`month`, `quarter`, `year`, `unknown`). Enter the quoted amount; the backend
+  calculates its monthly equivalent. Confirmation freezes both amount and unit.
+  Older clients omitting the unit retain the prior monthly-equivalent contract.
 - A successful field action writes an audit revision and deterministically
   recalculates affected outputs in one database transaction. It does not call
   the LLM, OCR, legal retrieval, or map services.
@@ -145,7 +154,7 @@ at `/docs` while the backend is running.
 
 ### Backend modules
 
-- `app/main.py` — FastAPI entry point, startup hooks (OCR prewarm)
+- `app/main.py` — FastAPI entry point, lifespan (OCR prewarm and retryable file cleanup)
 - `app/core/config.py` — env-driven settings; secrets only from `.env`
 - `app/db/models.py` — users, projects, candidates, assessments, source assets
 - `app/api/v1/*.py` — auth, projects, candidates, dashboard, comparison, investigation
@@ -158,7 +167,7 @@ at `/docs` while the backend is running.
 - `app/services/ocr_service.py` — OCR provider abstraction (rapidocr / paddleocr / mistral)
 - `app/services/file_storage_service.py` — upload storage abstraction
 - `app/services/dashboard_service.py` + `priority_service.py` + `investigation_service.py` — dashboard assembly
-- `app/services/comparison_service.py` + `comparison_briefing_service.py` — compare grouping + LLM briefing
+- `app/services/comparison_service.py` + `comparison_briefing_service.py` — compare grouping + deterministic local briefing
 - `app/services/benchmark_service.py` — legacy SDU lookup retained for reference; disabled in product output
 - `app/services/commute_service.py` — geocode candidate + destination, then route
 - `app/services/candidate_contact_plan_service.py` — outreach draft
@@ -207,9 +216,13 @@ memory-constrained hosts (e.g. Render free 512MB), set
 opt-in alternative; install `paddleocr` and `paddlepaddle` yourself if you
 switch.
 
-If your local Postgres was created by the old startup `create_all()` path,
-run `alembic stamp head` once before switching to normal `alembic upgrade
-head` flow.
+If an existing database was created by the old startup `create_all()` path,
+back it up and identify the migration revision that actually matches its
+schema before stamping that specific revision and applying later migrations.
+Do not stamp head to skip migrations: stamping does not create missing tables
+or columns. New code requires migrations through `20260909_0019`, including
+request budgets, fee billing periods and durable cleanup jobs. Apply migrations
+before starting the new application version.
 
 ### Frontend
 
@@ -286,6 +299,14 @@ Cloud env essentials (Render):
 - Free 512MB tier: `OCR_PROVIDER=mistral` + `MISTRAL_API_KEY`,
   `OCR_PREWARM_ON_STARTUP=false`, `LOW_MEMORY_MODE=true`
 - Larger instances: `OCR_PROVIDER=rapidocr`
+
+Local deletion commits a cleanup job with the database deletion, attempts
+cleanup immediately, and retries due jobs in the application lifespan outside
+`APP_ENV=test`. The upload volume must persist `.rentwise-storage-id` together
+with its files; back up and restore both. This marker scopes cleanup jobs to
+the correct volume and requires support for same-directory hard links.
+From `backend`, `python -m scripts.process_file_cleanup` processes due,
+previously queued jobs on that volume without model calls.
 
 Storage caveat: the local storage adapter is fine for short demos but
 Render's filesystem is ephemeral. Move candidate uploads to object

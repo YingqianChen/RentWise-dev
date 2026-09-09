@@ -273,6 +273,7 @@ async function installApiMock(
       const payload = request.postDataJSON() as {
         action: "confirm" | "correct" | "mark_unknown" | "revert";
         value?: unknown;
+        billing_period?: CandidateFieldFact["billing_period"];
         note?: string;
       };
       fieldUpdateCount += 1;
@@ -310,6 +311,7 @@ async function installApiMock(
           return {
             ...fact,
             value,
+            billing_period: payload.billing_period ?? fact.billing_period,
             state: payload.action === "correct" ? "user_corrected" : "user_confirmed",
             decision_usable: true,
             user_action: payload.action === "correct" ? "corrected" : "confirmed",
@@ -690,4 +692,17 @@ test("interrupted analysis can be checked without automatically retrying AI", as
   await expect(page.getByRole("button", { name: "Retry analysis", exact: true }).first()).toBeEnabled();
   expect(api.recoveryCount()).toBe(1);
   expect(api.retryCount()).toBe(0);
+});
+
+
+test("fee corrections retain the quoted amount and selected billing period", async ({ page }) => {
+  await installApiMock(page, baseCandidate());
+  await page.goto(`/projects/${PROJECT_ID}/candidates/${CANDIDATE_ID}`);
+  const card = page.locator("article").filter({ has: page.getByText("Rates amount", { exact: true }) });
+  await card.getByRole("button", { name: "Correct", exact: true }).click();
+  await card.getByLabel("Correct value", { exact: true }).fill("900");
+  await card.getByLabel("Billing period", { exact: true }).selectOption("quarter");
+  await card.getByRole("button", { name: "Save correction", exact: true }).click();
+  await expect(card.getByText("HKD 900 / quarter", { exact: true })).toBeVisible();
+  await expect(card.getByText("You corrected", { exact: true })).toBeVisible();
 });

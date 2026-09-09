@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ..db.models import CandidateFieldEvidence, CandidateFieldFact
 from ..schemas.candidate import CandidateFieldEvidenceResponse, CandidateFieldFactResponse
+from .fee_billing_period import FEE_AMOUNT_FIELDS, fee_billing_period, system_billing_period
 from .candidate_field_registry import (
     CANDIDATE_FIELD_DEFINITIONS,
     effective_field_state,
@@ -53,6 +54,8 @@ def serialize_candidate_field_facts(
                 system_state=fact.system_state,
                 system_confidence=fact.system_confidence,
                 user_action=fact.user_action,
+                billing_period=fee_billing_period([fact], fact.field_key) if fact.field_key in FEE_AMOUNT_FIELDS else None,
+                system_billing_period=system_billing_period(fact) if fact.field_key in FEE_AMOUNT_FIELDS else None,
                 user_note=fact.user_note,
                 user_updated_at=fact.user_updated_at,
                 evidence=[

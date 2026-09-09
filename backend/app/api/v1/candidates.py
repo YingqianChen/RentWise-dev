@@ -46,6 +46,7 @@ from ...services.candidate_field_serialization_service import serialize_candidat
 from ...services.candidate_pipeline_service import CandidatePipelineService
 from ...services.commute_service import CommuteService
 from .auth import get_current_user
+from ...services.file_cleanup_service import enqueue_file_cleanup, attempt_cleanup
 from .request_budgets import reserve_ai_operation
 from .work_guards import guard_candidate_import, guard_candidate_write, guard_project_write
 
@@ -482,6 +483,7 @@ async def update_candidate_field(
                 action=field_data.action,
                 value=field_data.value,
                 note=field_data.note,
+                billing_period=field_data.billing_period,
             )
         ],
     )
@@ -556,9 +558,8 @@ async def delete_candidate(
     """Delete a candidate from a project owned by the current user."""
     _, candidate = await get_candidate_for_project_user(project_id, candidate_id, current_user, db)
     assets = [(asset.storage_provider, asset.storage_key) for asset in candidate.source_assets]
+    cleanup_ids = enqueue_file_cleanup(db, [key for provider, key in assets if provider == "local"])
     await db.delete(candidate)
     await db.flush()
     await db.commit()
-    for provider, key in assets:
-        if provider == "local":
-            candidate_import_service.storage.delete_file(key)
+    await attempt_cleanup(cleanup_ids)

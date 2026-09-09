@@ -6,6 +6,7 @@ import math
 import re
 from typing import List, Optional
 
+from .fee_billing_period import fee_billing_period
 from ..db.models import CandidateExtractedInfo, CostAssessment
 
 
@@ -65,39 +66,7 @@ def parse_upfront_amount(value: Optional[str], monthly_rent: float) -> Optional[
 
 
 def rates_billing_period(facts) -> str:
-    """Read a rates period only from its own evidence or an explicit user entry.
-
-    Corrected rates amounts use the monthly-equivalent input contract. A plain
-    model amount without a billing period remains unresolved, never assumed monthly.
-    """
-    fact = next((item for item in facts if item.field_key == "rates_amount"), None)
-    if fact is None:
-        return "unknown"
-    if fact.user_action == "corrected":
-        return "month"
-    if fact.user_action is not None:
-        # Confirmation freezes a value, not its billing period. Do not borrow
-        # the period from later extraction evidence for an older confirmed sum.
-        return "unknown"
-    periods = set()
-    for claim in fact.evidence:
-        if claim.claim_kind != "explicit":
-            continue
-        quote = claim.quote.lower()
-        # Restrict to the clause about rates so management /month cannot supply
-        # the billing period for rates in a neighbouring sentence.
-        clauses = re.split(r"[;；。\n]", quote)
-        relevant = [clause for clause in clauses if re.search(r"\brates\b|差[餉饷]", clause)]
-        for clause in relevant:
-            clause = re.split(r"\brates\b|差[餉饷]", clause, maxsplit=1)[-1]
-            clause = re.split(r"management|管理費|管理费", clause, maxsplit=1)[0]
-            if re.search(r"quarter|每季|/季|每季度", clause):
-                periods.add("quarter")
-            if re.search(r"annual|year|每年|/年", clause):
-                periods.add("year")
-            if re.search(r"month|每月|/月", clause):
-                periods.add("month")
-    return next(iter(periods)) if len(periods) == 1 else "unknown"
+    return fee_billing_period(facts, 'rates_amount')
 
 
 class CostAssessmentService:
@@ -108,10 +77,14 @@ class CostAssessmentService:
         extracted_info: CandidateExtractedInfo,
         max_budget: Optional[int] = None,
         rates_period: str = "month",
+        management_period: str = "month",
     ) -> CostAssessment:
         monthly_rent = parse_monetary_amount(extracted_info.monthly_rent)
         management_fee = parse_monetary_amount(extracted_info.management_fee_amount)
         rates = parse_monetary_amount(extracted_info.rates_amount)
+        if management_fee is not None:
+            divisor = {"month": 1, "quarter": 3, "year": 12}.get(management_period)
+            management_fee = management_fee / divisor if divisor else None
         if rates is not None:
             divisor = {"month": 1, "quarter": 3, "year": 12}.get(rates_period)
             rates = rates / divisor if divisor else None
@@ -240,6 +213,6 @@ class CostAssessmentService:
             parts.append("There may still be extra charges that have not been confirmed.")
 
         if missing_items:
-            labels = {"monthly_rent": "rent", "management_fee_amount": "management fee amount", "management_fee_included": "whether management fees are included", "rates_amount": "rates amount and billing period", "rates_included": "whether rates are included", "deposit": "deposit", "agent_fee": "agency fee"}
+            labels = {"monthly_rent": "rent", "management_fee_amount": "management fee amount and billing period", "management_fee_included": "whether management fees are included", "rates_amount": "rates amount and billing period", "rates_included": "whether rates are included", "deposit": "deposit", "agent_fee": "agency fee"}
             parts.append("Still to confirm: " + ", ".join(labels.get(item, item.replace("_", " ")) for item in sorted(set(missing_items))[:3]) + ".")
         return " ".join(parts)

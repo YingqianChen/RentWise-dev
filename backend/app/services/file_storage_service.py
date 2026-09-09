@@ -39,6 +39,28 @@ class LocalFileStorageService:
     def __init__(self, root: str | Path | None = None) -> None:
         self.root = Path(root or settings.LOCAL_UPLOAD_ROOT)
 
+    def storage_scope(self) -> str:
+        """Identify this physical upload volume, shared across processes/restarts.
+
+        Publishing by hard link prevents concurrent workers from observing a
+        partial marker or assigning different IDs to the same volume.
+        """
+        import os
+        from uuid import UUID
+        self.root.mkdir(parents=True, exist_ok=True)
+        marker = self.root / ".rentwise-storage-id"
+        if not marker.exists():
+            temporary = self.root / f".storage-{uuid4().hex}.tmp"
+            temporary.write_text(str(uuid4()), encoding="ascii")
+            try:
+                try:
+                    os.link(temporary, marker)
+                except FileExistsError:
+                    pass
+            finally:
+                temporary.unlink(missing_ok=True)
+        return str(UUID(marker.read_text(encoding="ascii").strip()))
+
     def resolve_path(self, storage_key: str) -> Path:
         """Resolve a stored relative key back to an absolute local path."""
         root = self.root.resolve()

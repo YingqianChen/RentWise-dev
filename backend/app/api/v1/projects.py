@@ -16,6 +16,7 @@ from ...schemas.project import (
 )
 from ...services.candidate_pipeline_service import CandidatePipelineService
 from ...services.candidate_analysis_state import has_usable_analysis
+from ...services.file_cleanup_service import enqueue_project_cleanup, attempt_cleanup
 from .auth import get_current_user
 from .work_guards import guard_project_write
 
@@ -253,8 +254,8 @@ async def delete_project(
             detail="Project not found",
         )
 
-    from ...services.file_storage_service import LocalFileStorageService
+    cleanup_ids = enqueue_project_cleanup(db, project_id)
     await db.delete(project)
     await db.flush()
     await db.commit()
-    LocalFileStorageService().delete_project_files(str(project_id))
+    await attempt_cleanup(cleanup_ids)

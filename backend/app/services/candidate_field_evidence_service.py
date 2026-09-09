@@ -98,6 +98,10 @@ def _value_identity(value: object) -> tuple[str, object]:
 
 def _quote_supports_amount(value: object, quote: str) -> bool:
     text = _normalized_text(quote)
+    # The product uses HKD amounts. A real number inside a foreign-currency,
+    # negative, or ranged quote does not establish a single usable HKD charge.
+    if re.search(r"\b(?:usd|cny|rmb|eur|gbp)\b|us\$|美元|人民[幣币]|(?<!\d)[-−]\s*\d|\d[\d,.]*\s*[k萬万]?\s*(?:[-–~至]|\bto\b)\s*(?:hkd?\s*\$?|\$)?\s*\d", text):
+        return False
     for match in re.finditer(r"(?<![\d.])(\d[\d,]*(?:\.\d+)?)\s*([k萬万]?)", text):
         amount = float(match.group(1).replace(",", ""))
         amount *= {"k": 1000, "萬": 10000, "万": 10000}.get(match.group(2), 1)

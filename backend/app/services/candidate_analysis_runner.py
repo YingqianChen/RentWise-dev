@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from uuid import UUID
 
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.config import settings
 from ..db.models import CandidateListing, SearchProject
 from .analysis_errors import AnalysisError, analysis_error
 from .candidate_pipeline_service import CandidatePipelineService
@@ -30,7 +32,12 @@ async def run_candidate_analysis(
     await db.commit()
 
     try:
-        await pipeline.assess_candidate(db=db, project=project, candidate=candidate)
+        async with asyncio.timeout(settings.ANALYSIS_TIMEOUT_SECONDS):
+            await pipeline.assess_candidate(db=db, project=project, candidate=candidate)
+    except TimeoutError:
+        await db.rollback()
+        await _persist_failed_state(db=db, candidate_id=candidate_id, failure=analysis_error("analysis_timeout", retryable=True))
+        return False
     except AnalysisError as exc:
         logger.warning("Candidate analysis failed with code %s", exc.code)
         await db.rollback()

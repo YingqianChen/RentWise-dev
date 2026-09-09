@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from ...core.config import settings
 from ...db.database import get_db
-from ...db.models import CandidateCommuteEvidence, CandidateListing, User, SearchProject
+from ...db.models import CandidateCommuteEvidence, CandidateFieldFact, CandidateListing, User, SearchProject
 from ...integrations.amap.client import AmapClient
 from ...schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectResponse, ProjectListResponse
@@ -17,6 +17,7 @@ from ...schemas.project import (
 from ...services.candidate_pipeline_service import CandidatePipelineService
 from ...services.candidate_analysis_state import has_usable_analysis
 from .auth import get_current_user
+from .work_guards import guard_project_write
 
 router = APIRouter()
 pipeline_service = CandidatePipelineService()
@@ -112,7 +113,7 @@ async def get_project(
     return ProjectResponse.model_validate(project)
 
 
-@router.put("/{project_id}", response_model=ProjectResponse)
+@router.put("/{project_id}", dependencies=[Depends(guard_project_write, scope="function")], response_model=ProjectResponse)
 async def update_project(
     project_id: UUID,
     project_data: ProjectUpdate,
@@ -205,7 +206,7 @@ async def update_project(
                 selectinload(CandidateListing.cost_assessment),
                 selectinload(CandidateListing.clause_assessment),
                 selectinload(CandidateListing.candidate_assessment),
-                selectinload(CandidateListing.field_facts),
+                selectinload(CandidateListing.field_facts).selectinload(CandidateFieldFact.evidence),
             )
             .where(
                 CandidateListing.project_id == project.id,
@@ -231,7 +232,7 @@ async def update_project(
     return ProjectResponse.model_validate(project)
 
 
-@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{project_id}", dependencies=[Depends(guard_project_write, scope="function")], status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project(
     project_id: UUID,
     current_user: User = Depends(get_current_user),

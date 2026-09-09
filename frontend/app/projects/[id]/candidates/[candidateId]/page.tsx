@@ -35,6 +35,7 @@ import {
   getCandidates,
   getCandidate,
   reassessCandidate,
+  recoverCandidate,
   rejectCandidate,
   shortlistCandidate,
   updateCandidate,
@@ -488,11 +489,11 @@ function processingStageLabel(stage?: string | null) {
 function processingStageDescription(stage?: string | null) {
   switch (stage) {
     case "queued":
-      return "The candidate was created successfully and is waiting for the in-app background worker to begin.";
+      return "Your sources are saved. Analysis will start shortly.";
     case "running_ocr":
       return "RentWise is reading the uploaded screenshots now. This stage is usually the slowest on larger images.";
     case "extracting":
-      return "OCR finished. RentWise is now extracting fields and generating the decision guidance.";
+      return "RentWise is extracting rental details from your sources.";
     case "failed":
       return "The background import stopped before a usable assessment was produced.";
     default:
@@ -749,14 +750,14 @@ export default function CandidateDetailPage() {
     }
   };
 
-  const handleReassess = async () => {
+  const handleReassess = async (recoverOnly = false) => {
     const token = getToken();
     if (!token) return;
 
     setActionLoading(true);
     setActionError("");
     try {
-      const updated = await reassessCandidate(token, projectId, candidateId);
+      const updated = await (recoverOnly ? recoverCandidate : reassessCandidate)(token, projectId, candidateId);
       setCandidate(updated);
       await loadCandidate(token);
     } catch (err) {
@@ -998,7 +999,7 @@ export default function CandidateDetailPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={handleReassess}
+              onClick={() => handleReassess()}
               disabled={actionLoading || isProcessing}
             >
               <RefreshCw className={cn("h-3.5 w-3.5", actionLoading && "animate-spin")} />
@@ -1034,6 +1035,14 @@ export default function CandidateDetailPage() {
               <AlertTitle>{processingStageLabel(candidate.processing_stage)}</AlertTitle>
               <AlertDescription>
                 {candidate.processing_error || processingStageDescription(candidate.processing_stage)}
+                {isProcessing && (
+                  <div className="mt-3 space-y-2">
+                    <p>If progress has stopped, check whether analysis was interrupted. This check does not call AI or restart analysis.</p>
+                    <Button variant="outline" size="sm" onClick={() => handleReassess(true)} disabled={actionLoading}>
+                      Check interrupted analysis
+                    </Button>
+                  </div>
+                )}
                 {analysisFailed ? (
                   <div className="mt-3 space-y-3">
                     <p>Your source information is still saved. Retry now, or edit it before restarting analysis.</p>
@@ -1041,7 +1050,7 @@ export default function CandidateDetailPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={handleReassess}
+                        onClick={() => handleReassess()}
                         disabled={actionLoading}
                       >
                         <RefreshCw className={cn("h-3.5 w-3.5", actionLoading && "animate-spin")} />

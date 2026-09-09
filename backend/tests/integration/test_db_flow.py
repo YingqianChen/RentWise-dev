@@ -894,6 +894,141 @@ class DatabaseFlowTests(TestCase):
 
         await engine.dispose()
 
+    def test_unnamed_import_uses_one_model_request_and_a_local_name(self):
+        auth = self.client.post('/api/v1/auth/register', json={'email': self.email, 'password': 'db-flow-password'})
+        headers = {'Authorization': 'Bearer ' + auth.json()['access_token']}
+        project = self.client.post('/api/v1/projects', headers=headers, json={'title': 'Local naming'}).json()
+        with patch('app.services.extraction_service.chat_completion_json', AsyncMock(return_value=_valid_extraction_payload())) as model:
+            imported = self.client.post(f"/api/v1/projects/{project['id']}/candidates/import", headers=headers, data={'raw_listing_text': 'Wan Chai flat, rent 18000, deposit 2 months, lease 2 years.'})
+            self.assertEqual(imported.status_code, 201, imported.text)
+            model.assert_awaited_once()
+        detail = self.client.get(f"/api/v1/projects/{project['id']}/candidates/{imported.json()['id']}", headers=headers).json()
+        self.assertEqual(detail['processing_stage'], 'completed')
+        self.assertEqual(detail['name'], 'Wan Chai $18000')
+
+    def _import_named_candidate(self):
+        auth = self.client.post('/api/v1/auth/register', json={'email': self.email, 'password': 'db-flow-password'})
+        headers = {'Authorization': 'Bearer ' + auth.json()['access_token']}
+        project = self.client.post('/api/v1/projects', headers=headers, json={'title': 'Work coordination'}).json()
+        with patch('app.services.extraction_service.chat_completion_json', AsyncMock(return_value=_valid_extraction_payload())):
+            imported = self.client.post(f"/api/v1/projects/{project['id']}/candidates/import", headers=headers, data={'name': 'Saved listing', 'raw_listing_text': 'Wan Chai flat, rent 18000, deposit 2 months, lease 2 years.'})
+        self.assertEqual(imported.status_code, 201, imported.text)
+        return headers, project['id'], imported.json()['id']
+
+    def test_concurrent_requests_run_one_analysis_and_protect_source_and_project(self):
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        headers, project_id, candidate_id = self._import_named_candidate()
+        url = f'/api/v1/projects/{project_id}/candidates/{candidate_id}'
+        entered, release = threading.Event(), threading.Event()
+
+        async def slow_extract(**kwargs):
+            entered.set()
+            await asyncio.to_thread(release.wait, 10)
+            return _valid_extraction_payload()
+
+        with patch('app.services.extraction_service.chat_completion_json', AsyncMock(side_effect=slow_extract)) as model, ThreadPoolExecutor() as pool:
+            first = pool.submit(self.client.post, url + '/reassess', headers=headers)
+            try:
+                self.assertTrue(entered.wait(5), 'First analysis never started')
+                responses = [
+                    self.client.post(url + '/reassess', headers=headers),
+                    self.client.post(url + '/recover', headers=headers),
+                    self.client.put(url, headers=headers, json={'raw_listing_text': 'Replacement'}),
+                    self.client.patch(url + '/fields/monthly_rent', headers=headers, json={'action': 'correct', 'value': 1}),
+                    self.client.delete(url, headers=headers),
+                    self.client.put(f'/api/v1/projects/{project_id}', headers=headers, json={'max_budget': 1}),
+                    self.client.delete(f'/api/v1/projects/{project_id}', headers=headers),
+                ]
+                for response in responses:
+                    self.assertEqual(response.status_code, 409, response.text)
+                self.assertEqual(model.await_count, 1)
+            finally:
+                release.set()
+            self.assertEqual(first.result(timeout=5).status_code, 200)
+        # The guard was released and a deliberate later retry is allowed.
+        with patch('app.services.extraction_service.chat_completion_json', AsyncMock(return_value=_valid_extraction_payload())) as model:
+            retry = self.client.post(url + '/reassess', headers=headers)
+        self.assertEqual(retry.status_code, 200, retry.text)
+        model.assert_awaited_once()
+
+    async def _set_processing_state(self, candidate_id, *, old):
+        from datetime import datetime, timedelta, timezone
+        from sqlalchemy import update
+        engine = create_async_engine(settings.DATABASE_URL)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(update(CandidateListing).where(CandidateListing.id == uuid.UUID(candidate_id)).values(processing_stage='queued', updated_at=datetime.now(timezone.utc) - timedelta(minutes=5 if old else 0)))
+        finally:
+            await engine.dispose()
+
+    def test_interrupted_recovery_is_free_and_late_background_dispatch_does_not_restart_it(self):
+        from functools import partial
+        from app.api.v1.candidates import candidate_import_background_service
+        headers, project_id, candidate_id = self._import_named_candidate()
+        url = f'/api/v1/projects/{project_id}/candidates/{candidate_id}'
+        asyncio.run(self._set_processing_state(candidate_id, old=False))
+        self.assertEqual(self.client.post(url + '/recover', headers=headers).status_code, 409)
+        asyncio.run(self._set_processing_state(candidate_id, old=True))
+        with patch('app.services.extraction_service.chat_completion_json', AsyncMock()) as model:
+            recovered = self.client.post(url + '/recover', headers=headers)
+            self.assertEqual(recovered.status_code, 200, recovered.text)
+            self.assertEqual(recovered.json()['processing_error_code'], 'analysis_interrupted')
+            self.assertIsNone(recovered.json()['cost_assessment'])
+            self.assertIn('rent 18000', recovered.json()['raw_listing_text'])
+            self.client.portal.call(partial(candidate_import_background_service.process_candidate_import, project_id=uuid.UUID(project_id), candidate_id=uuid.UUID(candidate_id), should_autoname=False))
+            model.assert_not_awaited()
+        with patch('app.services.extraction_service.chat_completion_json', AsyncMock(return_value=_valid_extraction_payload())):
+            retry = self.client.post(url + '/reassess', headers=headers)
+        self.assertEqual(retry.json()['processing_stage'], 'completed')
+
+    def test_analysis_deadline_persists_failure_and_releases_guard(self):
+        headers, project_id, candidate_id = self._import_named_candidate()
+        url = f'/api/v1/projects/{project_id}/candidates/{candidate_id}'
+        async def slow_extract(**kwargs):
+            await asyncio.sleep(10)
+        with patch.object(settings, 'ANALYSIS_TIMEOUT_SECONDS', 0.02), patch('app.services.extraction_service.chat_completion_json', AsyncMock(side_effect=slow_extract)):
+            response = self.client.post(url + '/reassess', headers=headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()['processing_error_code'], 'analysis_timeout')
+        self.assertIsNone(response.json()['candidate_assessment'])
+        with patch('app.services.extraction_service.chat_completion_json', AsyncMock(return_value=_valid_extraction_payload())):
+            self.assertEqual(self.client.post(url + '/reassess', headers=headers).json()['processing_stage'], 'completed')
+
+    def test_transaction_lock_releases_after_task_cancellation(self):
+        asyncio.run(self._exercise_lock_cancellation())
+
+    async def _exercise_lock_cancellation(self):
+        from app.services.candidate_work_lock import CandidateWorkBusy, candidate_work_lock
+        engine = create_async_engine(settings.DATABASE_URL)
+        project_id, candidate_id = uuid.uuid4(), uuid.uuid4()
+        acquired = asyncio.Event()
+        async def hold():
+            async with candidate_work_lock(project_id=project_id, candidate_id=candidate_id, engine=engine):
+                acquired.set()
+                await asyncio.Event().wait()
+        task = asyncio.create_task(hold())
+        try:
+            await asyncio.wait_for(acquired.wait(), 3)
+            with self.assertRaises(CandidateWorkBusy):
+                async with candidate_work_lock(project_id=project_id, candidate_id=candidate_id, engine=engine):
+                    pass
+            # Different candidates can run independently in the same project.
+            async with candidate_work_lock(project_id=project_id, candidate_id=uuid.uuid4(), engine=engine):
+                pass
+            with self.assertRaises(CandidateWorkBusy):
+                async with candidate_work_lock(project_id=project_id, exclusive_project=True, engine=engine):
+                    pass
+        finally:
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        try:
+            async with candidate_work_lock(project_id=project_id, exclusive_project=True, engine=engine):
+                pass
+        finally:
+            await engine.dispose()
+
     def test_zz_candidate_field_migration_round_trip(self) -> None:
         expected_tables = {
             "candidate_field_facts",
@@ -978,3 +1113,10 @@ class DatabaseFlowTests(TestCase):
         self.assertEqual(changed.status_code, 200, changed.text)
         self.assertEqual(changed.json()['cost_assessment']['known_monthly_cost'], 18900)
         self.assertEqual(changed.json()['cost_assessment']['cost_risk_flag'], 'over_budget')
+        with patch('app.services.extraction_service.chat_completion_json', AsyncMock()) as model:
+            budget = self.client.put(f"/api/v1/projects/{project['id']}", headers=headers, json={'max_budget': 20000})
+            self.assertEqual(budget.status_code, 200, budget.text)
+            model.assert_not_awaited()
+        after_budget = self.client.get(url, headers=headers).json()
+        self.assertEqual(after_budget['cost_assessment']['known_monthly_cost'], 18900)
+        self.assertNotEqual(after_budget['cost_assessment']['cost_risk_flag'], 'over_budget')

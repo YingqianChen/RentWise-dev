@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     DATABASE_URL: str
 
     # LLM Service Configuration
+    ANALYSIS_TIMEOUT_SECONDS: float = Field(default=180, ge=10, le=600)
+    LLM_REQUEST_TIMEOUT_SECONDS: float = Field(default=60, ge=5, le=120)
     LLM_PROVIDER: str = "groq"  # "ollama" or "groq"
     OLLAMA_HOST: str = "http://localhost:11434"
     OLLAMA_API_KEY: str = ""

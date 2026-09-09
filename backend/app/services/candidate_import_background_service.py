@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from uuid import UUID
 
@@ -9,7 +10,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.orm import selectinload
 
+from ..core.config import settings
 from ..db.models import CandidateListing, CandidateSourceAsset
+from .candidate_work_lock import CandidateWorkBusy, candidate_work_lock
 from .analysis_errors import AnalysisError, analysis_error
 from .candidate_import_service import build_combined_text
 from .candidate_pipeline_service import CandidatePipelineService
@@ -28,56 +31,72 @@ class CandidateImportBackgroundService:
         self.ocr = OCRService()
         self.pipeline = CandidatePipelineService()
 
-    async def process_candidate_import(
+    async def process_candidate_import(self, *, project_id: UUID, candidate_id: UUID, should_autoname: bool) -> None:
+        """Claim queued work once across workers; duplicate dispatches do no work."""
+        try:
+            async with candidate_work_lock(project_id=project_id, candidate_id=candidate_id):
+                await self.process_claimed_candidate_import(project_id=project_id, candidate_id=candidate_id, should_autoname=should_autoname, queued_only=True)
+        except CandidateWorkBusy:
+            logger.info("Candidate work is already claimed; ignoring duplicate dispatch")
+
+    async def process_claimed_candidate_import(
         self,
         *,
         project_id: UUID,
         candidate_id: UUID,
         should_autoname: bool,
+        queued_only: bool = False,
     ) -> None:
         """Finish OCR and assessment for a queued candidate import."""
         async with self.session_factory() as db:
             try:
                 candidate = await self._load_candidate(db, candidate_id=candidate_id, project_id=project_id)
+                if candidate is None or (queued_only and candidate.processing_stage != "queued"):
+                    return
                 project = candidate.project
 
-                if candidate.source_assets:
-                    candidate.processing_stage = "running_ocr"
+                async with asyncio.timeout(settings.ANALYSIS_TIMEOUT_SECONDS):
+                    if candidate.source_assets:
+                        candidate.processing_stage = "running_ocr"
+                        candidate.processing_error = None
+                        candidate.processing_error_code = None
+                        await db.commit()
+                        await self._run_ocr(candidate.source_assets)
+                        await db.commit()
+
+                    candidate.combined_text = build_combined_text(
+                        candidate.raw_listing_text,
+                        candidate.raw_chat_text,
+                        candidate.raw_note_text,
+                        *[asset.ocr_text for asset in candidate.source_assets],
+                    )
+
+                    if not candidate.combined_text:
+                        candidate.processing_stage = "failed"
+                        failure = analysis_error("no_usable_text", retryable=True)
+                        candidate.processing_error = failure.user_message
+                        candidate.processing_error_code = failure.code
+                        candidate.status = "needs_info"
+                        await db.commit()
+                        return
+
+                    candidate.processing_stage = "extracting"
                     candidate.processing_error = None
                     candidate.processing_error_code = None
                     await db.commit()
-                    await self._run_ocr(candidate.source_assets)
+
+                    await self.pipeline.assess_candidate(db=db, project=project, candidate=candidate)
+                    if should_autoname:
+                        candidate.name = await self.pipeline.generate_candidate_name(candidate)
+
+                    candidate.processing_stage = "completed"
+                    candidate.processing_error = None
+                    candidate.processing_error_code = None
                     await db.commit()
-
-                candidate.combined_text = build_combined_text(
-                    candidate.raw_listing_text,
-                    candidate.raw_chat_text,
-                    candidate.raw_note_text,
-                    *[asset.ocr_text for asset in candidate.source_assets],
-                )
-
-                if not candidate.combined_text:
-                    candidate.processing_stage = "failed"
-                    failure = analysis_error("no_usable_text", retryable=True)
-                    candidate.processing_error = failure.user_message
-                    candidate.processing_error_code = failure.code
-                    candidate.status = "needs_info"
-                    await db.commit()
-                    return
-
-                candidate.processing_stage = "extracting"
-                candidate.processing_error = None
-                candidate.processing_error_code = None
-                await db.commit()
-
-                await self.pipeline.assess_candidate(db=db, project=project, candidate=candidate)
-                if should_autoname:
-                    candidate.name = await self.pipeline.generate_candidate_name(candidate)
-
-                candidate.processing_stage = "completed"
-                candidate.processing_error = None
-                candidate.processing_error_code = None
-                await db.commit()
+            except TimeoutError:
+                await db.rollback()
+                failure = analysis_error("analysis_timeout", retryable=True)
+                await self._mark_candidate_failed(db, candidate_id=candidate_id, code=failure.code, message=failure.user_message)
             except AnalysisError as exc:
                 logger.warning("Candidate analysis failed with code %s", exc.code)
                 await db.rollback()
@@ -116,7 +135,7 @@ class CandidateImportBackgroundService:
                 CandidateListing.project_id == project_id,
             )
         )
-        candidate = result.scalar_one()
+        candidate = result.scalar_one_or_none()
         return candidate
 
     async def _run_ocr(self, source_assets: list[CandidateSourceAsset]) -> None:

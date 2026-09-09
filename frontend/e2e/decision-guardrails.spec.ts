@@ -227,6 +227,7 @@ async function installApiMock(
   let currentCandidate = initialCandidate;
   let pendingReassessedCandidate: Candidate | null = null;
   let retryCount = 0;
+  let recoveryCount = 0;
   let fieldUpdateCount = 0;
 
   await page.addInitScript(() => {
@@ -245,6 +246,13 @@ async function installApiMock(
         processing_stage: "queued",
         processing_error: null,
       });
+      return;
+    }
+
+    if (method === "POST" && path.endsWith(`/${CANDIDATE_ID}/recover`)) {
+      recoveryCount += 1;
+      currentCandidate = { ...currentCandidate, processing_stage: "failed", processing_error: "The previous analysis stopped before it finished. Your sources are saved." };
+      await fulfillJson(route, currentCandidate);
       return;
     }
 
@@ -357,6 +365,7 @@ async function installApiMock(
 
   return {
     retryCount: () => retryCount,
+    recoveryCount: () => recoveryCount,
     fieldUpdateCount: () => fieldUpdateCount,
   };
 }
@@ -669,4 +678,16 @@ test("reassessment refreshes source evidence without overwriting a user correcti
   await reassessedRentCard.getByText("View 1 source quote").click();
   await expect(reassessedRentCard.getByText("Updated listing rent HKD 19,000")).toBeVisible();
   await expect(reassessedRentCard.getByText("Original rent HKD 18,000")).toHaveCount(0);
+});
+
+
+test("interrupted analysis can be checked without automatically retrying AI", async ({ page }) => {
+  const api = await installApiMock(page, { ...failedCandidate(), processing_stage: "extracting", processing_error: null });
+  await page.goto(`/projects/${PROJECT_ID}/candidates/${CANDIDATE_ID}`);
+  await expect(page.getByRole("button", { name: "Reassess", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "Check interrupted analysis", exact: true }).click();
+  await expect(page.getByText("The previous analysis stopped before it finished.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry analysis", exact: true }).first()).toBeEnabled();
+  expect(api.recoveryCount()).toBe(1);
+  expect(api.retryCount()).toBe(0);
 });

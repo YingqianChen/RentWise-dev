@@ -4,6 +4,8 @@ from __future__ import annotations
 
 
 ERROR_MESSAGES = {
+    "analysis_interrupted": "The previous analysis stopped before it finished. Your sources are saved. Retry analysis when you are ready.",
+    "analysis_timeout": "Analysis took too long and was stopped. Your sources are saved. Try fewer screenshots or retry later.",
     "source_too_long": "The combined source text is too long to analyze. Reduce the text or number of screenshots to 30,000 characters or less. Your sources are saved.",
     "no_usable_text": (
         "We could not read usable text from this source. Upload a clearer image "

@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Optional
 
 from ..db.models import CandidateExtractedInfo, CandidateListing
-from ..integrations.llm.prompts import EXTRACTION_PROMPT, LISTING_NAME_PROMPT
+from ..integrations.llm.prompts import EXTRACTION_PROMPT
 from ..integrations.llm.utils import chat_completion_json
 from .analysis_errors import AnalysisError, analysis_error, classify_extraction_exception
 from .candidate_field_evidence_service import (
@@ -343,24 +343,7 @@ class ExtractionService:
         extracted_info: CandidateExtractedInfo,
         combined_text: str,
     ) -> str:
-        """Generate a short user-facing listing name."""
-        text_preview = combined_text[:500] if combined_text else "No listing text provided."
-
-        prompt = LISTING_NAME_PROMPT.format(
-            combined_text=text_preview,
-            monthly_rent=extracted_info.monthly_rent or "unknown",
-            lease_term=extracted_info.lease_term or "unknown",
-            furnished=extracted_info.furnished or "unknown",
-        )
-
-        try:
-            result = await chat_completion_json(prompt=prompt, temperature=0.3)
-            name = result.get("name", "")
-            if name and len(name) <= 20:
-                return name.strip()
-        except Exception as exc:
-            logger.error("Name generation failed: %s", exc)
-
+        """Name from already-extracted facts; naming never needs another AI request."""
         return self._generate_fallback_name(extracted_info, combined_text)
 
     def _generate_fallback_name(

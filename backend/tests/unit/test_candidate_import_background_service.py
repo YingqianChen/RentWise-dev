@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 from unittest import IsolatedAsyncioTestCase
@@ -7,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from app.core.config import settings
 from app.services.analysis_errors import AnalysisError
 from app.services.candidate_import_background_service import CandidateImportBackgroundService
 from tests.helpers import build_candidate, build_project, build_user
@@ -58,7 +60,7 @@ class CandidateImportBackgroundServiceTests(IsolatedAsyncioTestCase):
                 ),
             ),
         ):
-            await service.process_candidate_import(
+            await service.process_claimed_candidate_import(
                 project_id=project.id,
                 candidate_id=candidate.id,
                 should_autoname=False,
@@ -86,7 +88,7 @@ class CandidateImportBackgroundServiceTests(IsolatedAsyncioTestCase):
             patch.object(service, "_load_candidate", AsyncMock(return_value=candidate)),
             patch.object(service.pipeline, "assess_candidate", assess_mock),
         ):
-            await service.process_candidate_import(
+            await service.process_claimed_candidate_import(
                 project_id=project.id,
                 candidate_id=candidate.id,
                 should_autoname=False,
@@ -95,3 +97,18 @@ class CandidateImportBackgroundServiceTests(IsolatedAsyncioTestCase):
         self.assertEqual(candidate.processing_stage, "failed")
         self.assertEqual(candidate.processing_error_code, "no_usable_text")
         assess_mock.assert_not_awaited()
+
+    async def test_background_deadline_marks_failure_and_keeps_sources(self):
+        project = build_project(build_user())
+        candidate = build_candidate(project)
+        candidate.source_assets = []
+        saved_source = candidate.raw_listing_text
+        db = _FakeSession(candidate)
+        service = CandidateImportBackgroundService(lambda: db)
+        async def hang(**kwargs):
+            await asyncio.sleep(10)
+        with patch.object(settings, 'ANALYSIS_TIMEOUT_SECONDS', 0.01), patch.object(service, '_load_candidate', AsyncMock(return_value=candidate)), patch.object(service.pipeline, 'assess_candidate', AsyncMock(side_effect=hang)):
+            await service.process_claimed_candidate_import(project_id=project.id, candidate_id=candidate.id, should_autoname=False)
+        self.assertEqual(candidate.processing_error_code, 'analysis_timeout')
+        self.assertEqual(candidate.raw_listing_text, saved_source)
+        db.rollback.assert_awaited_once()

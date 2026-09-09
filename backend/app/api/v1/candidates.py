@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
@@ -28,7 +29,8 @@ from ...schemas.candidate import (
     CandidateUpdate,
 )
 from ...services.candidate_contact_plan_service import CandidateContactPlanService
-from ...services.candidate_analysis_state import has_usable_analysis
+from ...services.candidate_analysis_state import PROCESSING_STAGES, has_usable_analysis
+from ...services.analysis_errors import analysis_error
 from ...services.candidate_import_background_service import CandidateImportBackgroundService
 from ...services.candidate_import_service import CandidateImportService, build_combined_text, infer_source_type, validate_source_text, validate_uploaded_images
 from ...services.candidate_analysis_runner import run_candidate_analysis
@@ -42,6 +44,7 @@ from ...services.candidate_field_serialization_service import serialize_candidat
 from ...services.candidate_pipeline_service import CandidatePipelineService
 from ...services.commute_service import CommuteService
 from .auth import get_current_user
+from .work_guards import guard_candidate_import, guard_candidate_write
 
 router = APIRouter()
 pipeline_service = CandidatePipelineService()
@@ -173,7 +176,7 @@ async def _apply_candidate_field_actions(
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
 
-@router.post("/projects/{project_id}/candidates/import", response_model=CandidateResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/projects/{project_id}/candidates/import", response_model=CandidateResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(guard_candidate_import, scope="function")])
 async def import_candidate(
     project_id: UUID,
     background_tasks: BackgroundTasks,
@@ -301,7 +304,7 @@ async def get_candidate(
     return await _serialize_candidate(candidate, project=project, compute_commute=True, db=db)
 
 
-@router.put("/projects/{project_id}/candidates/{candidate_id}", response_model=CandidateResponse)
+@router.put("/projects/{project_id}/candidates/{candidate_id}", dependencies=[Depends(guard_candidate_write, scope="function")], response_model=CandidateResponse)
 async def update_candidate(
     project_id: UUID,
     candidate_id: UUID,
@@ -391,7 +394,7 @@ async def update_candidate(
     )
 
 
-@router.post("/projects/{project_id}/candidates/{candidate_id}/reassess", response_model=CandidateResponse)
+@router.post("/projects/{project_id}/candidates/{candidate_id}/reassess", dependencies=[Depends(guard_candidate_write, scope="function")], response_model=CandidateResponse)
 async def reassess_candidate(
     project_id: UUID,
     candidate_id: UUID,
@@ -403,7 +406,7 @@ async def reassess_candidate(
     if candidate.source_assets:
         # The import runner retries OCR as well as extraction. Calling only the
         # extraction pipeline made image-only failures impossible to recover.
-        await candidate_import_background_service.process_candidate_import(
+        await candidate_import_background_service.process_claimed_candidate_import(
             project_id=project_id, candidate_id=candidate_id, should_autoname=False,
         )
     else:
@@ -414,9 +417,26 @@ async def reassess_candidate(
     return await _serialize_candidate(candidate, project=project, compute_commute=True, db=db)
 
 
+@router.post("/projects/{project_id}/candidates/{candidate_id}/recover", response_model=CandidateResponse, dependencies=[Depends(guard_candidate_write, scope="function")])
+async def recover_candidate(project_id: UUID, candidate_id: UUID, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Make abandoned work retryable, without starting another paid request."""
+    project, candidate = await get_candidate_for_project_user(project_id, candidate_id, current_user, db)
+    if candidate.processing_stage in PROCESSING_STAGES:
+        if candidate.updated_at > datetime.now(timezone.utc) - timedelta(seconds=60):
+            raise HTTPException(status_code=409, detail="This analysis was just queued. Please give it a minute to start.")
+        failure = analysis_error("analysis_interrupted", retryable=True)
+        candidate.processing_stage = "failed"
+        candidate.processing_error = failure.user_message
+        candidate.processing_error_code = failure.code
+        candidate.status = "needs_info"
+        await db.flush()
+    return await _serialize_candidate(candidate, project=project)
+
+
 @router.patch(
     "/projects/{project_id}/candidates/{candidate_id}/fields/{field_key}",
     response_model=CandidateResponse,
+    dependencies=[Depends(guard_candidate_write, scope="function")],
 )
 async def update_candidate_field(
     project_id: UUID,
@@ -465,6 +485,7 @@ async def update_candidate_field(
 @router.post(
     "/projects/{project_id}/candidates/{candidate_id}/contact-plan",
     response_model=CandidateContactPlanResponse,
+    dependencies=[Depends(guard_candidate_write, scope="function")],
 )
 async def generate_candidate_contact_plan(
     project_id: UUID,
@@ -482,7 +503,7 @@ async def generate_candidate_contact_plan(
     return await candidate_contact_plan_service.build(project=project, candidate=candidate)
 
 
-@router.post("/projects/{project_id}/candidates/{candidate_id}/shortlist", response_model=CandidateResponse)
+@router.post("/projects/{project_id}/candidates/{candidate_id}/shortlist", dependencies=[Depends(guard_candidate_write, scope="function")], response_model=CandidateResponse)
 async def shortlist_candidate(
     project_id: UUID,
     candidate_id: UUID,
@@ -497,7 +518,7 @@ async def shortlist_candidate(
     return await _serialize_candidate(candidate, project=project, compute_commute=True, db=db)
 
 
-@router.post("/projects/{project_id}/candidates/{candidate_id}/reject", response_model=CandidateResponse)
+@router.post("/projects/{project_id}/candidates/{candidate_id}/reject", dependencies=[Depends(guard_candidate_write, scope="function")], response_model=CandidateResponse)
 async def reject_candidate(
     project_id: UUID,
     candidate_id: UUID,
@@ -512,7 +533,7 @@ async def reject_candidate(
     return await _serialize_candidate(candidate, project=project, compute_commute=True, db=db)
 
 
-@router.delete("/projects/{project_id}/candidates/{candidate_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/projects/{project_id}/candidates/{candidate_id}", dependencies=[Depends(guard_candidate_write, scope="function")], status_code=status.HTTP_204_NO_CONTENT)
 async def delete_candidate(
     project_id: UUID,
     candidate_id: UUID,

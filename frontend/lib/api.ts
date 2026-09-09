@@ -341,6 +341,19 @@ export async function reassessCandidate(
   );
 }
 
+export async function recoverCandidate(
+  token: string,
+  projectId: string,
+  candidateId: string
+): Promise<Candidate> {
+  return apiRequest<Candidate>(
+    `/api/v1/projects/${projectId}/candidates/${candidateId}/recover`,
+    { method: "POST", headers: buildHeaders(token) },
+    "Could not check this analysis",
+    "check interrupted analysis"
+  );
+}
+
 export async function updateCandidateField(
   token: string,
   projectId: string,

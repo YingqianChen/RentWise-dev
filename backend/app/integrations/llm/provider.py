@@ -69,6 +69,7 @@ class OllamaProvider(LLMProvider):
         import ollama
         self.client = ollama.AsyncClient(
             host=host,
+            timeout=settings.LLM_REQUEST_TIMEOUT_SECONDS,
             headers={'Authorization': f'Bearer {api_key}'} if api_key else None
         )
 
@@ -166,7 +167,7 @@ class GroqProvider(LLMProvider):
 
     def __init__(self, api_key: str):
         from groq import AsyncGroq
-        self.client = AsyncGroq(api_key=api_key)
+        self.client = AsyncGroq(api_key=api_key, max_retries=0, timeout=settings.LLM_REQUEST_TIMEOUT_SECONDS)
 
     async def chat_completion(
         self,

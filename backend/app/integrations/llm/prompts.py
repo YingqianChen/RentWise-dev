@@ -66,26 +66,6 @@ Return JSON only in this shape:
 """
 
 
-LISTING_NAME_PROMPT = """Based on the rental information below, generate a short, readable listing name.
-
-Rules:
-1. Keep it under 20 characters when possible.
-2. Prefer district and rent if available.
-3. Do not invent missing facts.
-4. Return JSON only.
-
-Text:
-{combined_text}
-
-Monthly rent: {monthly_rent}
-Lease term: {lease_term}
-Furnishing: {furnished}
-
-Return:
-{{"name": "Generated listing name"}}
-"""
-
-
 FOLLOWUP_QUESTION_PROMPT = """Given the missing fields and risk items below, generate up to three practical follow-up questions for the user to ask the landlord or agent.
 
 Missing fields: {missing_fields}

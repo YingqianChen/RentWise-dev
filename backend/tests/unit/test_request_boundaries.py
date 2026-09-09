@@ -115,3 +115,39 @@ def test_extreme_money_integer_is_validation_error_instead_of_overflow():
     from app.services.candidate_field_registry import CandidateFieldValueError, validate_field_value
     with pytest.raises(CandidateFieldValueError):
         validate_field_value('monthly_rent', 10**2000)
+
+
+def test_new_logins_have_distinct_session_ids():
+    from app.core.security import create_access_token, decode_token_identity
+    subject = str(uuid.uuid4())
+    first = decode_token_identity(create_access_token(subject))
+    second = decode_token_identity(create_access_token(subject))
+    assert first.user_id == second.user_id == subject
+    assert first.revocation_key != second.revocation_key
+
+
+def test_revocation_identity_cannot_be_bypassed_by_signature_encoding():
+    from app.core.security import create_access_token, decode_token_identity
+    token = create_access_token(str(uuid.uuid4()))
+    # python-jose accepts padded and unpadded encodings of the same signature.
+    variant = token + "="
+    assert variant != token
+    assert decode_token_identity(variant) == decode_token_identity(token)
+
+
+@pytest.mark.parametrize("expiry", [True, "9999999999", 1e100, 10**100, None])
+def test_expiry_that_cannot_be_persisted_is_rejected(expiry):
+    token = jwt.encode({"sub": str(uuid.uuid4()), "exp": expiry}, settings.SECRET_KEY, algorithm="HS256")
+    assert decode_access_token(token) is None
+
+
+def test_expiry_is_rejected_at_its_exact_instant(monkeypatch):
+    import app.core.security as security
+    expiry = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return expiry + timedelta(microseconds=1)
+    monkeypatch.setattr(security, "datetime", Clock)
+    token = jwt.encode({"sub": str(uuid.uuid4()), "exp": expiry}, settings.SECRET_KEY, algorithm="HS256")
+    assert security.decode_token_identity(token) is None

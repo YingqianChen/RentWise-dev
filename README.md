@@ -125,9 +125,23 @@ RentWise/
 ```
 
 Current quality and release boundaries are recorded in
-[the September review](docs/reviews/2026-09-09-fees-and-cleanup-review.md)
+[the September review](docs/reviews/2026-09-09-session-review.md)
 and [validation results](docs/reviews/2026-09-09-validation.md). Historical phase
 completion below describes implementation scope, not production acceptance.
+
+## Authentication sessions
+
+`POST /api/v1/auth/logout` revokes the current bearer token and is idempotent.
+New logins receive distinct session IDs; signing out does not revoke other
+independent logins. Existing legacy tokens remain supported. Deploy the
+`20260909_0020` migration and backend before the new frontend. Rolling back to
+an old backend that ignores revocation can reactivate unexpired revoked tokens;
+preserve the revocation check when planning a rollback.
+
+The frontend clears credentials after confirmed sign out or a 401 for the
+current session. Other failures offer retry. Open project tabs follow logout
+and account changes. Tokens remain in localStorage; this is not a migration
+to HttpOnly cookie sessions or a complete account lifecycle implementation.
 
 ## Core fact API contract
 
@@ -220,8 +234,8 @@ If an existing database was created by the old startup `create_all()` path,
 back it up and identify the migration revision that actually matches its
 schema before stamping that specific revision and applying later migrations.
 Do not stamp head to skip migrations: stamping does not create missing tables
-or columns. New code requires migrations through `20260909_0019`, including
-request budgets, fee billing periods and durable cleanup jobs. Apply migrations
+or columns. New code requires migrations through `20260909_0020`, including
+request budgets, fee billing periods, durable cleanup jobs and session revocation. Apply migrations
 before starting the new application version.
 
 ### Frontend

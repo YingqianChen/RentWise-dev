@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
 
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("rentwise_token", "synthetic-import-session"));
+});
+
 test("adding screenshots preserves earlier choices and rejects more than eight", async ({ page }) => {
   await page.goto("/projects/import-check/import");
   const input = page.locator('input[type="file"]');

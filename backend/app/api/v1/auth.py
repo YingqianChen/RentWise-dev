@@ -5,15 +5,16 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.security import (
-    verify_password, get_password_hash, create_access_token, decode_access_token
+    verify_password, get_password_hash, create_access_token, decode_token_identity
 )
-from ...db.database import get_db
-from ...db.models import User
+from ...db.database import get_db, utc_now
+from ...db.models import User, RevokedAccessToken
 from ...schemas.auth import UserCreate, UserLogin, Token, UserResponse
 
 from .request_budgets import guard_registration, guard_login, limit_login_identity
@@ -28,15 +29,15 @@ async def get_current_user(
 ) -> User:
     """Get current authenticated user from JWT token"""
     token = credentials.credentials
-    user_id = decode_access_token(token)
-    if not user_id:
+    identity = decode_token_identity(token)
+    if identity is None or await db.get(RevokedAccessToken, identity.revocation_key) is not None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(select(User).where(User.id == identity.user_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(
@@ -144,3 +145,24 @@ async def get_me(current_user: User = Depends(get_current_user)):
         email=current_user.email,
         created_at=current_user.created_at,
     )
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: AsyncSession = Depends(get_db),
+):
+    """Revoke this signed session; repeating a successful logout is harmless."""
+    identity = decode_token_identity(credentials.credentials)
+    if identity is None or await db.scalar(select(User.id).where(User.id == identity.user_id)) is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired token", headers={"WWW-Authenticate": "Bearer"})
+    await db.execute(delete(RevokedAccessToken).where(RevokedAccessToken.expires_at < utc_now()))
+    await db.execute(
+        insert(RevokedAccessToken).values(
+            revocation_key=identity.revocation_key,
+            user_id=identity.user_id,
+            expires_at=identity.expires_at,
+        ).on_conflict_do_nothing(index_elements=["revocation_key"])
+    )
+    # Complete invalidation before acknowledging logout to the browser.
+    await db.commit()

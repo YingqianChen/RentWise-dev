@@ -2,6 +2,8 @@
  * API client for RentWise backend
  */
 
+import { clearToken } from "@/lib/auth";
+
 import type {
   Candidate,
   CandidateContactPlan,
@@ -38,6 +40,13 @@ function normalizeApiBase(value: string | undefined): string {
 }
 
 const API_BASE = normalizeApiBase(process.env.NEXT_PUBLIC_API_URL);
+
+export class ApiError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 
 function formatApiError(detail: unknown, fallback: string): string {
   if (typeof detail === "string" && detail.trim()) {
@@ -99,7 +108,7 @@ async function handleApiResponse<T>(
 
   if (!res.ok) {
     const error = await parseJsonSafely(res);
-    throw new Error(formatApiError(error?.detail, fallbackMessage));
+    throw new ApiError(formatApiError(error?.detail, fallbackMessage), res.status);
   }
 
   return (await res.json()) as T;
@@ -124,15 +133,28 @@ async function apiRequest<T>(
   let res: Response;
 
   try {
-    res = await fetch(`${API_BASE}${path}`, options);
+    res = await fetch(`${API_BASE}${path}`, { ...options, cache: "no-store" });
   } catch (error) {
     withNetworkErrorMessage(error, action);
   }
 
+  if (res.status === 401) {
+    const authorization = new Headers(options.headers).get("Authorization");
+    if (authorization?.startsWith("Bearer ")) clearToken(authorization.slice(7));
+  }
   return await handleApiResponse<T>(res, fallbackMessage);
 }
 
 // ============== Auth ==============
+
+export async function logout(token: string): Promise<void> {
+  return apiRequest<void>(
+    "/api/v1/auth/logout",
+    { method: "POST", headers: buildHeaders(token) },
+    "Could not sign out. Please try again.",
+    "sign out"
+  );
+}
 
 export async function register(
   email: string,

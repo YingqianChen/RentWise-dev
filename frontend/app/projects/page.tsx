@@ -14,7 +14,7 @@ import {
   Trash2,
 } from "lucide-react";
 
-import { createProject, deleteProject, getCurrentUser, getProjects } from "@/lib/api";
+import { createProject, deleteProject, getCurrentUser, getProjects, logout } from "@/lib/api";
 import { clearToken, getToken } from "@/lib/auth";
 import type { Project } from "@/lib/types";
 import { Logo } from "@/components/brand/logo";
@@ -139,9 +139,14 @@ export default function ProjectsPage() {
   const [deleteError, setDeleteError] = useState("");
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [logoutError, setLogoutError] = useState("");
+  const [signingOut, setSigningOut] = useState(false);
 
   const loadData = useCallback(
     async (token: string) => {
+      setLoadError("");
+      setLoading(true);
       try {
         const [userData, projectsData] = await Promise.all([
           getCurrentUser(token),
@@ -151,13 +156,12 @@ export default function ProjectsPage() {
         setProjects(projectsData.projects);
       } catch (err) {
         console.error("Failed to load data:", err);
-        clearToken();
-        router.push("/login");
+        setLoadError(err instanceof Error ? err.message : "Could not load projects. Please try again.");
       } finally {
         setLoading(false);
       }
     },
-    [router]
+    []
   );
 
   useEffect(() => {
@@ -219,9 +223,19 @@ export default function ProjectsPage() {
     }
   };
 
-  const handleLogout = () => {
-    clearToken();
-    router.push("/");
+  const handleLogout = async () => {
+    const token = getToken();
+    if (!token || signingOut) return;
+    setSigningOut(true);
+    setLogoutError("");
+    try {
+      await logout(token);
+      clearToken(token);
+    } catch {
+      setLogoutError("Sign out could not be confirmed. Please retry to finish signing out.");
+    } finally {
+      setSigningOut(false);
+    }
   };
 
   if (loading) {
@@ -249,18 +263,20 @@ export default function ProjectsPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button onClick={() => setShowCreate(true)}>
+            <Button disabled={Boolean(loadError)} onClick={() => setShowCreate(true)}>
               <Plus className="h-4 w-4" />
               New project
             </Button>
-            <Button variant="ghost" onClick={handleLogout}>
+            <Button variant="ghost" disabled={signingOut} onClick={handleLogout}>
               <LogOut className="h-4 w-4" />
-              Sign out
+              {signingOut ? "Signing out..." : "Sign out"}
             </Button>
           </div>
         </header>
 
-        {projects.length > 0 && (
+        {logoutError && <p role="alert" className="mt-4 text-sm text-red-700">{logoutError}</p>}
+
+        {!loadError && projects.length > 0 && (
           <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <StatCard label="Total" value={stats.total} tone="neutral" />
             <StatCard label="Active" value={stats.active} tone="emerald" />
@@ -269,7 +285,12 @@ export default function ProjectsPage() {
           </div>
         )}
 
-        {projects.length === 0 ? (
+        {loadError ? (
+          <Card className="mt-8 p-6">
+            <p role="alert" className="text-sm text-red-700">{loadError}</p>
+            <Button className="mt-4" onClick={() => { const token = getToken(); if (token) void loadData(token); }}>Retry loading</Button>
+          </Card>
+        ) : projects.length === 0 ? (
           <Card className="mt-8 border-dashed">
             <div className="flex flex-col items-center px-6 py-16 text-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-violet-50 text-violet-700">

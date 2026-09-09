@@ -1250,6 +1250,51 @@ class DatabaseFlowTests(TestCase):
         finally:
             await engine.dispose()
 
+    def test_logout_revokes_only_its_session_including_legacy_and_signature_variants(self):
+        from datetime import datetime, timedelta, timezone
+        from jose import jwt
+        from concurrent.futures import ThreadPoolExecutor
+        from app.core.security import decode_token_identity
+        from app.db.models import RevokedAccessToken
+
+        registered = self.client.post('/api/v1/auth/register', json={'email': self.email, 'password': 'db-flow-password'})
+        self.assertEqual(registered.status_code, 201, registered.text)
+        self.assertEqual(registered.headers['cache-control'], 'no-store')
+        first = registered.json()['access_token']
+        logged_in = self.client.post('/api/v1/auth/login', json={'email': self.email, 'password': 'db-flow-password'})
+        self.assertEqual(logged_in.status_code, 200, logged_in.text)
+        second = logged_in.json()['access_token']
+        self.assertNotEqual(first, second)
+        headers = {'Authorization': 'Bearer ' + first}
+        # Repeated concurrent logout requests are idempotent and persist once.
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            responses = list(pool.map(lambda _: self.client.post('/api/v1/auth/logout', headers=headers), range(3)))
+        self.assertTrue(all(response.status_code == 204 for response in responses))
+        for token in [first, first + '=']:
+            denied = self.client.get('/api/v1/auth/me', headers={'Authorization': 'Bearer ' + token})
+            self.assertEqual(denied.status_code, 401, denied.text)
+            self.assertEqual(denied.headers['cache-control'], 'no-store')
+            self.assertEqual(self.client.get('/api/v1/projects', headers={'Authorization': 'Bearer ' + token}).status_code, 401)
+        self.assertEqual(self.client.get('/api/v1/auth/me', headers={'Authorization': 'Bearer ' + second}).status_code, 200)
+
+        subject = decode_token_identity(second).user_id
+        legacy = jwt.encode({'sub': subject, 'exp': datetime.now(timezone.utc) + timedelta(minutes=10)}, settings.SECRET_KEY, algorithm='HS256')
+        self.assertEqual(self.client.get('/api/v1/auth/me', headers={'Authorization': 'Bearer ' + legacy}).status_code, 200)
+        self.assertEqual(self.client.post('/api/v1/auth/logout', headers={'Authorization': 'Bearer ' + legacy}).status_code, 204)
+        self.assertEqual(self.client.get('/api/v1/auth/me', headers={'Authorization': 'Bearer ' + legacy + '='}).status_code, 401)
+
+        async def verify_persistence():
+            engine = create_async_engine(settings.DATABASE_URL)
+            try:
+                async with async_sessionmaker(engine)() as session:
+                    rows = (await session.execute(select(RevokedAccessToken).where(RevokedAccessToken.user_id == uuid.UUID(subject)))).scalars().all()
+                    self.assertEqual(len(rows), 2)
+                    self.assertTrue(all(len(row.revocation_key) == 64 for row in rows))
+                    self.assertNotIn(first, [row.revocation_key for row in rows])
+            finally:
+                await engine.dispose()
+        asyncio.run(verify_persistence())
+
     def test_zz_candidate_field_migration_round_trip(self) -> None:
         expected_tables = {
             "candidate_field_facts",

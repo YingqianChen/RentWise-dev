@@ -658,3 +658,11 @@ class FileCleanupJob(Base):
     last_error: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class RevokedAccessToken(Base):
+    """Per-session revocation, retained until the signed token expires."""
+    __tablename__ = "revoked_access_tokens"
+    revocation_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)

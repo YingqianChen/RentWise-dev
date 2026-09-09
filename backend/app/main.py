@@ -49,6 +49,14 @@ async def safe_validation_error(request: Request, exc: RequestValidationError):
     return JSONResponse(status_code=422, content={"detail": errors})
 
 
+@app.middleware("http")
+async def private_response_cache_policy(request: Request, call_next):
+    response = await call_next(request)
+    if request.headers.get("authorization") or request.url.path.startswith("/api/v1/auth/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
